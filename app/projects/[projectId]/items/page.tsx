@@ -370,9 +370,9 @@ function EditEpdView({ item, onBack, onSaved }: { item: AbcItem; onBack: () => v
         try {
           await createFactorRule({
             original_description: item.description,
-            factor_value: body.factor_value,
-            factor_unit: body.factor_unit,
-            factor_name: body.factor_name,
+            factor_value: body.factor_value ?? 0,
+            factor_unit: body.factor_unit ?? "",
+            factor_name: body.factor_name ?? item.description,
             source_tier: body.source_tier,
             source_description: body.custom_factor_source,
             ecoinvent_product_id: body.ecoinvent_product_id,
