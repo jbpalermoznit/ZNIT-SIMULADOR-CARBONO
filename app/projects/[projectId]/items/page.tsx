@@ -1210,7 +1210,7 @@ export default function ItemsPage() {
           <Button variant="outline" onClick={async () => {
             try {
               const token = localStorage.getItem("znit_token");
-              const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+              const base = process.env.NEXT_PUBLIC_API_URL ?? "";
               // Get project name for filename
               const projResp = await fetch(`${base}/api/projects/${projectId}`, { headers: { Authorization: `Bearer ${token}` } });
               const projData = await projResp.json();
