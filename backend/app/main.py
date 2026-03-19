@@ -15,10 +15,13 @@ app = FastAPI(
     description="API para cálculo de pegada de carbono em projetos de construção civil",
 )
 
+origins = [o.strip() for o in settings.FRONTEND_URL.split(",") if o.strip()]
+if "*" not in origins:
+    origins.append("http://localhost:3000")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:3000"],
-    allow_credentials=True,
+    allow_origins=["*"] if "*" in origins else origins,
+    allow_credentials=False if "*" in origins else True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
