@@ -13,6 +13,7 @@ import {
   listScenarios, createBaseScenario, createScenario, getScenario,
   type ScenarioResponse, type ScenarioDetailResponse, type ScenarioItemResponse,
 } from "@/lib/api/scenarios";
+import { getProject } from "@/lib/api/projects";
 
 
 // ─── Scenario card ────────────────────────────────────────────────────────────
@@ -220,10 +221,15 @@ export default function ScenariosPage() {
   const [bottomTab, setBottomTab] = useState<BottomTab>("impact");
   const [loading, setLoading] = useState(true);
   const [creatingBase, setCreatingBase] = useState(false);
+  const [projectName, setProjectName] = useState("");
 
   const loadScenarios = async () => {
     try {
-      const data = await listScenarios(projectId);
+      const [data, proj] = await Promise.all([
+        listScenarios(projectId),
+        getProject(projectId),
+      ]);
+      setProjectName(proj.name);
       setScenarios(data);
     } catch {
       console.error("Erro ao carregar cenários");
@@ -261,7 +267,7 @@ export default function ScenariosPage() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <p className="text-xs font-semibold text-[#808181] uppercase tracking-widest mb-1">
-            Raízen VRO R8
+            {projectName}
           </p>
           <h1 className="text-2xl font-bold text-[#030304]">Cenários</h1>
           <p className="text-sm text-[#808181] mt-0.5">

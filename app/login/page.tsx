@@ -34,7 +34,7 @@ export default function LoginPage() {
             <Leaf size={24} className="text-white" />
           </div>
           <h1 className="text-2xl font-bold text-[#030304]">ZNIT</h1>
-          <p className="text-sm text-[#808181] mt-0.5">Carbon Calculator</p>
+          <p className="text-sm text-[#808181] mt-0.5">Calculadora de Carbono</p>
         </div>
 
         {/* Card */}
@@ -106,7 +106,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-[#808181] mt-6">
-          Piloto Grupo HTB · NDA Assinado · 90 dias
+          Piloto ZNIT · NDA Assinado · 90 dias
         </p>
       </div>
     </div>

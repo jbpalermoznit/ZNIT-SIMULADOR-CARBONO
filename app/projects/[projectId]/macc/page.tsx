@@ -213,7 +213,7 @@ export default function MaccPage() {
           )}
         </div>
         <p className="text-sm text-[#808181]">
-          Marginal Abatement Cost Curve — Top 5 materiais com maior potencial de redução de carbono
+          Curva de Custo Marginal de Abatimento — 5 materiais com maior potencial de redução de carbono
         </p>
       </div>
 
@@ -277,7 +277,7 @@ export default function MaccPage() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-semibold text-[#030304]">
-                  Curva MACC — Top 5 Materiais
+                  Curva MACC — 5 Principais Materiais
                 </h2>
                 <Info size={14} className="text-[#BDBDBC]" />
               </div>
@@ -409,7 +409,7 @@ export default function MaccPage() {
           {/* Table with editable multipliers */}
           <div className="bg-white rounded-xl border border-[#E0E4E3] shadow-[0_1px_3px_rgba(3,3,4,0.06)] overflow-hidden mb-6">
             <div className="px-6 py-4 border-b border-[#E0E4E3]">
-              <h2 className="text-sm font-semibold text-[#030304]">Top 5 — Multiplicador de Custo</h2>
+              <h2 className="text-sm font-semibold text-[#030304]">5 Principais — Multiplicador de Custo</h2>
               <p className="text-[11px] text-[#808181] mt-0.5">
                 Ajuste o multiplicador para simular o custo da alternativa vs. baseline.
                 Ex: 0.90 = 10% mais barato, 1.10 = 10% mais caro.

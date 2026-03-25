@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { itemTypeMeta, mappingStatusMeta, type ItemType, type AbcClass, type AbcItem } from "@/lib/mock/data";
-import { listAbcItems, type AbcItemResponse } from "@/lib/api/projects";
+import { listAbcItems, getProject, type AbcItemResponse, type ProjectResponse } from "@/lib/api/projects";
 import { getMapping, type MappingResponse } from "@/lib/api/emission-factors";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -183,7 +183,7 @@ function DetailView({ item, onEditEpd, onParametrize }: {
               <Row label="Fator" value={item.epd} />
               <Row label="Fator" value={item.emissionFactor !== undefined ? `${item.emissionFactor} ${item.emissionUnit}` : "—"} />
               <Row label="Fonte" value={item.emissionSource ?? "—"} />
-              <Row label="Escopo" value="Scope 3 — Materiais" />
+              <Row label="Escopo" value="Escopo 3 — Materiais" />
             </>
           ) : (
             <div className="bg-[#FEF3C7] border border-[#FCD34D] rounded-lg px-3 py-2.5 flex items-start gap-2">
@@ -221,7 +221,7 @@ function DetailView({ item, onEditEpd, onParametrize }: {
           )}
         </Section>
 
-        <Section title="Logística — Scope 3">
+        <Section title="Logística — Escopo 3">
           <div className="bg-[#F8FAF9] rounded-lg px-3 py-3 text-xs text-[#808181] space-y-2">
             <div className="flex justify-between"><span>Distância</span><span className="font-semibold text-[#404040]">— km</span></div>
             <div className="flex justify-between"><span>Modal</span><span className="font-semibold text-[#404040]">—</span></div>
@@ -843,7 +843,7 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
         {item.itemType === "A" && (
           <>
             <div>
-              <p className="text-xs font-bold text-[#030304] mb-3">Logística — Scope 3</p>
+              <p className="text-xs font-bold text-[#030304] mb-3">Logística — Escopo 3</p>
               <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-[#404040] mb-1.5">Distância (km)</label>
@@ -879,9 +879,9 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
             <p className="text-xs text-[#808181] mb-3">Como tratar este item no inventário de carbono?</p>
             <div className="space-y-2">
               {[
-                { value: "excluir", label: "Excluir do inventário", desc: "Foco em embodied carbon de materiais (recomendado para Scope 3)." },
+                { value: "excluir", label: "Excluir do inventário", desc: "Foco em carbono incorporado de materiais (recomendado para Escopo 3)." },
                 { value: "indireto", label: "Incluir via fator indireto", desc: "0,03 kgCO₂e/h por trabalhador (referência IPCC)." },
-                { value: "escopo3", label: "Incluir via deslocamento", desc: "Scope 3 de transporte de trabalhadores até a obra." },
+                { value: "escopo3", label: "Incluir via deslocamento", desc: "Escopo 3 de transporte de trabalhadores até a obra." },
               ].map((opt) => (
                 <label key={opt.value}
                   className={cn("flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all",
@@ -1149,11 +1149,16 @@ export default function ItemsPage() {
   const [autoMapResult, setAutoMapResult] = useState<{ auto_mapped: number; suggested: number; pending: number; already_mapped: number } | null>(null);
   const [items, setItems] = useState<AbcItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [projectName, setProjectName] = useState("");
 
   // Carregar itens da API
   const loadItems = useCallback(async () => {
     try {
-      const data = await listAbcItems(projectId);
+      const [data, proj] = await Promise.all([
+        listAbcItems(projectId),
+        getProject(projectId),
+      ]);
+      setProjectName(proj.name);
       const newItems = data.map(toAbcItem);
       setItems(newItems);
       // Atualizar o item aberto no drawer (se houver)
@@ -1198,7 +1203,7 @@ export default function ItemsPage() {
     <div className="p-7">
       <div className="flex items-start justify-between mb-6">
         <div>
-          <p className="text-xs font-semibold text-[#808181] uppercase tracking-widest mb-1">Raízen VRO R8</p>
+          <p className="text-xs font-semibold text-[#808181] uppercase tracking-widest mb-1">{projectName}</p>
           <h1 className="text-2xl font-bold text-[#030304]">Itens da Curva ABC</h1>
           <p className="text-sm text-[#808181] mt-0.5">{items.length} itens · Importado da API real</p>
         </div>

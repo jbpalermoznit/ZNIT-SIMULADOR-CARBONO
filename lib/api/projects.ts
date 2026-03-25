@@ -56,6 +56,10 @@ export function listProjects() {
   return api.get<ProjectResponse[]>("/api/projects");
 }
 
+export function getProject(projectId: string) {
+  return api.get<ProjectResponse>(`/api/projects/${projectId}`);
+}
+
 export function createProject(data: {
   name: string;
   client_name?: string;

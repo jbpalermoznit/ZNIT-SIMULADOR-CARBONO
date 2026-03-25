@@ -16,9 +16,9 @@ function loadSettings() {
 }
 
 export default function SettingsPage() {
-  const [portfolioTitle, setPortfolioTitle] = useState("Portfólio HTB");
+  const [portfolioTitle, setPortfolioTitle] = useState("Portfólio ZNIT");
   const [portfolioSubtitle, setPortfolioSubtitle] = useState(
-    "Projetos ativos · Piloto 90 dias · Grupo HTB"
+    "Projetos ativos · Piloto 90 dias · ZNIT"
   );
   const [saved, setSaved] = useState(false);
 

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
   Upload, FileSpreadsheet, CheckCircle2, Loader2, X,
@@ -8,7 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-import { uploadAbc, UploadResult } from "@/lib/api/projects";
+import { uploadAbc, getProject, UploadResult } from "@/lib/api/projects";
 
 type Step = "upload" | "processing" | "preview" | "done";
 
@@ -40,8 +40,8 @@ const NEXT_STEPS = [
 ];
 
 const IMPORT_HISTORY = [
-  { date: "12/03/2026", file: "Curva ABC_Raizen VRO_R8_v2.xlsm", items: 116, status: "ok" },
-  { date: "05/03/2026", file: "Curva ABC_Raizen VRO_R8_v1.xlsm", items: 112, status: "ok" },
+  { date: "12/03/2026", file: "Curva_ABC_Demo_v2.xlsm", items: 116, status: "ok" },
+  { date: "05/03/2026", file: "Curva_ABC_Demo_v1.xlsm", items: 112, status: "ok" },
 ];
 
 export default function ImportPage() {
@@ -52,7 +52,10 @@ export default function ImportPage() {
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState("");
+  const [projectName, setProjectName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { getProject(projectId).then((p) => setProjectName(p.name)).catch(() => {}); }, [projectId]);
 
   const handleFile = (f: File) => { setFile(f); setError(""); };
   const handleDrop = (e: React.DragEvent) => {
@@ -84,7 +87,7 @@ export default function ImportPage() {
       <div className="flex-1 min-w-0">
         {/* Header */}
         <div className="mb-7">
-          <p className="text-xs font-semibold text-[#808181] uppercase tracking-widest mb-1">Raízen VRO R8</p>
+          <p className="text-xs font-semibold text-[#808181] uppercase tracking-widest mb-1">{projectName}</p>
           <h1 className="text-2xl font-bold text-[#030304]">Importar Curva ABC</h1>
           <p className="text-sm text-[#808181] mt-0.5">Faça upload do arquivo XLSX ou XLSM exportado do iTwo</p>
         </div>
@@ -92,9 +95,9 @@ export default function ImportPage() {
         {/* Steps */}
         <div className="flex items-center gap-3 mb-8">
           {[
-            { id: "upload", label: "Upload" },
+            { id: "upload", label: "Enviar" },
             { id: "processing", label: "Processando" },
-            { id: "preview", label: "Preview" },
+            { id: "preview", label: "Visualização" },
             { id: "done", label: "Importado" },
           ].map((s, i) => {
             const order = ["upload", "processing", "preview", "done"];

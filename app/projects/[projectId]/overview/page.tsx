@@ -11,7 +11,7 @@ import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import Link from "next/link";
 import { Leaf, TrendingDown, BarChart2, AlertTriangle, Plus, Sparkles, Loader2, Zap } from "lucide-react";
 import { listScenarios, createBaseScenario, getScenario, type ScenarioResponse, type ScenarioItemResponse } from "@/lib/api/scenarios";
-import { listAbcItems } from "@/lib/api/projects";
+import { listAbcItems, getProject, type ProjectResponse } from "@/lib/api/projects";
 import type { ParetoDataPoint } from "@/components/charts/pareto-chart";
 import type { ScopeDataPoint } from "@/components/charts/scope-donut";
 
@@ -25,6 +25,7 @@ export default function OverviewPage() {
   const [creating, setCreating] = useState(false);
   const [paretoData, setParetoData] = useState<ParetoDataPoint[]>([]);
   const [scopeData, setScopeData] = useState<ScopeDataPoint[]>([]);
+  const [project, setProject] = useState<ProjectResponse | null>(null);
 
   const buildChartsFromItems = (items: ScenarioItemResponse[], result: ScenarioResponse["result"] | null) => {
     // Pareto: group by factor_name, sum tco2e, sort desc, top 10
@@ -55,10 +56,10 @@ export default function OverviewPage() {
       const tot = s3m + s3l + s1 + s2;
       if (tot > 0) {
         setScopeData([
-          { name: "Scope 3 — Materiais", value: Math.round((s3m / tot) * 1000) / 10, color: "#56B7A5" },
-          { name: "Scope 3 — Logística", value: Math.round((s3l / tot) * 1000) / 10, color: "#A9D7CD" },
-          { name: "Scope 1 — Combustão", value: Math.round((s1 / tot) * 1000) / 10, color: "#2D8B78" },
-          { name: "Scope 2 — Energia", value: Math.round((s2 / tot) * 1000) / 10, color: "#D4EDE7" },
+          { name: "Escopo 3 — Materiais", value: Math.round((s3m / tot) * 1000) / 10, color: "#56B7A5" },
+          { name: "Escopo 3 — Logística", value: Math.round((s3l / tot) * 1000) / 10, color: "#A9D7CD" },
+          { name: "Escopo 1 — Combustão", value: Math.round((s1 / tot) * 1000) / 10, color: "#2D8B78" },
+          { name: "Escopo 2 — Energia", value: Math.round((s2 / tot) * 1000) / 10, color: "#D4EDE7" },
         ].filter((d) => d.value > 0));
       }
     }
@@ -67,10 +68,12 @@ export default function OverviewPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [scenarios, items] = await Promise.all([
+        const [scenarios, items, proj] = await Promise.all([
           listScenarios(projectId),
           listAbcItems(projectId),
+          getProject(projectId),
         ]);
+        setProject(proj);
         const base = scenarios.find((s) => s.is_base);
         setBaseScenario(base ?? null);
         setScenariosCount(scenarios.length);
@@ -127,16 +130,16 @@ export default function OverviewPage() {
 
   const scopeBreakdown = totalKg > 0
     ? [
-        { scope: "Scope 3 Materiais", pct: `${((scope3Mat / totalKg) * 100).toFixed(0)}%`, tco2e: `${(scope3Mat / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} tCO₂e` },
-        { scope: "Scope 3 Logística", pct: `${((scope3Log / totalKg) * 100).toFixed(0)}%`, tco2e: `${(scope3Log / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} tCO₂e` },
-        { scope: "Scope 1 Combustão", pct: `${((scope1 / totalKg) * 100).toFixed(0)}%`, tco2e: `${(scope1 / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} tCO₂e` },
-        { scope: "Scope 2 Energia", pct: `${((scope2 / totalKg) * 100).toFixed(0)}%`, tco2e: `${(scope2 / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} tCO₂e` },
+        { scope: "Escopo 3 Materiais", pct: `${((scope3Mat / totalKg) * 100).toFixed(0)}%`, tco2e: `${(scope3Mat / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} tCO₂e` },
+        { scope: "Escopo 3 Logística", pct: `${((scope3Log / totalKg) * 100).toFixed(0)}%`, tco2e: `${(scope3Log / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} tCO₂e` },
+        { scope: "Escopo 1 Combustão", pct: `${((scope1 / totalKg) * 100).toFixed(0)}%`, tco2e: `${(scope1 / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} tCO₂e` },
+        { scope: "Escopo 2 Energia", pct: `${((scope2 / totalKg) * 100).toFixed(0)}%`, tco2e: `${(scope2 / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} tCO₂e` },
       ]
     : [
-        { scope: "Scope 3 Materiais", pct: "—", tco2e: "—" },
-        { scope: "Scope 3 Logística", pct: "—", tco2e: "—" },
-        { scope: "Scope 1 Combustão", pct: "—", tco2e: "—" },
-        { scope: "Scope 2 Energia", pct: "—", tco2e: "—" },
+        { scope: "Escopo 3 Materiais", pct: "—", tco2e: "—" },
+        { scope: "Escopo 3 Logística", pct: "—", tco2e: "—" },
+        { scope: "Escopo 1 Combustão", pct: "—", tco2e: "—" },
+        { scope: "Escopo 2 Energia", pct: "—", tco2e: "—" },
       ];
 
   if (loading) {
@@ -153,10 +156,10 @@ export default function OverviewPage() {
       <div className="flex items-start justify-between mb-7">
         <div>
           <p className="text-xs font-semibold text-[#808181] uppercase tracking-widest mb-1">
-            Raízen VRO R8 · Industrial · São Paulo, SP
+            {[project?.name, project?.building_type, project?.address].filter(Boolean).join(" · ")}
           </p>
           <h1 className="text-2xl font-bold text-[#030304]">
-            {baseScenario ? "Cenário Base" : "Overview do Projeto"}
+            {baseScenario ? "Cenário Base" : "Visão Geral do Projeto"}
           </h1>
           <p className="text-sm text-[#808181] mt-0.5">
             {baseScenario
@@ -215,9 +218,8 @@ export default function OverviewPage() {
           <div className="space-y-2 mb-6">
             {pendingCount > 0 && (
               <Alert variant="warning">
-                <span className="font-semibold">{pendingCount} itens aguardam mapeamento</span> — use o drawer em{" "}
-                <Link href={`/projects/${projectId}/items`} className="underline font-semibold">Itens →</Link>{" "}
-                ou o Agente IA para resolver.
+                <span className="font-semibold">{pendingCount} itens aguardam mapeamento</span> — revisar itens pendentes ou bloqueados em{" "}
+                <Link href={`/projects/${projectId}/items`} className="underline font-semibold">Itens →</Link>
               </Alert>
             )}
             {coveragePct < 100 && (
@@ -234,7 +236,7 @@ export default function OverviewPage() {
               label="Total Emissões"
               value={totalTco2e.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
               unit="tCO₂e"
-              sub="Scope 1 + 2 + 3 combinados"
+              sub="Escopo 1 + 2 + 3 combinados"
               highlight
               icon={<Leaf size={20} />}
             />
@@ -279,7 +281,7 @@ export default function OverviewPage() {
             {/* Scope donut — 1 col */}
             <Card>
               <CardHeader>
-                <h2 className="text-sm font-bold text-[#030304]">Breakdown por Scope</h2>
+                <h2 className="text-sm font-bold text-[#030304]">Distribuição por Escopo</h2>
                 <p className="text-xs text-[#808181] mt-0.5">Distribuição de emissões</p>
               </CardHeader>
               <CardBody>

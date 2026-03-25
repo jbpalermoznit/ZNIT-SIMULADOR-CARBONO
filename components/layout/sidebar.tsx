@@ -15,18 +15,20 @@ import {
   Settings,
   ChevronDown,
   BarChart3,
+  Scale,
 } from "lucide-react";
 
 const navItems = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Painel", href: "/dashboard", icon: LayoutDashboard },
 ];
 
 const projectMenuItems = [
-  { label: "Overview",       path: "overview",   icon: LayoutDashboard },
+  { label: "Visão Geral",    path: "overview",   icon: LayoutDashboard },
   { label: "Importar ABC",   path: "import",     icon: Upload },
   { label: "Itens",          path: "items",      icon: Table2 },
   { label: "Regras Salvas",  path: "rules",      icon: BookOpen },
   { label: "Curva MACC",      path: "macc",       icon: BarChart3 },
+  { label: "Simulação Carbono", path: "simulation", icon: Scale },
   { label: "Cenários",       path: "scenarios",  icon: GitCompare },
   { label: "Relatórios",     path: "reports",    icon: FileText },
   { label: "Agente IA",      path: "agent",      icon: MessageSquare, comingSoon: true },
@@ -206,7 +208,7 @@ export function Sidebar() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-[#030304] truncate">João Palermo</p>
-            <p className="text-[10px] text-[#808181]">Admin · HTB</p>
+            <p className="text-[10px] text-[#808181]">Admin · ZNIT</p>
           </div>
         </div>
       </div>

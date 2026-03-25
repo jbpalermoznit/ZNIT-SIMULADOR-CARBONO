@@ -1,6 +1,10 @@
+"use client";
+import { useState, useEffect } from "react";
+import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { FileText, Download, FileSpreadsheet, BarChart2, CheckCircle2 } from "lucide-react";
+import { getProject } from "@/lib/api/projects";
 
 const reports = [
   {
@@ -8,7 +12,7 @@ const reports = [
     icon: FileSpreadsheet,
     title: "Exportação Excel — Todos os Itens",
     desc: "Tabela completa com tCO₂e por item, compatível com Power BI",
-    badge: "Must Have",
+    badge: "Essencial",
     format: ".xlsx",
     ready: true,
     color: "#1d7a6b",
@@ -19,7 +23,7 @@ const reports = [
     icon: FileText,
     title: "Exportação CSV",
     desc: "Formato plano para integração com outros sistemas",
-    badge: "Must Have",
+    badge: "Essencial",
     format: ".csv",
     ready: true,
     color: "#1d7a6b",
@@ -29,8 +33,8 @@ const reports = [
     id: "memo",
     icon: FileText,
     title: "Memorando de Cálculo — PDF",
-    desc: "Premissas, metodologia, fontes EPD, lista de itens parametrizados · Identidade visual HTB",
-    badge: "Must Have",
+    desc: "Premissas, metodologia, fontes EPD, lista de itens parametrizados · Identidade visual ZNIT",
+    badge: "Essencial",
     format: ".pdf",
     ready: true,
     color: "#1d7a6b",
@@ -41,7 +45,7 @@ const reports = [
     icon: BarChart2,
     title: "Relatório Comparativo de Cenários",
     desc: "PDF com Cenário Base vs A vs B · Delta em tCO₂e e %",
-    badge: "Should Have",
+    badge: "Recomendado",
     format: ".pdf",
     ready: false,
     color: "#92400e",
@@ -50,12 +54,17 @@ const reports = [
 ];
 
 export default function ReportsPage() {
+  const { projectId } = useParams<{ projectId: string }>();
+  const [projectName, setProjectName] = useState("");
+
+  useEffect(() => { getProject(projectId).then((p) => setProjectName(p.name)).catch(() => {}); }, [projectId]);
+
   return (
     <div className="p-7 max-w-3xl">
       {/* Header */}
       <div className="mb-7">
         <p className="text-xs font-semibold text-[#808181] uppercase tracking-widest mb-1">
-          Raízen VRO R8 · Cenário Base
+          {projectName} · Cenário Base
         </p>
         <h1 className="text-2xl font-bold text-[#030304]">Relatórios e Exportações</h1>
         <p className="text-sm text-[#808181] mt-0.5">
@@ -67,14 +76,14 @@ export default function ReportsPage() {
       <div className="bg-[#E6F3EE] border border-[#81C8B9] rounded-xl p-5 mb-6">
         <div className="flex items-start gap-4">
           <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-[0_2px_8px_rgba(86,183,165,0.15)] shrink-0">
-            <span className="font-bold text-[#030304] text-sm">HTB</span>
+            <span className="font-bold text-[#030304] text-sm">ZNIT</span>
           </div>
           <div>
             <p className="text-sm font-bold text-[#1d7a6b] mb-0.5">
               Identidade visual configurada
             </p>
             <p className="text-xs text-[#808181]">
-              Todos os PDFs gerados incluem logo e cores do Grupo HTB.
+              Todos os PDFs gerados incluem logo e cores da ZNIT.
               Altere em{" "}
               <button className="underline text-[#56B7A5] font-semibold">
                 Configurações → Branding
@@ -134,7 +143,7 @@ export default function ReportsPage() {
       {/* Memo preview */}
       <div className="mt-7 bg-white rounded-xl border border-[#E0E4E3] overflow-hidden shadow-[0_1px_3px_rgba(3,3,4,0.06)]">
         <div className="px-5 py-4 border-b border-[#E0E4E3] flex items-center justify-between">
-          <h3 className="text-sm font-bold text-[#030304]">Preview — Memorando de Cálculo</h3>
+          <h3 className="text-sm font-bold text-[#030304]">Visualização — Memorando de Cálculo</h3>
           <Button size="sm" variant="secondary">
             <Download size={13} />
             Baixar PDF
@@ -147,21 +156,21 @@ export default function ReportsPage() {
                 MEMORANDO DE CÁLCULO DE CARBONO
               </p>
               <p style={{ fontFamily: "sans-serif" }} className="text-xs text-[#808181]">
-                Projeto: Raízen VRO R8 · Emitido em: 15/03/2026 · ZNIT Carbon Calculator v1.0
+                Projeto: {projectName} · Emitido em: 15/03/2026 · ZNIT Carbon Calculator v1.0
               </p>
             </div>
             <div className="text-right">
-              <div className="font-bold text-[#030304] text-sm" style={{ fontFamily: "sans-serif" }}>HTB</div>
-              <div className="text-[10px] text-[#808181]" style={{ fontFamily: "sans-serif" }}>Grupo HTB</div>
+              <div className="font-bold text-[#030304] text-sm" style={{ fontFamily: "sans-serif" }}>ZNIT</div>
+              <div className="text-[10px] text-[#808181]" style={{ fontFamily: "sans-serif" }}>ZNIT Engenharia</div>
             </div>
           </div>
 
           <div>
             <p className="font-bold mb-2">1. PREMISSAS METODOLÓGICAS</p>
             <p className="text-[#808181] leading-relaxed">
-              1.1 Escopo: Embodied Carbon — Scope 3 materiais e logística<br />
-              1.2 Mão de obra (Tipo B): Excluída conforme política HTB v1 (2026-03)<br />
-              1.3 Diesel: Incluído como Scope 1 — 2,68 kgCO₂e/L (GHG Protocol BR)<br />
+              1.1 Escopo: Carbono Incorporado — Escopo 3 materiais e logística<br />
+              1.2 Mão de obra (Tipo B): Excluída conforme política ZNIT v1 (2026-03)<br />
+              1.3 Diesel: Incluído como Escopo 1 — 2,68 kgCO₂e/L (GHG Protocol BR)<br />
               1.4 Itens agrupados (Tipo C): Bloqueados — aguardam decomposição
             </p>
           </div>
@@ -179,7 +188,7 @@ export default function ReportsPage() {
             <p className="font-bold mb-2">3. RESULTADO CENÁRIO BASE</p>
             <p className="text-[#808181] leading-relaxed">
               Total: 2.847 tCO₂e | Intensidade: 27,9 kgCO₂e/m² | Cobertura: 87%<br />
-              Scope 3 Materiais: 78% | Scope 3 Logística: 15% | Scope 1: 7%
+              Escopo 3 Materiais: 78% | Escopo 3 Logística: 15% | Escopo 1: 7%
             </p>
           </div>
         </div>

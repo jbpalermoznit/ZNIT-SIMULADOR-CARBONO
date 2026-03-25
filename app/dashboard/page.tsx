@@ -13,9 +13,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [showNewProject, setShowNewProject] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [portfolioTitle, setPortfolioTitle] = useState("Portfólio HTB");
+  const [portfolioTitle, setPortfolioTitle] = useState("Portfólio ZNIT");
   const [portfolioSubtitle, setPortfolioSubtitle] = useState(
-    "Projetos ativos · Piloto 90 dias · Grupo HTB"
+    "Projetos ativos · Piloto 90 dias · ZNIT"
   );
 
   const loadProjects = useCallback(async () => {
@@ -112,7 +112,7 @@ export default function DashboardPage() {
         <KpiCard
           label="Projetos Ativos"
           value={totalProjects}
-          sub="Piloto HTB em andamento"
+          sub="Piloto ZNIT em andamento"
           icon={<ArrowUpRight size={20} />}
         />
         <KpiCard
@@ -275,7 +275,7 @@ export default function DashboardPage() {
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Ex: Raízen VRO R8"
+                  placeholder="Ex: Projeto Demo"
                   className="w-full h-9 px-3 rounded-lg border border-[#E0E4E3] text-sm text-[#030304] bg-[#F8FAF9] placeholder:text-[#BDBDBC] focus:outline-none focus:border-[#56B7A5] focus:bg-white transition-all"
                 />
               </div>
@@ -287,7 +287,7 @@ export default function DashboardPage() {
                   type="text"
                   value={newClient}
                   onChange={(e) => setNewClient(e.target.value)}
-                  placeholder="Ex: Raízen"
+                  placeholder="Ex: ZNIT Engenharia"
                   className="w-full h-9 px-3 rounded-lg border border-[#E0E4E3] text-sm text-[#030304] bg-[#F8FAF9] placeholder:text-[#BDBDBC] focus:outline-none focus:border-[#56B7A5] focus:bg-white transition-all"
                 />
               </div>
