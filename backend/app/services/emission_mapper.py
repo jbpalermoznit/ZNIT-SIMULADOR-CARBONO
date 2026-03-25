@@ -6,7 +6,7 @@ Busca via Supabase externo. Usa thefuzz para ranking de similaridade.
 
 import re
 from thefuzz import fuzz
-from app.core.supabase_client import search_ecoinvent, search_ghg, search_cecarbon
+from app.core.supabase_client import search_ecoinvent, search_ghg, search_cecarbon, search_epd_with_gwp
 from app.services.calculator import get_conversion_factor
 
 
@@ -439,6 +439,105 @@ def _score_cecarbon(item_desc: str, row: dict, search_queries: list[str] | None 
     return min(best, 100)
 
 
+# ---------------------------------------------------------------------------
+# EPD keywords — termos para busca na tabela epd_dev (com gwp_a1a3)
+# ---------------------------------------------------------------------------
+
+EPD_QUERIES: dict[str, list[str]] = {
+    # Concreto
+    "concreto": ["concreto", "concrete", "hormigón"],
+    "fck=25": ["concrete 25", "concreto 25"],
+    "fck=30": ["concrete 30", "concreto 30"],
+    "fck=35": ["concrete 35", "concreto 35"],
+    "fck=40": ["concrete 40", "concreto 40"],
+    # Aço
+    "aço": ["steel", "aço", "acero"],
+    "vergalhão": ["rebar", "reinforcing steel"],
+    "ca50": ["reinforcing steel", "rebar"],
+    "tela soldada": ["welded mesh", "steel mesh"],
+    # Cimento
+    "cimento": ["cement", "cimento", "cemento"],
+    # Alumínio
+    "alumínio": ["aluminium", "aluminum"],
+    # Vidro
+    "vidro": ["glass", "vidro"],
+    # Madeira
+    "madeira": ["wood", "timber", "madeira"],
+    "compensado": ["plywood"],
+    # Cerâmica
+    "porcelanato": ["ceramic tile", "porcelain"],
+    "cerâmica": ["ceramic", "cerâmica"],
+    "tijolo": ["brick"],
+    "bloco": ["block", "bloco"],
+    "telha": ["roof tile"],
+    # Isolantes
+    "eps": ["expanded polystyrene", "EPS"],
+    "isopor": ["expanded polystyrene", "EPS"],
+    "lã": ["mineral wool", "rock wool", "glass wool"],
+    # Impermeabilizantes
+    "manta": ["bitumen", "waterproofing"],
+    # PVC
+    "pvc": ["PVC", "polyvinyl"],
+    # Tinta
+    "tinta": ["paint", "coating"],
+    # Gesso
+    "gesso": ["gypsum", "plasterboard"],
+    # Agregados
+    "areia": ["sand"],
+    "brita": ["gravel", "aggregate"],
+}
+
+
+def _build_epd_queries(keywords: list[str]) -> list[str]:
+    """Build EPD search queries from keywords."""
+    queries: list[str] = []
+    for kw in keywords:
+        if kw in EPD_QUERIES:
+            queries.extend(EPD_QUERIES[kw])
+    seen = set()
+    unique = []
+    for q in queries:
+        if q not in seen:
+            seen.add(q)
+            unique.append(q)
+    if not unique:
+        unique = [kw for kw in keywords if len(kw) > 3][:3]
+    return unique
+
+
+def _score_epd(item_desc: str, row: dict, search_queries: list[str] | None = None) -> int:
+    """Score an EPD row against the item description (0-100).
+
+    EPDs are supplier-specific so they get a bonus for being the most
+    accurate source (real product data vs. generic averages).
+    """
+    titulo = (row.get("titulo", "") or "").lower()
+    info_produto = (row.get("informacao_produto", "") or "").lower()
+    company = (row.get("company_name", "") or "").lower()
+    desc_lower = item_desc.lower()
+
+    candidates = [titulo, info_produto, f"{titulo} {company}"]
+    best = 0
+    for c in candidates:
+        if not c:
+            continue
+        s1 = fuzz.token_set_ratio(desc_lower, c)
+        s2 = fuzz.partial_ratio(desc_lower, c)
+        s = max(s1, s2)
+        if s > best:
+            best = s
+
+    # Boost: if search query appears in titulo or info_produto
+    if search_queries:
+        for q in search_queries:
+            q_lower = q.lower()
+            if q_lower in titulo or q_lower in info_produto:
+                best = max(best, 80)
+                break
+
+    return min(best, 100)
+
+
 def check_factor_rules(description: str, company_id: str | None = None) -> dict | None:
     """Check if any saved factor rule matches this item description.
 
@@ -510,7 +609,7 @@ def check_factor_rules(description: str, company_id: str | None = None) -> dict 
 def auto_match_item(description: str, unit: str | None = None, company_id: str | None = None) -> dict:
     """
     Attempt to auto-match an ABC item to an emission factor.
-    Hierarchy: Factor Rules → GHG Protocol → CECarbon → Ecoinvent.
+    Hierarchy: Factor Rules → GHG Protocol → CECarbon → EPD (com GWP) → Ecoinvent.
 
     Returns dict with:
       - results: list of scored candidates (top 10)
@@ -531,6 +630,7 @@ def auto_match_item(description: str, unit: str | None = None, company_id: str |
     keywords = extract_keywords(description)
     ecoinvent_queries, should_search_ghg = _build_search_queries(keywords)
     cecarbon_queries = _build_cecarbon_queries(keywords)
+    epd_queries = _build_epd_queries(keywords)
 
     all_candidates = []
 
@@ -593,7 +693,45 @@ def auto_match_item(description: str, unit: str | None = None, company_id: str |
             continue
 
     # ---------------------------------------------------------------
-    # Tier 3: Ecoinvent (global, EN — fallback)
+    # Tier 3: EPD Catalog (fornecedor-específico, com GWP extraído)
+    # ---------------------------------------------------------------
+    for q in epd_queries[:6]:
+        try:
+            rows = search_epd_with_gwp(q, limit=10)
+            for row in rows:
+                gwp = row.get("gwp_a1a3")
+                if gwp is None:
+                    continue
+                gwp = float(gwp)
+                if gwp <= 0:
+                    continue
+
+                score = _score_epd(description, row, epd_queries)
+                declared_unit = (row.get("declared_unit") or "").strip()
+                declared_value = float(row.get("declared_value") or 1)
+                # Normalize to per-unit: gwp_a1a3 / declared_value
+                factor_per_unit = gwp / declared_value if declared_value > 0 else gwp
+                company = row.get("company_name", "")
+                titulo = row.get("titulo", "")
+
+                all_candidates.append({
+                    "source_tier": "epd",
+                    "score": score,
+                    "factor_value": round(factor_per_unit, 6),
+                    "factor_unit": f"kgCO₂e/{declared_unit}" if declared_unit else "kgCO₂e",
+                    "product_unit": declared_unit,
+                    "factor_name": titulo,
+                    "factor_source": f"EPD — {company}" if company else "EPD",
+                    "geography": row.get("country") or row.get("geographical_scopes") or "",
+                    "epd_id": row.get("id"),
+                    "epd_registration": row.get("registration_number"),
+                    "company_name": company,
+                })
+        except Exception:
+            continue
+
+    # ---------------------------------------------------------------
+    # Tier 4: Ecoinvent (global, EN — fallback)
     # ---------------------------------------------------------------
     for q in ecoinvent_queries[:6]:
         try:
@@ -624,7 +762,7 @@ def auto_match_item(description: str, unit: str | None = None, company_id: str |
     for c in all_candidates:
         key = (
             c["source_tier"],
-            c.get("ecoinvent_product_id") or c.get("ghg_factor_id") or c.get("cecarbon_id") or c["factor_name"],
+            c.get("ecoinvent_product_id") or c.get("ghg_factor_id") or c.get("cecarbon_id") or c.get("epd_id") or c["factor_name"],
             c.get("ecoinvent_activity_id", ""),
         )
         if key not in seen:
@@ -662,8 +800,9 @@ def auto_match_item(description: str, unit: str | None = None, company_id: str |
             if any(w in name for w in waste_indicators):
                 c["score"] = max(0, c["score"] - 30)
 
-    # Tier priority bonus: at equal scores, prefer GHG > CECarbon > Ecoinvent
-    TIER_BONUS = {"ghg_protocol": 3, "cecarbon": 2, "ecoinvent": 0}
+    # Tier priority bonus: at equal scores, prefer EPD > GHG > CECarbon > Ecoinvent
+    # EPD gets highest bonus because it's supplier-specific (real product data)
+    TIER_BONUS = {"epd": 5, "ghg_protocol": 3, "cecarbon": 2, "ecoinvent": 0}
     for c in unique:
         c["score"] += TIER_BONUS.get(c["source_tier"], 0)
 
