@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import auth, projects, emission_factors, scenarios, factor_rules as factor_rules_router, equipment_rules as equipment_rules_router, agent as agent_router
+from app.api import auth, projects, emission_factors, scenarios, factor_rules as factor_rules_router, equipment_rules as equipment_rules_router, agent as agent_router, macc as macc_router
 from app.models.factor_rule import FactorRule  # noqa: F401 — register model
 from app.models.equipment_rule import EquipmentRule  # noqa: F401 — register model
 
@@ -33,6 +33,7 @@ app.include_router(scenarios.router, prefix="/api")
 app.include_router(factor_rules_router.router, prefix="/api")
 app.include_router(equipment_rules_router.router, prefix="/api")
 app.include_router(agent_router.router)
+app.include_router(macc_router.router, prefix="/api")
 
 
 @app.get("/health")

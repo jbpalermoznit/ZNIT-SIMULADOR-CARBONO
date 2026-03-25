@@ -14,6 +14,7 @@ import {
   BookOpen,
   Settings,
   ChevronDown,
+  BarChart3,
 } from "lucide-react";
 
 const navItems = [
@@ -25,9 +26,10 @@ const projectMenuItems = [
   { label: "Importar ABC",   path: "import",     icon: Upload },
   { label: "Itens",          path: "items",      icon: Table2 },
   { label: "Regras Salvas",  path: "rules",      icon: BookOpen },
-  { label: "Agente IA",      path: "agent",      icon: MessageSquare },
+  { label: "Curva MACC",      path: "macc",       icon: BarChart3 },
   { label: "Cenários",       path: "scenarios",  icon: GitCompare },
   { label: "Relatórios",     path: "reports",    icon: FileText },
+  { label: "Agente IA",      path: "agent",      icon: MessageSquare, comingSoon: true },
 ];
 
 export function Sidebar() {
@@ -154,6 +156,22 @@ export function Sidebar() {
             const Icon = item.icon;
             const href = activeProject ? `/projects/${activeProject.id}/${item.path}` : "#";
             const active = pathname.endsWith(`/${item.path}`) || pathname.includes(`/${item.path}/`);
+
+            if (item.comingSoon) {
+              return (
+                <span
+                  key={item.path}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded text-sm font-medium text-[#BDBDBC] cursor-default"
+                >
+                  <Icon size={15} className="opacity-30" />
+                  {item.label}
+                  <span className="ml-auto bg-[#F0F4F3] text-[#BDBDBC] text-[9px] font-bold px-1.5 py-0.5 rounded">
+                    Em breve
+                  </span>
+                </span>
+              );
+            }
+
             return (
               <Link
                 key={item.path}
@@ -167,11 +185,6 @@ export function Sidebar() {
               >
                 <Icon size={15} className={active ? "text-[#56B7A5]" : "opacity-50"} />
                 {item.label}
-                {item.label === "Agente IA" && (
-                  <span className="ml-auto bg-[#EDE9FE] text-[#7c3aed] text-[10px] font-bold px-1.5 py-0.5 rounded">
-                    4
-                  </span>
-                )}
               </Link>
             );
           })}

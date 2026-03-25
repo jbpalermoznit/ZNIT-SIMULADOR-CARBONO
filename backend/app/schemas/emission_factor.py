@@ -94,10 +94,16 @@ class EpdCatalogResult(BaseModel):
     pdf_url: Optional[str] = None
     source_url: Optional[str] = None
     en15804_compliant: Optional[str] = None
+    # GWP fields for MACC integration
+    gwp_a1a3: Optional[float] = None
+    declared_unit: Optional[str] = None
+    declared_value: Optional[float] = None
     source_tier: str = "epd_catalog"
 
     @classmethod
     def from_supabase(cls, row: dict) -> "EpdCatalogResult":
+        gwp_raw = row.get("gwp_a1a3")
+        declared_val_raw = row.get("declared_value")
         return cls(
             id=row["id"],
             epd_id=row.get("epd_id"),
@@ -113,6 +119,9 @@ class EpdCatalogResult(BaseModel):
             pdf_url=row.get("pdf_url"),
             source_url=row.get("source_url"),
             en15804_compliant=row.get("en15804_compliant"),
+            gwp_a1a3=float(gwp_raw) if gwp_raw is not None else None,
+            declared_unit=row.get("declared_unit"),
+            declared_value=float(declared_val_raw) if declared_val_raw is not None else None,
         )
 
 
