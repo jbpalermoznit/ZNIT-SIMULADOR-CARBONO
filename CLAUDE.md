@@ -38,8 +38,9 @@ Always consult these docs before implementing features or making architectural d
 - Unit conversion: always use `get_conversion_factor()` from `services/calculator.py`
 - Supabase schema: `backend` (set via `SUPABASE_SCHEMA` env var)
 
-### Git
-- Author/committer: `jbpalermoznit <jbpalermo@znit.ai>`
+### Git — MANDATORY
+- **ALL commits MUST use**: `git -c user.name="jbpalermoznit" -c user.email="jbpalermo@znit.ai" commit`
+- Author and committer must ALWAYS be `jbpalermoznit <jbpalermo@znit.ai>` — no exceptions
+- NEVER add Co-Authored-By, Signed-off-by, or any other trailer attributing anyone else
 - Branch naming: `feat/`, `fix/`, `docs/`
 - Commit style: conventional commits (feat, fix, docs, refactor)
-- No Co-Authored-By trailers
