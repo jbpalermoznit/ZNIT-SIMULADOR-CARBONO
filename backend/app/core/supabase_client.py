@@ -64,6 +64,27 @@ def search_epd_catalog(query: str, limit: int = 20) -> list[dict]:
     return _get("epd_dev", params)
 
 
+def search_epd_with_gwp(query: str, limit: int = 20) -> list[dict]:
+    """Search epd_dev filtering only EPDs that have gwp_a1a3 populated."""
+    params = {
+        "or": (
+            f"(titulo.ilike.%{query}%,"
+            f"informacao_produto.ilike.%{query}%,"
+            f"company_name.ilike.%{query}%)"
+        ),
+        "gwp_a1a3": "not.is.null",
+        "limit": str(limit),
+        "order": "titulo",
+    }
+    return _get("epd_dev", params)
+
+
+def get_epd_by_id(row_id: int) -> dict | None:
+    """Get a specific EPD by id."""
+    rows = _get("epd_dev", {"id": f"eq.{row_id}", "limit": "1"})
+    return rows[0] if rows else None
+
+
 def get_ecoinvent_by_id(product_id: str, activity_id: str) -> dict | None:
     """Get a specific ecoinvent factor by product_id + activity_id."""
     rows = _get("ecoinvent_dev", {

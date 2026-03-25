@@ -272,6 +272,13 @@ def confirm_mapping(
                 factor_name = factor_name or row.get("produto", "")
                 factor_source = f"GHG Protocol BR {row.get('versao_ghg', '')}"
 
+        elif body.source_tier == "epd" and body.epd_id:
+            row = supabase_client.get_epd_by_id(body.epd_id)
+            if row:
+                factor_name = factor_name or row.get("titulo", "")
+                company = row.get("company_name", "")
+                factor_source = f"EPD — {company}" if company else "EPD"
+
         mapping = ItemMapping(
             abc_item_id=item_id,
             source_tier=body.source_tier,
