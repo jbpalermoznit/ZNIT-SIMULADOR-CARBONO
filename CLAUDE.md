@@ -4,14 +4,14 @@
 
 ZNIT ESG is an agentic data platform that unifies every ESG framework with expert guidance, delivering data you can trust and use anywhere.
 
-Current focus: Carbon calculator for construction projects (Piloto HTB — Raízen VRO R8).
+Current focus: Carbon calculator for construction projects.
 
 ## Architecture
 
-- **Frontend**: Next.js 16 + TypeScript + Tailwind CSS (app router)
-- **Backend**: FastAPI (Python 3.14) + SQLAlchemy + SQLite
-- **External data**: Supabase (schema `backend`) — Ecoinvent, GHG Protocol BR, CECarbon, EPD catalog
-- **Deploy**: Render (Docker — single container with Next.js + FastAPI)
+- **Frontend + API**: Next.js 16 + TypeScript + Tailwind CSS (app router + API routes)
+- **Database**: Supabase PostgreSQL (app data in `public` schema, emission factors in `backend` schema)
+- **Server logic**: `lib/server/` — auth, calculator, parser, emission-mapper, agent services
+- **Deploy**: Vercel (automatic from GitHub)
 
 ## Specification Documents
 
@@ -31,12 +31,13 @@ Always consult these docs before implementing features or making architectural d
 - API client in `lib/api/` — always use `api.get/post/put/delete` from `lib/api/client.ts`
 - Portuguese (PT-BR) for all user-facing text
 
-### Backend
-- API prefix: `/api/` for all routes
-- Auth: JWT via `get_current_user` dependency
+### API / Server
+- API routes in `app/api/` (Next.js route handlers)
+- Auth: JWT via `getCurrentUser()` from `lib/server/auth.ts`
+- Supabase client: `lib/server/supabase.ts` (service_role key, server-side only)
 - Emission factors hierarchy: Factor Rules → GHG Protocol → CECarbon → EPD (with GWP) → Ecoinvent
-- Unit conversion: always use `get_conversion_factor()` from `services/calculator.py`
-- Supabase schema: `backend` (set via `SUPABASE_SCHEMA` env var)
+- Unit conversion: always use `getConversionFactor()` from `lib/server/calculator.ts`
+- Emission factor data: `backend` schema in Supabase via `lib/server/supabase-emission.ts`
 
 ### Git — MANDATORY
 - **ALL commits MUST use**: `git -c user.name="jbpalermoznit" -c user.email="jbpalermo@znit.ai" commit`

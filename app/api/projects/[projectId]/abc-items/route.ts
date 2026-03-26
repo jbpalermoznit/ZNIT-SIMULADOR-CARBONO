@@ -1,0 +1,115 @@
+import { NextRequest } from "next/server";
+import { supabase } from "@/lib/server/supabase";
+import { getCurrentUser, unauthorized } from "@/lib/server/auth";
+import type { AuthUser } from "@/lib/server/auth";
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/[projectId]/abc-items
+// ---------------------------------------------------------------------------
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  let user: AuthUser;
+  try {
+    user = await getCurrentUser(req);
+  } catch {
+    return unauthorized();
+  }
+
+  const { projectId } = await params;
+
+  // Verify project belongs to user's company
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("id", projectId)
+    .eq("company_id", user.company_id)
+    .single();
+
+  if (!project) {
+    return Response.json(
+      { detail: "Projeto não encontrado" },
+      { status: 404 }
+    );
+  }
+
+  // Get latest curve
+  const { data: curves } = await supabase
+    .from("abc_curves")
+    .select("id")
+    .eq("project_id", projectId)
+    .order("imported_at", { ascending: false })
+    .limit(1);
+
+  const curve = curves?.[0];
+  if (!curve) {
+    return Response.json([]);
+  }
+
+  // Build query with optional filters
+  const searchParams = req.nextUrl.searchParams;
+  const itemType = searchParams.get("item_type");
+  const abcClass = searchParams.get("abc_class");
+  const mappingStatus = searchParams.get("mapping_status");
+
+  let query = supabase
+    .from("abc_items")
+    .select("*")
+    .eq("abc_curve_id", curve.id);
+
+  if (itemType) query = query.eq("item_type", itemType);
+  if (abcClass) query = query.eq("abc_class", abcClass);
+  if (mappingStatus) query = query.eq("mapping_status", mappingStatus);
+
+  const { data: items } = await query.order("item_order");
+  const allItems = items ?? [];
+
+  if (allItems.length === 0) {
+    return Response.json([]);
+  }
+
+  // Load mappings for enrichment
+  const itemIds = allItems.map((i) => i.id);
+  const { data: mappings } = await supabase
+    .from("item_mappings")
+    .select("*")
+    .in("abc_item_id", itemIds);
+
+  const mappingByItem: Record<string, Record<string, unknown>> = {};
+  for (const m of mappings ?? []) {
+    mappingByItem[m.abc_item_id] = m;
+  }
+
+  // Enrich items with mapping data
+  const results = allItems.map((item) => {
+    const m = mappingByItem[item.id];
+    return {
+      id: item.id,
+      abc_curve_id: item.abc_curve_id,
+      cost_code: item.cost_code,
+      description: item.description,
+      adf: item.adf,
+      quantity: item.quantity,
+      unit: item.unit,
+      unit_cost: item.unit_cost,
+      total_cost: item.total_cost,
+      supplier: item.supplier,
+      cost_pct: item.cost_pct,
+      cumulative_pct: item.cumulative_pct,
+      abc_class: item.abc_class,
+      item_type: item.item_type,
+      item_order: item.item_order,
+      mapping_status: item.mapping_status,
+      classification_note: item.classification_note,
+      parent_item_id: item.parent_item_id,
+      factor_name: m?.factor_name ?? null,
+      factor_value: m?.factor_value ?? null,
+      factor_unit: m?.factor_unit ?? null,
+      source_tier: m?.source_tier ?? null,
+      confidence: m?.confidence ?? null,
+    };
+  });
+
+  return Response.json(results);
+}

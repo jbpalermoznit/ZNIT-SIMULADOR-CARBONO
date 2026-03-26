@@ -1,0 +1,910 @@
+/**
+ * Serviço de mapeamento automático de itens ABC → fatores de emissão.
+ * Port of backend/app/services/emission_mapper.py
+ *
+ * Hierarquia: Factor Rules → GHG Protocol → CECarbon → EPD (com GWP) → Ecoinvent.
+ * Busca via Supabase externo. Usa fuzzball para ranking de similaridade.
+ */
+
+import * as fuzz from "fuzzball";
+import {
+  searchEcoinvent,
+  searchGhg,
+  searchCecarbon,
+  searchEpdWithGwp,
+} from "@/lib/server/supabase-emission";
+import { getConversionFactor } from "@/lib/server/calculator";
+
+// ---------------------------------------------------------------------------
+// Tradução PT→EN e queries compostas para Ecoinvent
+// ---------------------------------------------------------------------------
+
+const SEARCH_QUERIES: Record<string, string[]> = {
+  // Concreto
+  concreto: ["concrete"],
+  "fck=25": ["concrete 25MPa", "25MPa"],
+  "fck=30": ["concrete 30MPa", "30MPa"],
+  "fck=35": ["concrete 35MPa", "35MPa"],
+  "fck=40": ["concrete 40MPa", "40MPa"],
+  "fck=45": ["concrete 45MPa", "45MPa"],
+  fck25: ["concrete 25MPa"],
+  fck30: ["concrete 30MPa"],
+  fck35: ["concrete 35MPa"],
+  fck40: ["concrete 40MPa"],
+  bombeado: ["concrete"],
+  usinado: ["concrete"],
+  mrtf: ["concrete"],
+  // Aço e metais ferrosos
+  "aço": ["reinforcing steel", "steel"],
+  "vergalhão": ["reinforcing steel"],
+  armadura: ["reinforcing steel"],
+  ca50: ["reinforcing steel"],
+  ca60: ["reinforcing steel"],
+  ca25: ["reinforcing steel"],
+  "tela soldada": ["welded mesh"],
+  "treliça": ["steel", "reinforcing steel"],
+  barra: ["steel bar", "reinforcing steel"],
+  "chapa metálica": ["steel sheet", "steel plate"],
+  xadrez: ["steel plate"],
+  arame: ["steel wire", "wire"],
+  prego: ["steel nail", "nail"],
+  eletrodo: ["welding electrode", "electrode"],
+  chumbador: ["steel anchor", "anchor bolt"],
+  ancoragem: ["anchor", "chemical anchor"],
+  parafuso: ["bolt", "screw"],
+  porca: ["steel nut"],
+  luva: ["steel coupling"],
+  "tampão": ["cast iron", "manhole cover"],
+  fofo: ["cast iron"],
+  distanciador: ["spacer", "reinforcing steel"],
+  // Aço protendido / Dywidag
+  dw: ["prestressing steel"],
+  dywidag: ["prestressing steel"],
+  "protensão": ["prestressing steel"],
+  estaca: ["concrete pile", "steel pile"],
+  // Cimento e argamassa
+  cimento: ["cement", "portland cement"],
+  cimentcola: ["tile adhesive", "cement"],
+  argamassa: ["morite", "cement morite"],
+  chapisco: ["mortar", "rendering mortar"],
+  rejunte: ["grout", "tile grout"],
+  sikagrout: ["grout"],
+  grout: ["grout"],
+  // Madeira
+  madeira: ["sawn wood", "wood"],
+  compensado: ["plywood"],
+  "chapa compensada": ["plywood"],
+  "tábua": ["sawn timber", "sawn wood"],
+  sarrafo: ["sawn timber", "sawn wood"],
+  batente: ["wood door frame", "sawn wood"],
+  "batentaço": ["wood door frame", "sawn wood"],
+  // Alvenaria e cerâmica
+  bloco: ["concrete block"],
+  tijolo: ["brick"],
+  telha: ["roof tile"],
+  porcelanato: ["ceramic tile", "porcelain tile"],
+  "cerâmica": ["ceramic tile"],
+  "rodapé": ["ceramic tile"],
+  chapim: ["precast concrete"],
+  // Agregados
+  areia: ["sand"],
+  brita: ["gravel"],
+  pedra: ["gravel", "crusite stone"],
+  // Metais não ferrosos
+  "alumínio": ["aluminium"],
+  cobre: ["copper"],
+  zinco: ["zinc"],
+  // Plásticos e isolantes
+  pvc: ["pvc pipe", "polyvinyl chloride"],
+  polietileno: ["polyethylene"],
+  tubo: ["pipe"],
+  lona: ["polyethylene film", "plastic film"],
+  bidim: ["geotextile", "polypropylene"],
+  "geotêxtil": ["geotextile"],
+  isopor: ["polystyrene", "expanded polystyrene"],
+  eps: ["expanded polystyrene"],
+  // Selantes, adesivos e químicos
+  selante: ["sealant", "silicone"],
+  sikaflex: ["sealant", "polyurethane sealant"],
+  silicone: ["silicone sealant"],
+  aditivo: ["concrete admixture"],
+  sika1: ["concrete admixture", "waterproofing admixture"],
+  impermeabilizante: ["bitumen", "waterproofing"],
+  fugenband: ["waterstop", "pvc waterstop"],
+  "hidro expansivo": ["waterstop", "hydrophilic waterstop"],
+  // Outros materiais
+  tinta: ["paint", "alkyd paint"],
+  neutrol: ["bitumen paint", "waterproofing paint"],
+  desmol: ["release agent"],
+  vidro: ["flat glass"],
+  asfalto: ["asphalt"],
+  isolamento: ["insulation"],
+  gesso: ["gypsum", "plasterboard"],
+  manta: ["bitumen sheet"],
+  colante: ["tile adhesive"],
+  // Solo / Movimentação
+  "escavação": ["excavation"],
+  terraplenagem: ["excavation"],
+  // Combustíveis
+  diesel: ["diesel"],
+  "óleodiesel": ["diesel"],
+  gasolina: ["gasoline"],
+};
+
+// Normalização de nomes compostos escritos junto
+const COMPOUND_FIXES: Record<string, string> = {
+  "óleodiesel": "óleo diesel",
+  cimentcola: "cimento cola",
+  chapiscofix: "chapisco fix",
+};
+
+// Categorias GHG — se a descrição contém essas palavras, buscar no GHG
+const GHG_TRIGGER_WORDS = new Set([
+  "diesel",
+  "gasolina",
+  "combustível",
+  "glp",
+  "gás",
+  "etanol",
+  "biodiesel",
+  "gnv",
+  "carvão",
+  "lenha",
+  "biomassa",
+  "óleodiesel",
+  "óleo",
+]);
+
+// Palavras ignoradas
+const STOPWORDS = new Set([
+  "de",
+  "do",
+  "da",
+  "dos",
+  "das",
+  "em",
+  "e",
+  "para",
+  "por",
+  "com",
+  "sem",
+  "ou",
+  "um",
+  "uma",
+  "no",
+  "na",
+  "ao",
+  "à",
+  "o",
+  "a",
+  "os",
+  "as",
+  "ser",
+  "estar",
+  "ter",
+  "haver",
+  "ir",
+  "vir",
+  "inclusive",
+  "conforme",
+  "segundo",
+  "tipo",
+  "ref",
+  "und",
+]);
+
+// ---------------------------------------------------------------------------
+// Simple Portuguese stemming
+// ---------------------------------------------------------------------------
+
+function stemPt(word: string): string {
+  // Plural → singular
+  if (word.endsWith("ões")) return word.slice(0, -3) + "ão";
+  if (word.endsWith("ães")) return word.slice(0, -3) + "ão";
+  if (word.endsWith("ais")) return word.slice(0, -2) + "al";
+  if (word.endsWith("éis")) return word.slice(0, -3) + "el";
+  if (word.endsWith("ores")) return word.slice(0, -2); // chumbadores → chumbador
+  if (word.endsWith("es") && word.length > 4) {
+    return "rszl".includes(word[word.length - 3])
+      ? word.slice(0, -2)
+      : word.slice(0, -1);
+  }
+  if (word.endsWith("s") && !word.endsWith("ss")) return word.slice(0, -1);
+  return word;
+}
+
+// ---------------------------------------------------------------------------
+// Keyword extraction
+// ---------------------------------------------------------------------------
+
+export function extractKeywords(description: string): string[] {
+  let text = description.toLowerCase().trim();
+  // Normalizar fck
+  text = text.replace(/fck\s*=?\s*(\d+)/g, "fck=$1");
+  text = text.replace(/mrtf\s*=?\s*[\d,]+/g, "mrtf");
+  // Normalizar palavras escritas junto
+  text = text.replace(/[oó]l[eé]o\s*diesel/g, "óleo diesel");
+  for (const [wrong, fixed] of Object.entries(COMPOUND_FIXES)) {
+    text = text.replaceAll(wrong, fixed);
+  }
+  const words = text.split(/[\s/\-,;:()+]+/);
+  const keywords: string[] = [];
+  for (let w of words) {
+    w = w.replace(/^[.,;:()]+|[.,;:()]+$/g, "");
+    if (w.length < 2 || STOPWORDS.has(w)) continue;
+    const stemmed = stemPt(w);
+    keywords.push(stemmed);
+    // Also keep original if different
+    if (stemmed !== w && !keywords.includes(w)) {
+      keywords.push(w);
+    }
+  }
+  return keywords;
+}
+
+// ---------------------------------------------------------------------------
+// Build search queries
+// ---------------------------------------------------------------------------
+
+function buildSearchQueries(
+  keywords: string[]
+): { queries: string[]; shouldGhg: boolean } {
+  const queries: string[] = [];
+  let shouldGhg = false;
+
+  for (const kw of keywords) {
+    if (GHG_TRIGGER_WORDS.has(kw)) shouldGhg = true;
+    if (kw in SEARCH_QUERIES) {
+      queries.push(...SEARCH_QUERIES[kw]);
+    }
+    // Check multi-word matches
+    const joined = keywords.join(" ");
+    for (const [trigger, qList] of Object.entries(SEARCH_QUERIES)) {
+      if (trigger.includes(" ") && joined.includes(trigger)) {
+        queries.push(...qList);
+      }
+    }
+  }
+
+  // Deduplicate preserving order
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const q of queries) {
+    if (!seen.has(q)) {
+      seen.add(q);
+      unique.push(q);
+    }
+  }
+
+  // Fallback: raw keywords
+  if (unique.length === 0) {
+    unique.push(
+      ...keywords
+        .filter((kw) => kw.length > 3)
+        .slice(0, 3)
+    );
+    shouldGhg = true;
+  }
+
+  return { queries: unique, shouldGhg };
+}
+
+// ---------------------------------------------------------------------------
+// CECarbon queries
+// ---------------------------------------------------------------------------
+
+const CECARBON_QUERIES: Record<string, string[]> = {
+  concreto: ["concreto"],
+  "fck=25": ["concreto 25"],
+  "fck=30": ["concreto 30"],
+  "fck=35": ["concreto 35"],
+  "fck=40": ["concreto 40"],
+  fck25: ["concreto 25"],
+  fck30: ["concreto 30"],
+  fck35: ["concreto 35"],
+  fck40: ["concreto 40"],
+  bombeado: ["concreto"],
+  usinado: ["concreto"],
+  graute: ["graute"],
+  "aço": ["aço"],
+  "vergalhão": ["aço"],
+  armadura: ["aço"],
+  ca50: ["aço"],
+  ca60: ["aço"],
+  "treliça": ["estrutura metálica", "aço"],
+  "chapa metálica": ["estrutura metálica"],
+  xadrez: ["estrutura metálica"],
+  arame: ["arame de aço"],
+  prego: ["prego de aço"],
+  eletrodo: ["aço"],
+  chumbador: ["aço", "prego de aço"],
+  ancoragem: ["aço"],
+  parafuso: ["aço"],
+  porca: ["aço"],
+  distanciador: ["aço"],
+  "tampão": ["aço"],
+  luva: ["aço"],
+  placa: ["aço"],
+  barra: ["aço"],
+  "alumínio": ["alumínio", "esquadrias de alumínio"],
+  cimento: ["cimento"],
+  cimentcola: ["argamassa colante"],
+  argamassa: ["argamassa"],
+  chapisco: ["argamassa"],
+  rejunte: ["argamassa"],
+  colante: ["argamassa colante"],
+  grout: ["graute"],
+  sikagrout: ["graute"],
+  madeira: ["madeira"],
+  compensado: ["compensado de madeira"],
+  "chapa compensada": ["compensado de madeira"],
+  "tábua": ["madeira bruta serrada"],
+  sarrafo: ["madeira bruta serrada"],
+  batente: ["esquadrias de madeira"],
+  "batentaço": ["esquadrias de madeira"],
+  mdf: ["mdf"],
+  bloco: ["bloco de concreto", "bloco cerâmico"],
+  tijolo: ["tijolo", "bloco cerâmico"],
+  telha: ["telha"],
+  porcelanato: ["revestimentos cerâmicos"],
+  "cerâmica": ["revestimentos cerâmicos", "cerâmica"],
+  chapim: ["concreto"],
+  areia: ["areia"],
+  brita: ["brita"],
+  pedra: ["brita", "rocha natural"],
+  isopor: ["placa de espuma de poliestireno"],
+  eps: ["placa de espuma de poliestireno"],
+  manta: ["manta asfáltica"],
+  "lã": ["lã de rocha", "lã de vidro"],
+  impermeabilizante: ["manta asfáltica"],
+  vidro: ["vidro"],
+  tinta: ["tinta"],
+  gesso: ["gesso"],
+  "dry wall": ["dry wall"],
+  drywall: ["dry wall"],
+  pvc: ["pvc", "esquadrias de pvc"],
+  tubo: ["tubo"],
+  eletroduto: ["eletroduto de pvc"],
+  cal: ["cal"],
+  asfalto: ["asfalto"],
+  granito: ["granito"],
+  "mármore": ["mármore"],
+  selante: [],
+  sikaflex: [],
+  bidim: [],
+  lona: [],
+  diesel: ["óleo diesel"],
+  gasolina: ["gasolina"],
+  "óleo": ["óleos lubrificantes"],
+};
+
+function buildCecarbonQueries(keywords: string[]): string[] {
+  const queries: string[] = [];
+  for (const kw of keywords) {
+    if (kw in CECARBON_QUERIES) {
+      queries.push(...CECARBON_QUERIES[kw]);
+    }
+  }
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const q of queries) {
+    if (!seen.has(q)) {
+      seen.add(q);
+      unique.push(q);
+    }
+  }
+  if (unique.length === 0) {
+    unique.push(
+      ...keywords
+        .filter((kw) => kw.length > 3)
+        .slice(0, 3)
+    );
+  }
+  return unique;
+}
+
+// ---------------------------------------------------------------------------
+// EPD queries
+// ---------------------------------------------------------------------------
+
+const EPD_QUERIES: Record<string, string[]> = {
+  concreto: ["concreto", "concrete", "hormigón"],
+  "fck=25": ["concrete 25", "concreto 25"],
+  "fck=30": ["concrete 30", "concreto 30"],
+  "fck=35": ["concrete 35", "concreto 35"],
+  "fck=40": ["concrete 40", "concreto 40"],
+  "aço": ["steel", "aço", "acero"],
+  "vergalhão": ["rebar", "reinforcing steel"],
+  ca50: ["reinforcing steel", "rebar"],
+  "tela soldada": ["welded mesh", "steel mesh"],
+  cimento: ["cement", "cimento", "cemento"],
+  "alumínio": ["aluminium", "aluminum"],
+  vidro: ["glass", "vidro"],
+  madeira: ["wood", "timber", "madeira"],
+  compensado: ["plywood"],
+  porcelanato: ["ceramic tile", "porcelain"],
+  "cerâmica": ["ceramic", "cerâmica"],
+  tijolo: ["brick"],
+  bloco: ["block", "bloco"],
+  telha: ["roof tile"],
+  eps: ["expanded polystyrene", "EPS"],
+  isopor: ["expanded polystyrene", "EPS"],
+  "lã": ["mineral wool", "rock wool", "glass wool"],
+  manta: ["bitumen", "waterproofing"],
+  pvc: ["PVC", "polyvinyl"],
+  tinta: ["paint", "coating"],
+  gesso: ["gypsum", "plasterboard"],
+  areia: ["sand"],
+  brita: ["gravel", "aggregate"],
+};
+
+function buildEpdQueries(keywords: string[]): string[] {
+  const queries: string[] = [];
+  for (const kw of keywords) {
+    if (kw in EPD_QUERIES) {
+      queries.push(...EPD_QUERIES[kw]);
+    }
+  }
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const q of queries) {
+    if (!seen.has(q)) {
+      seen.add(q);
+      unique.push(q);
+    }
+  }
+  if (unique.length === 0) {
+    unique.push(
+      ...keywords
+        .filter((kw) => kw.length > 3)
+        .slice(0, 3)
+    );
+  }
+  return unique;
+}
+
+// ---------------------------------------------------------------------------
+// Scoring functions
+// ---------------------------------------------------------------------------
+
+function scoreEcoinvent(
+  itemDesc: string,
+  row: Record<string, unknown>,
+  searchQueries?: string[]
+): number {
+  const descLower = itemDesc.toLowerCase();
+  const productName = ((row.product_name as string) ?? "").toLowerCase();
+  const productNamePt = ((row.product_name_pt as string) ?? "").toLowerCase();
+  const candidates = [
+    productName,
+    productNamePt,
+    ((row.activity_name as string) ?? "").toLowerCase(),
+    ((row.activity_name_pt as string) ?? "").toLowerCase(),
+  ];
+
+  let best = 0;
+  for (const c of candidates) {
+    if (!c) continue;
+    const s1 = fuzz.token_set_ratio(descLower, c);
+    const s2 = fuzz.partial_ratio(descLower, c);
+    best = Math.max(best, s1, s2);
+  }
+
+  // Boost: if any search query is a direct substring of product_name
+  if (searchQueries) {
+    for (const q of searchQueries) {
+      const qLower = q.toLowerCase();
+      if (productName.includes(qLower) || productNamePt.includes(qLower)) {
+        best = Math.max(best, 82);
+        break;
+      }
+    }
+  }
+
+  return Math.min(best, 100);
+}
+
+function scoreGhg(
+  itemDesc: string,
+  row: Record<string, unknown>,
+  searchQueries?: string[]
+): number {
+  const produto = ((row.produto as string) ?? "").toLowerCase();
+  const descLower = itemDesc.toLowerCase();
+  const s1 = fuzz.token_set_ratio(descLower, produto);
+  const s2 = fuzz.partial_ratio(descLower, produto);
+  let best = Math.max(s1, s2);
+
+  if (searchQueries) {
+    for (const q of searchQueries) {
+      if (produto.includes(q.toLowerCase())) {
+        best = Math.max(best, 85);
+        break;
+      }
+    }
+  }
+
+  return Math.min(best, 100);
+}
+
+function scoreCecarbon(
+  itemDesc: string,
+  row: Record<string, unknown>,
+  searchQueries?: string[]
+): number {
+  const descCecarbon = (
+    (row["Descrição fator de emissao"] as string) ?? ""
+  ).toLowerCase();
+  const descLower = itemDesc.toLowerCase();
+
+  const s1 = fuzz.token_set_ratio(descLower, descCecarbon);
+  const s2 = fuzz.partial_ratio(descLower, descCecarbon);
+  let best = Math.max(s1, s2);
+
+  if (searchQueries) {
+    for (const q of searchQueries) {
+      if (descCecarbon.includes(q.toLowerCase())) {
+        best = Math.max(best, 82);
+        break;
+      }
+    }
+  }
+
+  // Extra boost for exact category matches
+  const descWords = new Set(
+    descLower.split(/[\s/\-,;:()+]+/).filter((w) => w.length > 0)
+  );
+  const cecarbonWords = new Set(
+    descCecarbon.split(/[\s/\-,;:()+]+/).filter((w) => w.length > 0)
+  );
+  const overlap = new Set(
+    [...descWords].filter((w) => cecarbonWords.has(w) && !STOPWORDS.has(w))
+  );
+  if (overlap.size >= 1) best = Math.max(best, 78);
+  if (overlap.size >= 2) best = Math.max(best, 85);
+
+  return Math.min(best, 100);
+}
+
+function scoreEpd(
+  itemDesc: string,
+  row: Record<string, unknown>,
+  searchQueries?: string[]
+): number {
+  const titulo = ((row.titulo as string) ?? "").toLowerCase();
+  const infoProduto = (
+    (row.informacao_produto as string) ?? ""
+  ).toLowerCase();
+  const company = ((row.company_name as string) ?? "").toLowerCase();
+  const descLower = itemDesc.toLowerCase();
+
+  const candidates = [titulo, infoProduto, `${titulo} ${company}`];
+  let best = 0;
+  for (const c of candidates) {
+    if (!c) continue;
+    const s1 = fuzz.token_set_ratio(descLower, c);
+    const s2 = fuzz.partial_ratio(descLower, c);
+    best = Math.max(best, s1, s2);
+  }
+
+  if (searchQueries) {
+    for (const q of searchQueries) {
+      const qLower = q.toLowerCase();
+      if (titulo.includes(qLower) || infoProduto.includes(qLower)) {
+        best = Math.max(best, 80);
+        break;
+      }
+    }
+  }
+
+  return Math.min(best, 100);
+}
+
+// ---------------------------------------------------------------------------
+// Candidate interface
+// ---------------------------------------------------------------------------
+
+export interface MatchCandidate {
+  source_tier: string;
+  score: number;
+  factor_value: number;
+  factor_unit: string;
+  product_unit: string;
+  factor_name: string;
+  factor_source: string;
+  geography: string;
+  ecoinvent_product_id?: string;
+  ecoinvent_activity_id?: string;
+  ghg_factor_id?: number;
+  cecarbon_id?: number;
+  epd_id?: number;
+  epd_registration?: string;
+  company_name?: string;
+  density?: number;
+  rule_id?: string;
+  confidence?: string;
+  _unit_incompatible?: boolean;
+}
+
+export interface AutoMatchResult {
+  results: MatchCandidate[];
+  best: MatchCandidate | null;
+  confidence: "high" | "medium" | "low" | null;
+}
+
+// ---------------------------------------------------------------------------
+// Auto-match item
+// ---------------------------------------------------------------------------
+
+export async function autoMatchItem(
+  description: string,
+  unit?: string | null,
+  _companyId?: string | null
+): Promise<AutoMatchResult> {
+  // Priority 0: Factor rules — skipped in TS port (would require DB access)
+  // TODO: implement check_factor_rules if needed
+
+  const keywords = extractKeywords(description);
+  const { queries: ecoinventQueries, shouldGhg } =
+    buildSearchQueries(keywords);
+  const cecarbonQueries = buildCecarbonQueries(keywords);
+  const epdQueries = buildEpdQueries(keywords);
+
+  const allCandidates: MatchCandidate[] = [];
+
+  // ---------------------------------------------------------------
+  // Tier 1: GHG Protocol (combustíveis e transporte — fonte BR)
+  // ---------------------------------------------------------------
+  if (shouldGhg) {
+    for (const kw of keywords.slice(0, 3)) {
+      try {
+        const rows = await searchGhg(kw, 5);
+        for (const row of rows) {
+          const score = scoreGhg(description, row, ecoinventQueries);
+          const co2 = parseFloat(String(row.co2 ?? 0));
+          const ch4 = parseFloat(String(row.ch4 ?? 0));
+          const n2o = parseFloat(String(row.n2o ?? 0));
+          const co2e = co2 + ch4 * 28 + n2o * 265;
+          allCandidates.push({
+            source_tier: "ghg_protocol",
+            score,
+            factor_value: Math.round(co2e * 1000000) / 1000000,
+            factor_unit: "kgCO2e",
+            product_unit: "",
+            factor_name: (row.produto as string) ?? "",
+            factor_source: `GHG Protocol BR ${row.versao_ghg ?? ""}`,
+            geography: (row.pais as string) ?? "Brasil",
+            ghg_factor_id: row.id as number,
+          });
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // Tier 2: CECarbon (materiais de construção — fonte BR, PT-BR)
+  // ---------------------------------------------------------------
+  for (const q of cecarbonQueries.slice(0, 6)) {
+    try {
+      const rows = await searchCecarbon(q, 10);
+      for (const row of rows) {
+        const score = scoreCecarbon(description, row, cecarbonQueries);
+        let factorValue = row["fator de emissão (kgCO2)"];
+        if (factorValue == null) factorValue = 0;
+        factorValue = parseFloat(String(factorValue));
+        const unitCecarbon = ((row.Unidade as string) ?? "").trim();
+        const descFactor =
+          (row["Descrição fator de emissao"] as string) ?? "";
+        const ref = (row.Referencia as string) ?? "CECARBON 2024";
+        const density = row.densidade ?? 1;
+        allCandidates.push({
+          source_tier: "cecarbon",
+          score,
+          factor_value: factorValue,
+          factor_unit: `kgCO₂/${unitCecarbon}`,
+          product_unit: unitCecarbon,
+          factor_name: descFactor,
+          factor_source: ref,
+          geography: "Brasil",
+          cecarbon_id: row.id as number,
+          density: density ? parseFloat(String(density)) : 1.0,
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // Tier 3: EPD Catalog (fornecedor-específico, com GWP extraído)
+  // ---------------------------------------------------------------
+  for (const q of epdQueries.slice(0, 6)) {
+    try {
+      const rows = await searchEpdWithGwp(q, 10);
+      for (const row of rows) {
+        const gwpRaw = row.gwp_a1a3;
+        if (gwpRaw == null) continue;
+        const gwp = parseFloat(String(gwpRaw));
+        if (gwp <= 0) continue;
+
+        const score = scoreEpd(description, row, epdQueries);
+        const declaredUnit = ((row.declared_unit as string) ?? "").trim();
+        const declaredValue = parseFloat(String(row.declared_value ?? 1));
+        const factorPerUnit =
+          declaredValue > 0 ? gwp / declaredValue : gwp;
+        const company = (row.company_name as string) ?? "";
+        const titulo = (row.titulo as string) ?? "";
+
+        allCandidates.push({
+          source_tier: "epd",
+          score,
+          factor_value: Math.round(factorPerUnit * 1000000) / 1000000,
+          factor_unit: declaredUnit
+            ? `kgCO₂e/${declaredUnit}`
+            : "kgCO₂e",
+          product_unit: declaredUnit,
+          factor_name: titulo,
+          factor_source: company ? `EPD — ${company}` : "EPD",
+          geography:
+            (row.country as string) ??
+            (row.geographical_scopes as string) ??
+            "",
+          epd_id: row.id as number,
+          epd_registration: row.registration_number as string,
+          company_name: company,
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // Tier 4: Ecoinvent (global, EN — fallback)
+  // ---------------------------------------------------------------
+  for (const q of ecoinventQueries.slice(0, 6)) {
+    try {
+      const rows = await searchEcoinvent(q, 15);
+      for (const row of rows) {
+        const score = scoreEcoinvent(description, row, ecoinventQueries);
+        const impact = row.impact_score ?? "0";
+        allCandidates.push({
+          source_tier: "ecoinvent",
+          score,
+          factor_value: impact ? parseFloat(String(impact)) : 0.0,
+          factor_unit: (row.impact_unit as string) ?? "kg CO2-Eq",
+          product_unit: (row.product_unit as string) ?? "",
+          factor_name: (row.product_name as string) ?? "",
+          factor_source: `Ecoinvent — ${(row.activity_name as string) ?? ""}`,
+          geography: (row.geography as string) ?? "",
+          ecoinvent_product_id: row.product_id as string,
+          ecoinvent_activity_id: row.activity_id as string,
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // Dedup, filter, rank
+  // ---------------------------------------------------------------
+  const seen = new Set<string>();
+  let unique: MatchCandidate[] = [];
+  for (const c of allCandidates) {
+    const key = [
+      c.source_tier,
+      c.ecoinvent_product_id ??
+        c.ghg_factor_id?.toString() ??
+        c.cecarbon_id?.toString() ??
+        c.epd_id?.toString() ??
+        c.factor_name,
+      c.ecoinvent_activity_id ?? "",
+    ].join("|");
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(c);
+    }
+  }
+
+  // Filter out zero-value factors
+  unique = unique.filter((c) => c.factor_value > 0);
+
+  // Filter out infrastructure-scale factors
+  unique = unique.filter(
+    (c) =>
+      !(
+        (c.product_unit ?? "").toLowerCase() === "unit" &&
+        c.factor_value > 10000
+      )
+  );
+
+  // Filter out disabled CECarbon entries (prefixed with *)
+  unique = unique.filter(
+    (c) =>
+      !(c.source_tier === "cecarbon" && c.factor_name.startsWith("*"))
+  );
+
+  // Filter out zero-description / placeholder rows
+  unique = unique.filter(
+    (c) => c.factor_name && c.factor_name !== "0"
+  );
+
+  // Penalize waste/by-product results
+  const wasteIndicators = [
+    "waste",
+    "bottom ash",
+    "mswi",
+    "wastewater",
+    "sludge",
+    "scrap",
+  ];
+  const descLower = description.toLowerCase();
+  const hasWasteKeyword = ["resíduo", "lixo", "sucata", "efluente"].some(
+    (w) => descLower.includes(w)
+  );
+  if (!hasWasteKeyword) {
+    for (const c of unique) {
+      const name = (c.factor_name ?? "").toLowerCase();
+      if (wasteIndicators.some((w) => name.includes(w))) {
+        c.score = Math.max(0, c.score - 30);
+      }
+    }
+  }
+
+  // Tier priority bonus
+  const TIER_BONUS: Record<string, number> = {
+    epd: 5,
+    ghg_protocol: 3,
+    cecarbon: 2,
+    ecoinvent: 0,
+  };
+  for (const c of unique) {
+    c.score += TIER_BONUS[c.source_tier] ?? 0;
+  }
+
+  // For fuel/transport items, extra boost for GHG
+  if (shouldGhg) {
+    for (const c of unique) {
+      if (c.source_tier === "ghg_protocol" && c.score >= 80) {
+        c.score += 5;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // Unit compatibility: penalize candidates with incompatible units
+  // ---------------------------------------------------------------
+  if (unit) {
+    for (const c of unique) {
+      const factorUnit = c.factor_unit ?? "";
+      const conv = getConversionFactor(unit, factorUnit);
+      if (conv === 0.0) {
+        c.score = Math.max(0, c.score - 50);
+        c._unit_incompatible = true;
+      } else if (conv !== 1.0) {
+        c.score += 1;
+      }
+    }
+  }
+
+  // Sort by score descending
+  unique.sort((a, b) => b.score - a.score);
+
+  // Determine best and confidence
+  const best = unique.length > 0 ? unique[0] : null;
+  let confidence: "high" | "medium" | "low" | null = null;
+  if (best) {
+    if (best.score >= 80) confidence = "high";
+    else if (best.score >= 60) confidence = "medium";
+    else confidence = "low";
+  }
+
+  return {
+    results: unique.slice(0, 10),
+    best,
+    confidence,
+  };
+}
