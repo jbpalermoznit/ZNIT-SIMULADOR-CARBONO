@@ -79,7 +79,19 @@ export function generateComparisonPDF(
   const drawLogo = (xRight: number, yTop: number, maxW: number, maxH: number) => {
     if (branding.companyLogo) {
       try {
-        doc.addImage(branding.companyLogo, "AUTO", xRight - maxW, yTop, maxW, maxH);
+        // Get image natural dimensions to preserve aspect ratio
+        const img = new Image();
+        img.src = branding.companyLogo;
+        const natW = img.width || 200;
+        const natH = img.height || 60;
+        const ratio = natW / natH;
+        let w = maxW;
+        let h = w / ratio;
+        if (h > maxH) {
+          h = maxH;
+          w = h * ratio;
+        }
+        doc.addImage(branding.companyLogo, "AUTO", xRight - w, yTop, w, h);
         return;
       } catch { /* fallback to text */ }
     }
