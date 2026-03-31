@@ -24,6 +24,8 @@
     "exceljs": "^4.4.0",
     "fuzzball": "^2.2.3",
     "jose": "^6.2.2",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.577.0",
     "next": "16.1.6",
     "react": "19.2.3",

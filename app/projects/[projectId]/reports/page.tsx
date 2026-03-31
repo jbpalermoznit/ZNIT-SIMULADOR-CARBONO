@@ -1,103 +1,322 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
-import { FileText, Download, FileSpreadsheet, BarChart2, CheckCircle2 } from "lucide-react";
+import {
+  FileText, Download, FileSpreadsheet, BarChart2,
+  CheckCircle2, Loader2, Settings, AlertTriangle,
+} from "lucide-react";
 import { getProject } from "@/lib/api/projects";
-
-const reports = [
-  {
-    id: "excel",
-    icon: FileSpreadsheet,
-    title: "Exportação Excel — Todos os Itens",
-    desc: "Tabela completa com tCO₂e por item, compatível com Power BI",
-    badge: "Essencial",
-    format: ".xlsx",
-    ready: true,
-    color: "#1d7a6b",
-    bg: "#E6F3EE",
-  },
-  {
-    id: "csv",
-    icon: FileText,
-    title: "Exportação CSV",
-    desc: "Formato plano para integração com outros sistemas",
-    badge: "Essencial",
-    format: ".csv",
-    ready: true,
-    color: "#1d7a6b",
-    bg: "#E6F3EE",
-  },
-  {
-    id: "memo",
-    icon: FileText,
-    title: "Memorando de Cálculo — PDF",
-    desc: "Premissas, metodologia, fontes EPD, lista de itens parametrizados · Identidade visual ZNIT",
-    badge: "Essencial",
-    format: ".pdf",
-    ready: true,
-    color: "#1d7a6b",
-    bg: "#E6F3EE",
-  },
-  {
-    id: "compare",
-    icon: BarChart2,
-    title: "Relatório Comparativo de Cenários",
-    desc: "PDF com Cenário Base vs A vs B · Delta em tCO₂e e %",
-    badge: "Recomendado",
-    format: ".pdf",
-    ready: false,
-    color: "#92400e",
-    bg: "#FEF3C7",
-  },
-];
+import { listScenarios, getScenario, type ScenarioResponse } from "@/lib/api/scenarios";
+import { loadSettings, type BrandingSettings } from "@/app/settings/page";
+import { generateComparisonPDF } from "@/lib/report/pdf-generator";
 
 export default function ReportsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [projectName, setProjectName] = useState("");
+  const [scenarios, setScenarios] = useState<ScenarioResponse[]>([]);
+  const [branding, setBranding] = useState<BrandingSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState<string | null>(null);
 
-  useEffect(() => { getProject(projectId).then((p) => setProjectName(p.name)).catch(() => {}); }, [projectId]);
+  useEffect(() => {
+    setBranding(loadSettings());
+    Promise.all([
+      getProject(projectId),
+      listScenarios(projectId),
+    ]).then(([proj, scens]) => {
+      setProjectName(proj.name);
+      setScenarios(scens.filter((s) => s.result));
+    }).catch(() => {})
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  const handleExcelDownload = async () => {
+    setGenerating("excel");
+    try {
+      const token = localStorage.getItem("znit_token");
+      const resp = await fetch(`/api/projects/${projectId}/export-items`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const blob = await resp.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${projectName.replace(/\s+/g, "_")}_itens_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      alert("Erro ao exportar Excel");
+    }
+    setGenerating(null);
+  };
+
+  const handleCsvDownload = async () => {
+    setGenerating("csv");
+    try {
+      const token = localStorage.getItem("znit_token");
+      const resp = await fetch(`/api/projects/${projectId}/export-items`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const blob = await resp.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${projectName.replace(/\s+/g, "_")}_itens_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      alert("Erro ao exportar CSV");
+    }
+    setGenerating(null);
+  };
+
+  const handlePdfDownload = async () => {
+    if (scenarios.length < 2) {
+      alert("Necessário pelo menos 2 cenários para o relatório comparativo");
+      return;
+    }
+    setGenerating("pdf");
+    try {
+      const token = localStorage.getItem("znit_token");
+      // Load details for first two scenarios
+      const [detailA, detailB] = await Promise.all([
+        getScenario(scenarios[0].id),
+        getScenario(scenarios[1].id),
+      ]);
+
+      // Also load parent items
+      const loadParents = async (scenId: string) => {
+        const res = await fetch(`/api/scenarios/${scenId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        return res.json();
+      };
+
+      const [rawA, rawB] = await Promise.all([
+        loadParents(scenarios[0].id),
+        loadParents(scenarios[1].id),
+      ]);
+
+      const buildScenario = (
+        scen: ScenarioResponse,
+        detail: typeof detailA,
+        raw: Record<string, unknown>
+      ) => {
+        const items = detail.items;
+        const parents = (raw.parent_items ?? []) as Record<string, unknown>[];
+        let concretoM3 = 0, concretoTco2e = 0, acoKg = 0, acoTco2e = 0, totalCost = 0;
+
+        for (const item of items) {
+          totalCost += item.total_cost ?? 0;
+          const desc = (item.description ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          const tco2e = item.emission_tco2e ?? 0;
+          const qty = item.quantity ?? 0;
+          const unit = (item.unit ?? "").toLowerCase();
+          if (desc.includes("concreto") && (unit === "m³" || unit === "m3")) {
+            concretoM3 += qty; concretoTco2e += tco2e;
+          }
+          if ((desc.includes("aco") || desc.includes("armadura") || desc.includes("ca-50") || desc.includes("ca-25") || desc.includes("ca-60") || desc.includes("tela soldada")) && (unit === "kg" || unit === "t")) {
+            acoKg += unit === "t" ? qty * 1000 : qty; acoTco2e += tco2e;
+          }
+        }
+
+        // Build hierarchical items
+        const reportItems = parents
+          .filter((p) => (p.emission_tco2e as number) > 0)
+          .sort((a, b) => (b.emission_tco2e as number) - (a.emission_tco2e as number))
+          .map((p) => {
+            const children = items
+              .filter((i) => {
+                const pi = (i as unknown as Record<string, unknown>).parent_item_id;
+                return pi === p.id;
+              })
+              .filter((i) => (i.emission_tco2e ?? 0) > 0)
+              .sort((a, b) => (b.emission_tco2e ?? 0) - (a.emission_tco2e ?? 0))
+              .map((c) => ({
+                description: c.description ?? "",
+                costCode: c.cost_code ?? "",
+                unit: c.unit ?? "",
+                quantity: c.quantity ?? 0,
+                emissionTco2e: c.emission_tco2e ?? 0,
+                factorValue: c.factor_value ?? 0,
+                factorSource: c.source_tier ?? "",
+              }));
+
+            return {
+              description: (p.description as string) ?? "",
+              costCode: (p.cost_code as string) ?? "",
+              unit: (p.unit as string) ?? "",
+              quantity: (p.quantity as number) ?? 0,
+              emissionTco2e: (p.emission_tco2e as number) ?? 0,
+              children,
+            };
+          });
+
+        // Add direct items (no parent)
+        const directItems = items
+          .filter((i) => !(i as unknown as Record<string, unknown>).parent_item_id && (i.emission_tco2e ?? 0) > 0 && !i.is_excluded)
+          .sort((a, b) => (b.emission_tco2e ?? 0) - (a.emission_tco2e ?? 0))
+          .map((i) => ({
+            description: i.description ?? "",
+            costCode: i.cost_code ?? "",
+            unit: i.unit ?? "",
+            quantity: i.quantity ?? 0,
+            emissionTco2e: i.emission_tco2e ?? 0,
+          }));
+
+        return {
+          name: scen.name,
+          totalTco2e: scen.result?.total_tco2e ?? 0,
+          totalCostR$: totalCost,
+          concretoM3: Math.round(concretoM3 * 10) / 10,
+          concretoTco2e: Math.round(concretoTco2e * 100) / 100,
+          acoTon: Math.round(acoKg / 100) / 10,
+          acoTco2e: Math.round(acoTco2e * 100) / 100,
+          materiaisTco2e: (scen.result?.scope3_materials_kgco2e ?? 0) / 1000,
+          transporteTco2e: (scen.result?.scope3_logistics_kgco2e ?? 0) / 1000,
+          items: [...reportItems, ...directItems],
+        };
+      };
+
+      const scenarioA = buildScenario(scenarios[0], detailA, rawA);
+      const scenarioB = buildScenario(scenarios[1], detailB, rawB);
+
+      const pdf = generateComparisonPDF(
+        {
+          projectName,
+          scenarioA,
+          scenarioB,
+          capacity: 100,
+          unit: "m³",
+          createdAt: new Date().toLocaleDateString("pt-BR"),
+        },
+        branding ?? loadSettings()
+      );
+
+      pdf.save(`${projectName.replace(/\s+/g, "_")}_relatorio_comparativo_${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (e) {
+      console.error("PDF error:", e);
+      alert("Erro ao gerar PDF");
+    }
+    setGenerating(null);
+  };
+
+  const reports = [
+    {
+      id: "pdf",
+      icon: BarChart2,
+      title: "Relatório Comparativo de Cenários — PDF",
+      desc: "Indicadores, composições e insumos com fatores de emissão · Identidade visual configurável",
+      badge: "Recomendado",
+      format: ".pdf",
+      ready: scenarios.length >= 2,
+      color: "#1d7a6b",
+      bg: "#E6F3EE",
+      onClick: handlePdfDownload,
+    },
+    {
+      id: "excel",
+      icon: FileSpreadsheet,
+      title: "Exportação Excel — Todos os Itens",
+      desc: "Tabela completa com tCO₂e por item, compatível com Power BI",
+      badge: "Essencial",
+      format: ".xlsx",
+      ready: true,
+      color: "#1d7a6b",
+      bg: "#E6F3EE",
+      onClick: handleExcelDownload,
+    },
+    {
+      id: "csv",
+      icon: FileText,
+      title: "Exportação CSV",
+      desc: "Formato plano para integração com outros sistemas",
+      badge: "Essencial",
+      format: ".csv",
+      ready: true,
+      color: "#1d7a6b",
+      bg: "#E6F3EE",
+      onClick: handleCsvDownload,
+    },
+  ];
+
+  if (loading) {
+    return (
+      <div className="p-7 flex items-center justify-center min-h-[400px]">
+        <Loader2 size={24} className="text-[#56B7A5] animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-7 max-w-3xl">
       {/* Header */}
       <div className="mb-7">
         <p className="text-xs font-semibold text-[#808181] uppercase tracking-widest mb-1">
-          {projectName} · Cenário Base
+          {projectName}
         </p>
         <h1 className="text-2xl font-bold text-[#030304]">Relatórios e Exportações</h1>
         <p className="text-sm text-[#808181] mt-0.5">
-          Gere e baixe relatórios do projeto em diferentes formatos
+          Gere e baixe relatórios do projeto · {scenarios.length} cenário{scenarios.length !== 1 ? "s" : ""} disponíve{scenarios.length !== 1 ? "is" : "l"}
         </p>
       </div>
 
       {/* Identity branding */}
       <div className="bg-[#E6F3EE] border border-[#81C8B9] rounded-xl p-5 mb-6">
         <div className="flex items-start gap-4">
-          <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-[0_2px_8px_rgba(86,183,165,0.15)] shrink-0">
-            <span className="font-bold text-[#030304] text-sm">ZNIT</span>
+          <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-[0_2px_8px_rgba(86,183,165,0.15)] shrink-0 overflow-hidden">
+            {branding?.companyLogo ? (
+              <img src={branding.companyLogo} alt="Logo" className="w-full h-full object-contain p-1" />
+            ) : (
+              <span className="font-bold text-sm" style={{ color: branding?.primaryColor || "#56B7A5" }}>
+                {(branding?.companyName || "ZNIT").slice(0, 4)}
+              </span>
+            )}
           </div>
-          <div>
+          <div className="flex-1">
             <p className="text-sm font-bold text-[#1d7a6b] mb-0.5">
-              Identidade visual configurada
+              {branding?.companyLogo ? "Identidade visual configurada" : "Configure sua identidade visual"}
             </p>
             <p className="text-xs text-[#808181]">
-              Todos os PDFs gerados incluem logo e cores da ZNIT.
-              Altere em{" "}
-              <button className="underline text-[#56B7A5] font-semibold">
-                Configurações → Branding
-              </button>
+              {branding?.companyLogo
+                ? `PDFs gerados com logo e cores de ${branding.companyName}.`
+                : "Adicione logo e cores da empresa para personalizar os relatórios."
+              }
+              {" "}
+              <Link href="/settings" className="underline text-[#56B7A5] font-semibold">
+                Configurações →
+              </Link>
             </p>
           </div>
-          <CheckCircle2 size={18} className="text-[#56B7A5] shrink-0 mt-0.5 ml-auto" />
+          {branding?.companyLogo ? (
+            <CheckCircle2 size={18} className="text-[#56B7A5] shrink-0 mt-0.5" />
+          ) : (
+            <Link href="/settings">
+              <Settings size={18} className="text-[#808181] shrink-0 mt-0.5 hover:text-[#56B7A5]" />
+            </Link>
+          )}
         </div>
       </div>
+
+      {/* Warning if less than 2 scenarios */}
+      {scenarios.length < 2 && (
+        <div className="bg-[#FEF3C7] border border-[#FCD34D] rounded-xl p-4 mb-6 flex items-start gap-3">
+          <AlertTriangle size={16} className="text-[#b45309] shrink-0 mt-0.5" />
+          <p className="text-xs text-[#808181]">
+            O relatório comparativo PDF requer pelo menos 2 cenários.{" "}
+            <Link href={`/projects/${projectId}/import`} className="underline text-[#56B7A5] font-semibold">
+              Importar cenário →
+            </Link>
+          </p>
+        </div>
+      )}
 
       {/* Reports list */}
       <div className="space-y-3">
         {reports.map((report) => {
           const Icon = report.icon;
+          const isGenerating = generating === report.id;
           return (
             <Card key={report.id}>
               <CardBody className="!py-4">
@@ -127,10 +346,15 @@ export default function ReportsPage() {
                     <Button
                       size="sm"
                       variant={report.ready ? "primary" : "outline"}
-                      disabled={!report.ready}
+                      disabled={!report.ready || isGenerating}
+                      onClick={report.onClick}
                     >
-                      <Download size={13} />
-                      {report.ready ? "Baixar" : "Em breve"}
+                      {isGenerating ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : (
+                        <Download size={13} />
+                      )}
+                      {isGenerating ? "Gerando..." : report.ready ? "Baixar" : "Sem cenários"}
                     </Button>
                   </div>
                 </div>
@@ -138,60 +362,6 @@ export default function ReportsPage() {
             </Card>
           );
         })}
-      </div>
-
-      {/* Memo preview */}
-      <div className="mt-7 bg-white rounded-xl border border-[#E0E4E3] overflow-hidden shadow-[0_1px_3px_rgba(3,3,4,0.06)]">
-        <div className="px-5 py-4 border-b border-[#E0E4E3] flex items-center justify-between">
-          <h3 className="text-sm font-bold text-[#030304]">Visualização — Memorando de Cálculo</h3>
-          <Button size="sm" variant="secondary">
-            <Download size={13} />
-            Baixar PDF
-          </Button>
-        </div>
-        <div className="p-7 font-mono text-xs text-[#404040] space-y-4 bg-[#FAFAFA]">
-          <div className="flex items-start justify-between border-b border-[#E0E4E3] pb-4 mb-4">
-            <div>
-              <p className="text-lg font-bold text-[#030304] not-italic mb-0.5" style={{ fontFamily: "sans-serif" }}>
-                MEMORANDO DE CÁLCULO DE CARBONO
-              </p>
-              <p style={{ fontFamily: "sans-serif" }} className="text-xs text-[#808181]">
-                Projeto: {projectName} · Emitido em: 15/03/2026 · ZNIT Carbon Calculator v1.0
-              </p>
-            </div>
-            <div className="text-right">
-              <div className="font-bold text-[#030304] text-sm" style={{ fontFamily: "sans-serif" }}>ZNIT</div>
-              <div className="text-[10px] text-[#808181]" style={{ fontFamily: "sans-serif" }}>ZNIT Engenharia</div>
-            </div>
-          </div>
-
-          <div>
-            <p className="font-bold mb-2">1. PREMISSAS METODOLÓGICAS</p>
-            <p className="text-[#808181] leading-relaxed">
-              1.1 Escopo: Carbono Incorporado — Escopo 3 materiais e logística<br />
-              1.2 Mão de obra (Tipo B): Excluída conforme política ZNIT v1 (2026-03)<br />
-              1.3 Diesel: Incluído como Escopo 1 — 2,68 kgCO₂e/L (GHG Protocol BR)<br />
-              1.4 Itens agrupados (Tipo C): Bloqueados — aguardam decomposição
-            </p>
-          </div>
-
-          <div>
-            <p className="font-bold mb-2">2. FONTES EPD UTILIZADAS</p>
-            <p className="text-[#808181] leading-relaxed">
-              — Ecoinvent 3.9 (aço, produtos metálicos)<br />
-              — GHG Protocol BR 2023 (concreto, combustíveis)<br />
-              — IPCC AR6 (fatores de conversão)
-            </p>
-          </div>
-
-          <div>
-            <p className="font-bold mb-2">3. RESULTADO CENÁRIO BASE</p>
-            <p className="text-[#808181] leading-relaxed">
-              Total: 2.847 tCO₂e | Intensidade: 27,9 kgCO₂e/m² | Cobertura: 87%<br />
-              Escopo 3 Materiais: 78% | Escopo 3 Logística: 15% | Escopo 1: 7%
-            </p>
-          </div>
-        </div>
       </div>
     </div>
   );
