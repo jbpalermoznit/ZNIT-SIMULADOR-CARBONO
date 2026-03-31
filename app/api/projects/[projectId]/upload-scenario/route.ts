@@ -162,8 +162,15 @@ export async function POST(
         });
 
         // Expand: qty_child = Qtd_Item × Índice_Composição
+        // Normalize: when índice is ~1.0 and same unit as parent, remove waste factor
+        const itemUnitNorm = item.unit.toLowerCase().trim();
         for (const insumo of recipe) {
-          const childQty = qty * insumo.indice;
+          let indice = insumo.indice;
+          const insumoUnitNorm = insumo.unidade.toLowerCase().trim();
+          if (itemUnitNorm === insumoUnitNorm && indice > 0.95 && indice <= 1.15) {
+            indice = 1.0;
+          }
+          const childQty = qty * indice;
           if (childQty <= 0) continue;
 
           itemOrder++;
@@ -183,7 +190,7 @@ export async function POST(
             item_order: itemOrder,
             mapping_status: "pending",
             parent_item_id: parentId,
-            classification_note: `Insumo de ${item.description} (${qty} ${item.unit} × ${insumo.indice} ${insumo.unidade})`,
+            classification_note: `Insumo de ${item.description} (${qty} ${item.unit} × ${indice} ${insumo.unidade})`,
           });
         }
       } else {
