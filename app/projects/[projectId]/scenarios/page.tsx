@@ -442,6 +442,48 @@ function ScenarioComparison({ scenarios }: { scenarios: ScenarioResponse[] }) {
     .sort((x, y) => Math.max(y.a, y.b) - Math.max(x.a, x.b))
     .slice(0, 15);
 
+  // Calculate report-style indicators
+  const calcIndicators = (items: ScenarioItemResponse[]) => {
+    let concretoM3 = 0, concretoTco2e = 0;
+    let acoKg = 0, acoTco2e = 0;
+    let totalCostR$ = 0;
+
+    for (const item of items) {
+      if (item.is_excluded) continue;
+      totalCostR$ += item.total_cost ?? 0;
+      const desc = (item.description ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const tco2e = item.emission_tco2e ?? 0;
+      const qty = item.quantity ?? 0;
+      const unit = (item.unit ?? "").toLowerCase();
+
+      if (desc.includes("concreto") && (unit === "m³" || unit === "m3")) {
+        concretoM3 += qty;
+        concretoTco2e += tco2e;
+      }
+      if ((desc.includes("aco") || desc.includes("armadura") || desc.includes("ca-50") || desc.includes("ca-25") || desc.includes("ca-60") || desc.includes("tela soldada") || desc.includes("arame")) && (unit === "kg" || unit === "t")) {
+        acoKg += unit === "t" ? qty * 1000 : qty;
+        acoTco2e += tco2e;
+      }
+    }
+
+    return {
+      totalCostR$,
+      concretoM3: Math.round(concretoM3 * 10) / 10,
+      concretoTco2e: Math.round(concretoTco2e * 100) / 100,
+      indicadorConcreto: concretoM3 > 0 ? Math.round((concretoTco2e / concretoM3) * 100) / 100 : 0,
+      acoTon: Math.round(acoKg / 100) / 10,
+      acoTco2e: Math.round(acoTco2e * 100) / 100,
+      indicadorAco: acoKg > 0 ? Math.round((acoTco2e / (acoKg / 1000)) * 100) / 100 : 0,
+    };
+  };
+
+  const indA = calcIndicators(detailA.items);
+  const indB = calcIndicators(detailB.items);
+
+  const fmtNum = (v: number, d = 2) => v.toLocaleString("pt-BR", { maximumFractionDigits: d });
+  const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+  const pctDiff = (a: number, b: number) => a > 0 ? ((a - b) / a * 100) : 0;
+
   return (
     <div className="space-y-6">
       {/* Scenario selectors */}
@@ -494,83 +536,82 @@ function ScenarioComparison({ scenarios }: { scenarios: ScenarioResponse[] }) {
         </div>
       </div>
 
-      {/* Detailed comparison */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Scope breakdown */}
-        <div className="bg-white rounded-xl border border-[#E0E4E3] overflow-hidden">
-          <div className="px-5 py-3 border-b border-[#E0E4E3] bg-[#F8FAF9]">
-            <p className="text-xs font-bold text-[#030304]">Breakdown por Escopo</p>
-          </div>
+      {/* Report-style indicators table */}
+      <div className="bg-white rounded-xl border border-[#E0E4E3] overflow-hidden">
+        <div className="px-5 py-3 border-b border-[#E0E4E3] bg-[#F8FAF9]">
+          <p className="text-xs font-bold text-[#030304]">Indicadores Comparativos</p>
+        </div>
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-[#E0E4E3]">
+              <th className="text-left px-5 py-3 text-[10px] font-semibold text-[#808181] uppercase tracking-wide">Parâmetro</th>
+              <th className="text-right px-5 py-3 text-[10px] font-semibold text-[#808181] uppercase tracking-wide">{scenA.name.split(" - ").pop()}</th>
+              <th className="text-right px-5 py-3 text-[10px] font-semibold text-[#808181] uppercase tracking-wide">{scenB.name.split(" - ").pop()}</th>
+              <th className="text-right px-5 py-3 text-[10px] font-semibold text-[#808181] uppercase tracking-wide">Diferença %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              { label: "Emissões Totais (tCO₂e)", a: totalA, b: totalB, fmt: (v: number) => fmtNum(v, 2), highlight: true },
+              { label: "Valor (R$)", a: indA.totalCostR$, b: indB.totalCostR$, fmt: (v: number) => fmtBRL(v) },
+              { label: "Quantidade de concreto (m³)", a: indA.concretoM3, b: indB.concretoM3, fmt: (v: number) => fmtNum(v, 1) },
+              { label: "Indicador de Concreto tCO₂/m³", a: indA.indicadorConcreto, b: indB.indicadorConcreto, fmt: (v: number) => fmtNum(v, 2) },
+              { label: "Quantidade de aço (ton)", a: indA.acoTon, b: indB.acoTon, fmt: (v: number) => fmtNum(v, 1) },
+              { label: "Indicador de Aço tCO₂/ton", a: indA.indicadorAco, b: indB.indicadorAco, fmt: (v: number) => fmtNum(v, 2) },
+              { label: "Emissões de Materiais (tCO₂e)", a: (rA?.scope3_materials_kgco2e ?? 0) / 1000, b: (rB?.scope3_materials_kgco2e ?? 0) / 1000, fmt: (v: number) => fmtNum(v, 2) },
+              { label: "Emissões de Transporte (tCO₂e)", a: (rA?.scope3_logistics_kgco2e ?? 0) / 1000, b: (rB?.scope3_logistics_kgco2e ?? 0) / 1000, fmt: (v: number) => fmtNum(v, 2) },
+              { label: "Cobertura", a: rA?.coverage_pct ?? 0, b: rB?.coverage_pct ?? 0, fmt: (v: number) => `${fmtNum(v, 1)}%` },
+              { label: "Itens mapeados", a: rA?.items_mapped ?? 0, b: rB?.items_mapped ?? 0, fmt: (v: number) => String(Math.round(v)) },
+            ].map((row) => {
+              const d = pctDiff(row.a, row.b);
+              return (
+                <tr key={row.label} className={cn("border-b border-[#F0F4F3]", row.highlight ? "bg-[#F8FAF9]" : "")}>
+                  <td className={cn("px-5 py-2.5 text-[#030304]", row.highlight ? "font-bold" : "font-semibold")}>{row.label}</td>
+                  <td className="px-5 py-2.5 text-right text-[#030304] font-semibold">{row.fmt(row.a)}</td>
+                  <td className="px-5 py-2.5 text-right text-[#030304] font-semibold">{row.fmt(row.b)}</td>
+                  <td className={cn("px-5 py-2.5 text-right font-bold", d > 0 ? "text-[#1d7a6b]" : d < 0 ? "text-[#b45309]" : "text-[#808181]")}>
+                    {d !== 0 ? `${Math.abs(d).toFixed(2)}%` : "0.00%"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Material-by-material comparison */}
+      <div className="bg-white rounded-xl border border-[#E0E4E3] overflow-hidden">
+        <div className="px-5 py-3 border-b border-[#E0E4E3] bg-[#F8FAF9]">
+          <p className="text-xs font-bold text-[#030304]">Top Emissores por Material (tCO₂e)</p>
+        </div>
+        <div className="max-h-[400px] overflow-y-auto">
           <table className="w-full text-xs">
-            <thead>
+            <thead className="sticky top-0 bg-white">
               <tr className="border-b border-[#F0F4F3]">
-                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">Métrica</th>
-                <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">{scenA.name.split(" - ")[0]}</th>
-                <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">{scenB.name.split(" - ")[0]}</th>
-                <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">Dif. %</th>
+                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">Material</th>
+                <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">{scenA.name.split(" - ").pop()}</th>
+                <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">{scenB.name.split(" - ").pop()}</th>
+                <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">Dif.</th>
               </tr>
             </thead>
             <tbody>
-              {[
-                { label: "Total", a: totalA, b: totalB },
-                { label: "Materiais (Escopo 3)", a: (rA?.scope3_materials_kgco2e ?? 0) / 1000, b: (rB?.scope3_materials_kgco2e ?? 0) / 1000 },
-                { label: "Logística (Escopo 3)", a: (rA?.scope3_logistics_kgco2e ?? 0) / 1000, b: (rB?.scope3_logistics_kgco2e ?? 0) / 1000 },
-                { label: "Itens mapeados", a: rA?.items_mapped ?? 0, b: rB?.items_mapped ?? 0 },
-                { label: "Cobertura", a: rA?.coverage_pct ?? 0, b: rB?.coverage_pct ?? 0 },
-              ].map((row) => {
+              {materialRows.map((row) => {
                 const d = row.a > 0 ? ((row.a - row.b) / row.a * 100) : 0;
-                const isPercent = row.label === "Cobertura";
-                const isCount = row.label === "Itens mapeados";
-                const fmt = (v: number) => isPercent ? `${v.toFixed(0)}%` : isCount ? String(Math.round(v)) : v.toFixed(1);
                 return (
-                  <tr key={row.label} className="border-b border-[#F0F4F3]">
-                    <td className="px-4 py-2.5 font-semibold text-[#030304]">{row.label}</td>
-                    <td className="px-4 py-2.5 text-right text-[#030304]">{fmt(row.a)}</td>
-                    <td className="px-4 py-2.5 text-right text-[#030304]">{fmt(row.b)}</td>
-                    <td className={cn("px-4 py-2.5 text-right font-semibold", d > 0 ? "text-[#1d7a6b]" : d < 0 ? "text-[#b45309]" : "text-[#808181]")}>
-                      {d !== 0 ? `${d > 0 ? "-" : "+"}${Math.abs(d).toFixed(1)}%` : "—"}
+                  <tr key={row.name} className="border-b border-[#F0F4F3]">
+                    <td className="px-4 py-2 text-[#030304] leading-snug max-w-[200px] truncate" title={row.name}>
+                      {row.name.length > 35 ? row.name.slice(0, 32) + "…" : row.name}
+                    </td>
+                    <td className="px-3 py-2 text-right text-[#030304] whitespace-nowrap">{row.a.toFixed(1)}</td>
+                    <td className="px-3 py-2 text-right text-[#030304] whitespace-nowrap">{row.b.toFixed(1)}</td>
+                    <td className={cn("px-3 py-2 text-right font-semibold whitespace-nowrap", d > 0 ? "text-[#1d7a6b]" : d < 0 ? "text-[#b45309]" : "text-[#808181]")}>
+                      {row.a === 0 && row.b === 0 ? "—" : d > 0 ? `↓${d.toFixed(0)}%` : d < 0 ? `↑${Math.abs(d).toFixed(0)}%` : "="}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        </div>
-
-        {/* Material-by-material comparison */}
-        <div className="bg-white rounded-xl border border-[#E0E4E3] overflow-hidden">
-          <div className="px-5 py-3 border-b border-[#E0E4E3] bg-[#F8FAF9]">
-            <p className="text-xs font-bold text-[#030304]">Top Emissores por Material</p>
-          </div>
-          <div className="max-h-[320px] overflow-y-auto">
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-white">
-                <tr className="border-b border-[#F0F4F3]">
-                  <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">Material</th>
-                  <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">A</th>
-                  <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">B</th>
-                  <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">Dif.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {materialRows.map((row) => {
-                  const d = row.a > 0 ? ((row.a - row.b) / row.a * 100) : 0;
-                  return (
-                    <tr key={row.name} className="border-b border-[#F0F4F3]">
-                      <td className="px-4 py-2 text-[#030304] leading-snug max-w-[200px] truncate" title={row.name}>
-                        {row.name.length > 35 ? row.name.slice(0, 32) + "…" : row.name}
-                      </td>
-                      <td className="px-3 py-2 text-right text-[#030304] whitespace-nowrap">{row.a.toFixed(1)}</td>
-                      <td className="px-3 py-2 text-right text-[#030304] whitespace-nowrap">{row.b.toFixed(1)}</td>
-                      <td className={cn("px-3 py-2 text-right font-semibold whitespace-nowrap", d > 0 ? "text-[#1d7a6b]" : d < 0 ? "text-[#b45309]" : "text-[#808181]")}>
-                        {row.a === 0 && row.b === 0 ? "—" : d > 0 ? `↓${d.toFixed(0)}%` : d < 0 ? `↑${Math.abs(d).toFixed(0)}%` : "="}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
         </div>
       </div>
     </div>

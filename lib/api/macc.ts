@@ -31,9 +31,30 @@ export interface MaccKpis {
   total_alternatives: number;
 }
 
+export interface EpdRecommendation {
+  epd_id: number;
+  titulo: string;
+  company_name: string;
+  country: string;
+  declared_unit: string;
+  declared_value: number | null;
+  registration_number: string;
+  has_gwp: boolean;
+  score: number;
+  item_id: string;
+  item_description: string;
+  item_cost_code: string;
+  item_quantity: number;
+  item_unit: string;
+  item_unit_cost: number;
+  baseline_factor: number;
+  baseline_emission_kg: number;
+}
+
 export interface MaccResponse {
   bars: MaccBar[];
   kpis: MaccKpis;
+  epd_recommendations?: EpdRecommendation[];
 }
 
 export async function getMaccData(projectId: string): Promise<MaccResponse> {

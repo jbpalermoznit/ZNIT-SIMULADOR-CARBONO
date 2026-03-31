@@ -22,6 +22,8 @@ export interface AbcItem {
   emissionKgco2e?: number;
   emissionTco2e?: number;
   confidence?: "high" | "medium" | "low";
+  parentItemId?: string | null;
+  classificationNote?: string | null;
 }
 
 export interface Project {

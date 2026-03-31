@@ -8,7 +8,7 @@ import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   Leaf, DollarSign, TrendingDown, Scale, Loader2,
-  ArrowRight, ChevronDown, AlertTriangle, Info,
+  ArrowRight, AlertTriangle, Info,
 } from "lucide-react";
 import { listScenarios, type ScenarioResponse } from "@/lib/api/scenarios";
 import { getProject, type ProjectResponse } from "@/lib/api/projects";
@@ -50,18 +50,62 @@ export default function SimulationPage() {
     load();
   }, [projectId]);
 
-  const baseScenario = useMemo(() => scenarios.find((s) => s.is_base && s.result), [scenarios]);
+  const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
+
+  // Auto-select base and alt on load
+  useEffect(() => {
+    if (scenarios.length > 0 && !selectedBaseId) {
+      const base = scenarios.find((s) => s.is_base && s.result);
+      if (base) setSelectedBaseId(base.id);
+      else if (scenarios[0]?.result) setSelectedBaseId(scenarios[0].id);
+    }
+  }, [scenarios, selectedBaseId]);
+
+  const baseScenario = useMemo(() => scenarios.find((s) => s.id === selectedBaseId), [scenarios, selectedBaseId]);
   const altScenario = useMemo(() => scenarios.find((s) => s.id === selectedAltId), [scenarios, selectedAltId]);
-  const altScenarios = useMemo(() => scenarios.filter((s) => !s.is_base && s.result), [scenarios]);
+  const scenariosWithResult = useMemo(() => scenarios.filter((s) => s.result), [scenarios]);
 
   const baseTco2e = baseScenario?.result?.total_tco2e ?? 0;
   const altTco2e = altScenario?.result?.total_tco2e ?? 0;
+
+  // Project costs from scenario items total_cost
+  const [projectCosts, setProjectCosts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    // Fetch abc_curves total_cost for each scenario
+    async function loadCosts() {
+      const costs: Record<string, number> = {};
+      for (const s of scenarios) {
+        try {
+          const token = localStorage.getItem("znit_token");
+          const res = await fetch(`/api/scenarios/${s.id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const totalCost = (data.items ?? []).reduce(
+              (sum: number, i: { total_cost?: number }) => sum + (i.total_cost ?? 0),
+              0
+            );
+            costs[s.id] = totalCost;
+          }
+        } catch { /* ignore */ }
+      }
+      setProjectCosts(costs);
+    }
+    if (scenarios.length > 0) loadCosts();
+  }, [scenarios]);
+
+  const baseCostProject = projectCosts[selectedBaseId ?? ""] ?? 0;
+  const altCostProject = projectCosts[selectedAltId ?? ""] ?? 0;
+  const deltaCostProject = altCostProject - baseCostProject;
 
   const custoCompensarTudo = baseTco2e * offsetPrice;
   const custoResidual = altTco2e * offsetPrice;
   const reducaoTco2e = baseTco2e - altTco2e;
   const reducaoPct = baseTco2e > 0 ? (reducaoTco2e / baseTco2e) * 100 : 0;
   const economia = custoCompensarTudo - custoResidual;
+  const netSaving = economia - Math.max(0, deltaCostProject); // economia em compensação menos custo adicional do projeto
 
   // Chart dimensions
   const chartHeight = 280;
@@ -113,6 +157,54 @@ export default function SimulationPage() {
         <p className="text-sm text-[#808181] mt-0.5">
           Compare o custo de compensar emissoes vs. reduzi-las com materiais alternativos
         </p>
+      </div>
+
+      {/* Scenario selectors */}
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="bg-white rounded-xl border border-[#E0E4E3] p-4">
+          <label className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide block mb-2">
+            Cenario Referencia (maior emissao)
+          </label>
+          <select
+            value={selectedBaseId ?? ""}
+            onChange={(e) => setSelectedBaseId(e.target.value)}
+            className="w-full px-3 py-2 border border-[#E0E4E3] rounded-lg text-sm font-semibold text-[#030304] bg-[#F8FAF9] focus:outline-none focus:ring-2 focus:ring-[#56B7A5]/30"
+          >
+            <option value="" disabled>Selecionar cenario...</option>
+            {scenariosWithResult.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({fmt(s.result?.total_tco2e ?? 0)} tCO2e)
+              </option>
+            ))}
+          </select>
+          {baseScenario && (
+            <p className="text-xs text-[#808181] mt-2">
+              {fmt(baseTco2e)} tCO2e · {baseScenario.result?.items_mapped ?? 0} itens mapeados
+            </p>
+          )}
+        </div>
+        <div className="bg-white rounded-xl border border-[#E0E4E3] p-4">
+          <label className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide block mb-2">
+            Cenario Alternativo (menor emissao)
+          </label>
+          <select
+            value={selectedAltId ?? ""}
+            onChange={(e) => setSelectedAltId(e.target.value)}
+            className="w-full px-3 py-2 border border-[#E0E4E3] rounded-lg text-sm font-semibold text-[#030304] bg-[#F8FAF9] focus:outline-none focus:ring-2 focus:ring-[#56B7A5]/30"
+          >
+            <option value="" disabled>Selecionar cenario...</option>
+            {scenariosWithResult.filter((s) => s.id !== selectedBaseId).map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({fmt(s.result?.total_tco2e ?? 0)} tCO2e)
+              </option>
+            ))}
+          </select>
+          {altScenario && (
+            <p className="text-xs text-[#808181] mt-2">
+              {fmt(altTco2e)} tCO2e · {altScenario.result?.items_mapped ?? 0} itens mapeados
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Offset price input */}
@@ -201,36 +293,6 @@ export default function SimulationPage() {
                   Custo total: compensar tudo vs. reduzir + compensar residual
                 </p>
               </div>
-              {/* Scenario selector */}
-              {altScenarios.length > 1 && (
-                <div className="relative">
-                  <button
-                    onClick={() => setShowAltDropdown(!showAltDropdown)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E0E4E3] text-xs font-semibold text-[#404040] hover:border-[#56B7A5] transition-all"
-                  >
-                    {altScenario?.name ?? "Selecionar cenario"}
-                    <ChevronDown size={12} />
-                  </button>
-                  {showAltDropdown && (
-                    <div className="absolute right-0 top-full mt-1 bg-white border border-[#E0E4E3] rounded-lg shadow-lg z-10 min-w-[200px]">
-                      {altScenarios.map((s) => (
-                        <button
-                          key={s.id}
-                          onClick={() => { setSelectedAltId(s.id); setShowAltDropdown(false); }}
-                          className="block w-full text-left px-3 py-2 text-xs hover:bg-[#F8FAF9] first:rounded-t-lg last:rounded-b-lg"
-                        >
-                          <span className="font-semibold text-[#030304]">{s.name}</span>
-                          {s.result && (
-                            <span className="text-[#808181] ml-2">
-                              {fmt(s.result.total_tco2e)} tCO2e
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           </CardHeader>
           <CardBody>
@@ -340,17 +402,57 @@ export default function SimulationPage() {
 
               {/* Resultado */}
               {altScenario && (
-                <div className="pt-4">
-                  <div className="bg-[#E6F3EE] rounded-lg p-3">
-                    <p className="text-[10px] text-[#1d7a6b] uppercase tracking-wide font-bold mb-1">
-                      Economia total
-                    </p>
-                    <p className="text-xl font-bold text-[#1d7a6b]">{fmtBRL(economia)}</p>
-                    <p className="text-xs text-[#808181] mt-1">
-                      ao reduzir emissoes em vez de apenas compensar
-                    </p>
+                <>
+                  <div className="pt-4">
+                    <div className="bg-[#E6F3EE] rounded-lg p-3">
+                      <p className="text-[10px] text-[#1d7a6b] uppercase tracking-wide font-bold mb-1">
+                        Economia em compensacao
+                      </p>
+                      <p className="text-xl font-bold text-[#1d7a6b]">{fmtBRL(economia)}</p>
+                      <p className="text-xs text-[#808181] mt-1">
+                        ao reduzir emissoes em vez de apenas compensar
+                      </p>
+                    </div>
                   </div>
-                </div>
+
+                  {/* Project cost difference */}
+                  <div className="pt-3">
+                    <div className="bg-[#F8FAF9] rounded-lg p-3">
+                      <p className="text-[10px] text-[#808181] uppercase tracking-wide font-bold mb-2">
+                        Custo do Projeto
+                      </p>
+                      <div className="space-y-1.5">
+                        <Row label={baseScenario?.name?.split(" - ")[1] ?? "Referencia"} value={fmtBRL(baseCostProject)} />
+                        <Row label={altScenario?.name?.split(" - ")[1] ?? "Alternativo"} value={fmtBRL(altCostProject)} />
+                        <div className="border-t border-[#E0E4E3] pt-1.5">
+                          <Row
+                            label="Diferenca do projeto"
+                            value={`${deltaCostProject >= 0 ? "+" : ""}${fmtBRL(deltaCostProject)}`}
+                            bold
+                            highlight={deltaCostProject < 0}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Net result */}
+                  <div className="pt-3">
+                    <div className={`rounded-lg p-3 ${netSaving >= 0 ? "bg-[#E6F3EE]" : "bg-[#FEF3C7]"}`}>
+                      <p className={`text-[10px] uppercase tracking-wide font-bold mb-1 ${netSaving >= 0 ? "text-[#1d7a6b]" : "text-[#92400E]"}`}>
+                        Resultado Liquido
+                      </p>
+                      <p className={`text-xl font-bold ${netSaving >= 0 ? "text-[#1d7a6b]" : "text-[#b45309]"}`}>
+                        {netSaving >= 0 ? "" : "+"}{fmtBRL(Math.abs(netSaving))}
+                      </p>
+                      <p className="text-xs text-[#808181] mt-1">
+                        {netSaving >= 0
+                          ? "economia total (compensacao + projeto)"
+                          : "custo adicional do projeto supera a economia em compensacao"}
+                      </p>
+                    </div>
+                  </div>
+                </>
               )}
 
               {!altScenario && (

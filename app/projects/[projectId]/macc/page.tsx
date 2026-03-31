@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { ArrowDownRight, Info, Loader2, Pencil } from "lucide-react";
-import { getMaccData, type MaccBar } from "@/lib/api/macc";
+import { ArrowDownRight, Info, Loader2, Pencil, ExternalLink, FileText, Check, X, Search } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { getMaccData, type MaccBar, type EpdRecommendation } from "@/lib/api/macc";
+import { searchEmissionFactors } from "@/lib/api/emission-factors";
 
 const SOURCE_LABELS: Record<string, string> = {
   epd: "EPD",
@@ -35,19 +37,74 @@ function pickTopItems(bars: MaccBar[]) {
 
 type CountryFilter = "all" | "brasil" | "outros";
 
+const MACC_STORAGE_PREFIX = "znit_macc_";
+
+function loadMaccState(projectId: string) {
+  try {
+    const raw = localStorage.getItem(`${MACC_STORAGE_PREFIX}${projectId}`);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+function saveMaccState(
+  projectId: string,
+  data: {
+    userGwp: Record<string, number>;
+    userPrice: Record<string, number>;
+    hiddenBars: string[];
+    customEpds: Record<string, { titulo: string; company_name: string; country: string; registration_number: string }>;
+    multipliers: Record<string, number>;
+    countryFilter: string;
+  }
+) {
+  try {
+    localStorage.setItem(`${MACC_STORAGE_PREFIX}${projectId}`, JSON.stringify(data));
+  } catch {}
+}
+
 export default function MaccPage() {
   const params = useParams();
   const projectId = params.projectId as string;
 
   const [allBars, setAllBars] = useState<MaccBar[]>([]);
+  const [epdRecs, setEpdRecs] = useState<EpdRecommendation[]>([]);
+  // Key = "epd_id|item_id" to avoid cross-contamination between items
+  const [userGwp, setUserGwp] = useState<Record<string, number>>({});
+  const [userPrice, setUserPrice] = useState<Record<string, number>>({});
+  const [hiddenBars, setHiddenBars] = useState<Set<string>>(new Set());
+  // EPD search drawer
+  const [searchDrawer, setSearchDrawer] = useState<{ recKey: string; itemDesc: string } | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchCountry, setSearchCountry] = useState<"all" | "brazil" | "other">("all");
+  const [searchResults, setSearchResults] = useState<EpdRecommendation[]>([]);
+  const [searching, setSearching] = useState(false);
+  // Custom EPD overrides: recKey → { titulo, company_name, country, registration_number }
+  const [customEpds, setCustomEpds] = useState<Record<string, { titulo: string; company_name: string; country: string; registration_number: string }>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hoveredBar, setHoveredBar] = useState<string | null>(null);
   const [countryFilter, setCountryFilter] = useState<CountryFilter>("all");
-
+  const [stateLoaded, setStateLoaded] = useState(false);
+  type RecSort = "emission" | "cost" | "volume";
+  const [recSort, setRecSort] = useState<RecSort>("emission");
   // Cost multipliers: barId → multiplier (default 1.0 = same cost)
   const [multipliers, setMultipliers] = useState<Record<string, number>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Load persisted state on mount
+  useEffect(() => {
+    const saved = loadMaccState(projectId);
+    if (saved) {
+      if (saved.userGwp) setUserGwp(saved.userGwp);
+      if (saved.userPrice) setUserPrice(saved.userPrice);
+      if (saved.hiddenBars) setHiddenBars(new Set(saved.hiddenBars));
+      if (saved.customEpds) setCustomEpds(saved.customEpds);
+      if (saved.multipliers) setMultipliers(saved.multipliers);
+      if (saved.countryFilter) setCountryFilter(saved.countryFilter as CountryFilter);
+    }
+    setStateLoaded(true);
+  }, [projectId]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -56,6 +113,7 @@ export default function MaccPage() {
       .then((data) => {
         if (!cancelled) {
           setAllBars(data.bars);
+          setEpdRecs(data.epd_recommendations ?? []);
           setLoading(false);
         }
       })
@@ -68,28 +126,92 @@ export default function MaccPage() {
     return () => { cancelled = true; };
   }, [projectId]);
 
+  // Auto-save state when user edits
+  useEffect(() => {
+    if (!stateLoaded) return;
+    saveMaccState(projectId, {
+      userGwp,
+      userPrice,
+      hiddenBars: [...hiddenBars],
+      customEpds,
+      multipliers,
+      countryFilter,
+    });
+  }, [userGwp, userPrice, hiddenBars, customEpds, multipliers, countryFilter, stateLoaded, projectId]);
+
+  // Unique key per recommendation
+  const recKey = (rec: EpdRecommendation) => `${rec.epd_id}|${rec.item_id}`;
+
+  // Generate virtual bars from EPD recommendations where user filled GWP
+  const userBars = useMemo((): MaccBar[] => {
+    const bars: MaccBar[] = [];
+    for (const rec of epdRecs) {
+      const key = recKey(rec);
+      const gwp = userGwp[key];
+      if (gwp == null || gwp <= 0) continue;
+      const custom = customEpds[key];
+      const altEmissionKg = gwp * rec.item_quantity;
+      if (altEmissionKg >= rec.baseline_emission_kg) continue;
+      const abatementKg = rec.baseline_emission_kg - altEmissionKg;
+      const abatementTco2e = abatementKg / 1000;
+      const priceMult = userPrice[key] ?? 1.0;
+      const baselineCost = (rec.item_unit_cost ?? 0) * (rec.item_quantity ?? 0);
+      const deltaCost = baselineCost * priceMult - baselineCost;
+      const costPerTco2e = abatementTco2e > 0 ? deltaCost / abatementTco2e : 0;
+      bars.push({
+        id: `user_epd_${key}`,
+        item_description: rec.item_description,
+        item_cost_code: rec.item_cost_code,
+        item_unit_cost: rec.item_unit_cost,
+        item_quantity: rec.item_quantity,
+        baseline_factor: rec.baseline_factor,
+        baseline_source: "Baseline",
+        baseline_emission_kg: rec.baseline_emission_kg,
+        alternative_factor: gwp,
+        alternative_name: custom?.titulo ?? rec.titulo,
+        alternative_source: `EPD — ${custom?.company_name ?? rec.company_name}`,
+        alternative_emission_kg: Math.round(altEmissionKg * 100) / 100,
+        supplier: custom?.company_name ?? rec.company_name,
+        source_tier: "epd",
+        abatement_tco2e: Math.round(abatementTco2e * 100) / 100,
+        abatement_unit: "tCO₂e",
+        cost_per_tco2e: Math.round(costPerTco2e),
+        score: rec.score,
+        category: costPerTco2e < 0 ? "saving" : costPerTco2e <= 50 ? "low" : costPerTco2e <= 200 ? "medium" : "high",
+        country: custom?.country ?? rec.country,
+      });
+    }
+    return bars;
+  }, [epdRecs, userGwp, userPrice, customEpds]);
+
+  // Merge API bars + user-generated bars, excluding hidden
+  const combinedBars = useMemo(
+    () => [...allBars, ...userBars].filter((b) => !hiddenBars.has(b.id)),
+    [allBars, userBars, hiddenBars]
+  );
+
   // Filter by country
   const filteredBars = useMemo(() => {
-    if (countryFilter === "all") return allBars;
-    return allBars.filter((bar) => {
+    if (countryFilter === "all") return combinedBars;
+    return combinedBars.filter((bar) => {
       const country = (bar.country ?? "").toLowerCase();
       const isBrasil = country.includes("brazil") || country.includes("brasil");
       return countryFilter === "brasil" ? isBrasil : !isBrasil;
     });
-  }, [allBars, countryFilter]);
+  }, [combinedBars, countryFilter]);
 
   const topItems = useMemo(() => pickTopItems(filteredBars), [filteredBars]);
 
   // Count EPDs by country for the dropdown label
   const countryStats = useMemo(() => {
     let br = 0, other = 0;
-    for (const b of allBars) {
+    for (const b of combinedBars) {
       const c = (b.country ?? "").toLowerCase();
       if (c.includes("brazil") || c.includes("brasil")) br++;
       else other++;
     }
     return { br, other };
-  }, [allBars]);
+  }, [combinedBars]);
 
   // Apply multipliers to compute cost in R$/tCO₂e
   const barsWithCost = useMemo(() => {
@@ -439,12 +561,22 @@ export default function MaccPage() {
 
           {/* Table with editable multipliers */}
           <div className="bg-white rounded-xl border border-[#E0E4E3] shadow-[0_1px_3px_rgba(3,3,4,0.06)] overflow-hidden mb-6">
-            <div className="px-6 py-4 border-b border-[#E0E4E3]">
-              <h2 className="text-sm font-semibold text-[#030304]">Substitutos EPD — Multiplicador de Custo</h2>
-              <p className="text-[11px] text-[#808181] mt-0.5">
-                Ajuste o multiplicador para simular o custo da alternativa vs. baseline.
-                Ex: 0.90 = 10% mais barato, 1.10 = 10% mais caro.
-              </p>
+            <div className="px-6 py-4 border-b border-[#E0E4E3] flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-[#030304]">Substitutos EPD — Multiplicador de Custo</h2>
+                <p className="text-[11px] text-[#808181] mt-0.5">
+                  Ajuste o multiplicador para simular o custo da alternativa vs. baseline.
+                  Ex: 0.90 = 10% mais barato, 1.10 = 10% mais caro.
+                </p>
+              </div>
+              {hiddenBars.size > 0 && (
+                <button
+                  onClick={() => setHiddenBars(new Set())}
+                  className="text-[10px] font-semibold text-[#56B7A5] hover:text-[#1d7a6b] hover:underline"
+                >
+                  Restaurar {hiddenBars.size} removido{hiddenBars.size > 1 ? "s" : ""}
+                </button>
+              )}
             </div>
             <table className="w-full">
               <thead>
@@ -455,6 +587,7 @@ export default function MaccPage() {
                   <th className="text-right text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-6 py-3">Redução CO₂</th>
                   <th className="text-center text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-6 py-3">Multiplicador</th>
                   <th className="text-right text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-6 py-3">R$/tCO₂e</th>
+                  <th className="w-10"></th>
                 </tr>
               </thead>
               <tbody>
@@ -547,6 +680,15 @@ export default function MaccPage() {
                           {bar.cost_per_tco2e === 0 ? "—" : `R$ ${bar.cost_per_tco2e > 0 ? "+" : ""}${bar.cost_per_tco2e.toLocaleString("pt-BR")}`}
                         </span>
                       </td>
+                      <td className="px-2 py-3">
+                        <button
+                          onClick={() => setHiddenBars((prev) => new Set([...prev, bar.id]))}
+                          className="text-[#BDBDBC] hover:text-[#EF4444] p-1 rounded hover:bg-red-50 transition-colors"
+                          title="Remover da curva"
+                        >
+                          <X size={14} />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -554,16 +696,327 @@ export default function MaccPage() {
             </table>
           </div>
 
+          {/* EPD Recommendations — editable GWP and price */}
+          {epdRecs.length > 0 && (() => {
+            const sortedRecs = [...epdRecs].sort((a, b) => {
+              if (recSort === "emission") return b.baseline_emission_kg - a.baseline_emission_kg;
+              if (recSort === "cost") return (b.item_unit_cost * b.item_quantity) - (a.item_unit_cost * a.item_quantity);
+              return b.item_quantity - a.item_quantity;
+            });
+            return (
+            <div className="bg-white rounded-xl border border-[#E0E4E3] shadow-[0_1px_3px_rgba(3,3,4,0.06)] overflow-hidden mb-6">
+              <div className="px-6 py-4 border-b border-[#E0E4E3]">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <FileText size={15} className="text-[#56B7A5]" />
+                      <h2 className="text-sm font-semibold text-[#030304]">Substitutos EPD Recomendados</h2>
+                    </div>
+                    <p className="text-[11px] text-[#808181] mt-0.5">
+                      EPDs matchados por material. Preencha o GWP (A1-A3) e multiplicador de preço para incluir na curva MACC.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {/* Sort selector */}
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-[#808181]">Ordenar:</span>
+                      {([
+                        { value: "emission" as RecSort, label: "Maior emissão" },
+                        { value: "cost" as RecSort, label: "Maior custo" },
+                        { value: "volume" as RecSort, label: "Maior volume" },
+                      ]).map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={() => setRecSort(opt.value)}
+                          className={cn(
+                            "px-2 py-0.5 rounded text-[10px] font-semibold transition-all",
+                            recSort === opt.value
+                              ? "bg-[#56B7A5] text-white"
+                              : "bg-[#F3F4F6] text-[#808181] hover:bg-[#E0E4E3]"
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    {Object.keys(userGwp).length > 0 && (
+                      <span className="text-[10px] font-bold bg-[#E6F3EE] text-[#1d7a6b] px-2 py-0.5 rounded">
+                        {Object.values(userGwp).filter(v => v > 0).length} na curva
+                      </span>
+                    )}
+                    <span className="text-[10px] font-bold bg-[#FEF3C7] text-[#92400E] px-2 py-0.5 rounded">
+                      {epdRecs.length} EPD{epdRecs.length > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="max-h-[600px] overflow-y-auto">
+                <table className="w-full">
+                  <thead className="sticky top-0 bg-white z-10">
+                    <tr className="border-b border-[#F0F4F3]">
+                      <th className="text-left text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-4 py-3">Material do Projeto</th>
+                      <th className="text-left text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-4 py-3">EPD Substituto</th>
+                      <th className="text-left text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-4 py-3">País</th>
+                      <th className="text-center text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-4 py-3">GWP A1-A3</th>
+                      <th className="text-center text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-4 py-3">Preço (mult.)</th>
+                      <th className="text-right text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-4 py-3">Redução</th>
+                      <th className="text-left text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-4 py-3">PDF</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedRecs.map((rec) => {
+                      const key = recKey(rec);
+                      const custom = customEpds[key];
+                      const displayTitulo = custom?.titulo ?? rec.titulo;
+                      const displayCompany = custom?.company_name ?? rec.company_name;
+                      const displayCountry = custom?.country ?? rec.country;
+                      const displayReg = custom?.registration_number ?? rec.registration_number;
+                      const gwp = userGwp[key];
+                      const hasGwp = gwp != null && gwp > 0;
+                      const altEmission = hasGwp ? gwp * rec.item_quantity : 0;
+                      const reduction = hasGwp && rec.baseline_emission_kg > 0
+                        ? ((rec.baseline_emission_kg - altEmission) / rec.baseline_emission_kg * 100)
+                        : null;
+                      const isReduction = reduction != null && reduction > 0;
+
+                      return (
+                        <tr key={`rec-${key}`} className={`border-b border-[#F0F4F3] last:border-0 transition-colors ${hasGwp && isReduction ? "bg-[#F0FDF4]" : "hover:bg-[#F8FAF9]"}`}>
+                          <td className="px-4 py-3">
+                            <p className="text-xs font-semibold text-[#030304] leading-snug">{rec.item_description}</p>
+                            <p className="text-[10px] text-[#808181]">{rec.item_quantity?.toLocaleString("pt-BR")} {rec.item_unit} · FE {rec.baseline_factor}</p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={() => setSearchDrawer({ recKey: key, itemDesc: rec.item_description })}
+                              className="text-left group"
+                            >
+                              <p className="text-xs text-[#404040] leading-snug group-hover:text-[#56B7A5] transition-colors">
+                                {displayTitulo.length > 40 ? displayTitulo.slice(0, 37) + "…" : displayTitulo}
+                                <Pencil size={10} className="inline ml-1 opacity-0 group-hover:opacity-100 text-[#56B7A5]" />
+                              </p>
+                              <p className="text-[10px] text-[#808181]">{displayCompany}</p>
+                            </button>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              displayCountry.toLowerCase().includes("brazil")
+                                ? "bg-[#E6F3EE] text-[#1d7a6b]"
+                                : "bg-[#F0F4F3] text-[#808181]"
+                            }`}>
+                              {displayCountry.length > 12 ? displayCountry.slice(0, 10) + "…" : displayCountry}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="kgCO₂e"
+                              value={userGwp[key] ?? ""}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                setUserGwp((prev) => ({ ...prev, [key]: isNaN(v) ? 0 : v }));
+                              }}
+                              className={`w-20 h-7 text-center text-xs font-mono border rounded focus:outline-none focus:ring-1 focus:ring-[#56B7A5] ${
+                                hasGwp ? "border-[#56B7A5] bg-[#F0FDF4] font-bold" : "border-[#E0E4E3] bg-[#F8FAF9]"
+                              }`}
+                            />
+                          </td>
+                          <td className="px-4 py-3">
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="5"
+                              placeholder="1.00"
+                              value={userPrice[key] ?? ""}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                setUserPrice((prev) => ({ ...prev, [key]: isNaN(v) ? 1 : v }));
+                              }}
+                              className="w-16 h-7 text-center text-xs font-mono border border-[#E0E4E3] rounded bg-[#F8FAF9] focus:outline-none focus:ring-1 focus:ring-[#56B7A5]"
+                            />
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {isReduction ? (
+                              <span className="text-xs font-bold text-[#16A34A]">
+                                <ArrowDownRight size={12} className="inline mr-0.5" />
+                                {reduction.toFixed(0)}%
+                              </span>
+                            ) : hasGwp && !isReduction ? (
+                              <span className="text-[10px] text-[#EF4444]">Sem redução</span>
+                            ) : (
+                              <span className="text-[10px] text-[#BDBDBC]">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {displayReg ? (
+                              <a
+                                href={`https://www.environdec.com/library?keyword=${encodeURIComponent(displayReg.split(" ")[0])}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[#56B7A5] hover:text-[#1d7a6b] p-1"
+                                title={displayReg}
+                              >
+                                <ExternalLink size={13} />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-[#BDBDBC]">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            );
+          })()}
+
           {/* Disclaimer */}
           <div className="flex items-start gap-2 px-1">
             <Info size={13} className="text-[#BDBDBC] mt-0.5 shrink-0" />
             <p className="text-[11px] text-[#BDBDBC]">
               Escopo A1-A3 (cradle-to-gate) · Alternativas identificadas via EPDs com GWP.
+              EPDs sem GWP listados como referência — acesse o PDF e preencha manualmente.
               O multiplicador de custo converte para R$/tCO₂e evitada com base no custo unitário do ABC.
-              Ajuste com cotações reais de fornecedores para valores precisos.
             </p>
           </div>
         </>
+      )}
+
+      {/* EPD Search Drawer */}
+      {searchDrawer && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setSearchDrawer(null)} />
+          <div className="relative w-[480px] bg-white shadow-xl flex flex-col h-full">
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-[#E0E4E3] flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-[#030304]">Buscar EPD Substituto</h3>
+                <p className="text-[10px] text-[#808181] mt-0.5">
+                  {searchDrawer.itemDesc}
+                </p>
+              </div>
+              <button onClick={() => setSearchDrawer(null)} className="text-[#808181] hover:text-[#030304] p-1">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Search bar + country filter */}
+            <div className="px-5 py-3 border-b border-[#F0F4F3] space-y-2">
+              <div className="flex gap-2">
+                <div className="flex-1 relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#BDBDBC]" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && searchQuery.length >= 2) {
+                        setSearching(true);
+                        searchEmissionFactors(searchQuery, "epd_catalog", 20)
+                          .then((data) => {
+                            const results = (data.epd_catalog ?? [])
+                              .filter((epd) => {
+                                if (searchCountry === "all") return true;
+                                const c = (epd.country ?? "").toLowerCase();
+                                const isBr = c.includes("brazil") || c.includes("brasil");
+                                return searchCountry === "brazil" ? isBr : !isBr;
+                              })
+                              .map((epd) => ({
+                                epd_id: epd.id,
+                                titulo: epd.titulo ?? "",
+                                company_name: epd.company_name ?? "",
+                                country: epd.country ?? epd.geographical_scopes ?? "",
+                                declared_unit: "",
+                                declared_value: null,
+                                registration_number: epd.registration_number ?? "",
+                                has_gwp: false,
+                                score: 0,
+                                item_id: "",
+                                item_description: "",
+                                item_cost_code: "",
+                                item_quantity: 0,
+                                item_unit: "",
+                                item_unit_cost: 0,
+                                baseline_factor: 0,
+                                baseline_emission_kg: 0,
+                              } as EpdRecommendation));
+                            setSearchResults(results);
+                          })
+                          .catch(() => {})
+                          .finally(() => setSearching(false));
+                      }
+                    }}
+                    placeholder="Buscar por nome, fabricante..."
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-[#E0E4E3] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#56B7A5]/30"
+                  />
+                </div>
+                <select
+                  value={searchCountry}
+                  onChange={(e) => setSearchCountry(e.target.value as "all" | "brazil" | "other")}
+                  className="px-2 py-2 border border-[#E0E4E3] rounded-lg text-xs text-[#030304] bg-white"
+                >
+                  <option value="all">Todos</option>
+                  <option value="brazil">Brasil</option>
+                  <option value="other">Outros</option>
+                </select>
+              </div>
+              <p className="text-[10px] text-[#BDBDBC]">Pressione Enter para buscar</p>
+            </div>
+
+            {/* Results */}
+            <div className="flex-1 overflow-y-auto">
+              {searching && (
+                <div className="py-12 text-center">
+                  <Loader2 size={18} className="text-[#56B7A5] animate-spin mx-auto" />
+                </div>
+              )}
+              {!searching && searchResults.length === 0 && searchQuery.length >= 2 && (
+                <p className="text-sm text-[#BDBDBC] text-center py-12">Nenhum EPD encontrado.</p>
+              )}
+              {!searching && searchResults.map((epd, idx) => (
+                <button
+                  key={`sr-${idx}`}
+                  onClick={() => {
+                    setCustomEpds((prev) => ({
+                      ...prev,
+                      [searchDrawer.recKey]: {
+                        titulo: epd.titulo,
+                        company_name: epd.company_name,
+                        country: epd.country,
+                        registration_number: epd.registration_number,
+                      },
+                    }));
+                    setSearchDrawer(null);
+                    setSearchResults([]);
+                    setSearchQuery("");
+                  }}
+                  className="w-full text-left px-5 py-3 border-b border-[#F0F4F3] hover:bg-[#E6F3EE] transition-colors"
+                >
+                  <p className="text-sm font-semibold text-[#030304] leading-snug">
+                    {epd.titulo.length > 60 ? epd.titulo.slice(0, 57) + "…" : epd.titulo}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] text-[#808181]">{epd.company_name}</span>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                      epd.country.toLowerCase().includes("brazil")
+                        ? "bg-[#E6F3EE] text-[#1d7a6b]"
+                        : "bg-[#F0F4F3] text-[#808181]"
+                    }`}>
+                      {epd.country}
+                    </span>
+                    {epd.registration_number && (
+                      <span className="text-[10px] font-mono text-[#BDBDBC]">{epd.registration_number.slice(0, 20)}</span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

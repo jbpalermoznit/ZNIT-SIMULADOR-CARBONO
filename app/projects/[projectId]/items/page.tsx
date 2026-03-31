@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { itemTypeMeta, mappingStatusMeta, type ItemType, type AbcClass, type AbcItem } from "@/lib/mock/data";
 import { listAbcItems, getProject, type AbcItemResponse, type ProjectResponse } from "@/lib/api/projects";
+import { listScenarios, type ScenarioResponse } from "@/lib/api/scenarios";
 import { getMapping, type MappingResponse } from "@/lib/api/emission-factors";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -85,6 +86,8 @@ function toAbcItem(r: AbcItemResponse): AbcItem {
     emissionKgco2e: emissionKgco2e,
     emissionTco2e: emissionKgco2e ? emissionKgco2e / 1000 : undefined,
     confidence: (r.confidence as "high" | "medium" | "low") ?? undefined,
+    parentItemId: r.parent_item_id ?? null,
+    classificationNote: r.classification_note ?? null,
   };
 }
 
@@ -1148,17 +1151,43 @@ export default function ItemsPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | "auto" | "suggested" | "pending">("all");
   const [search, setSearch] = useState("");
   const [openItem, setOpenItem] = useState<AbcItem | null>(null);
+  const [expandedComps, setExpandedComps] = useState<Set<string>>(new Set());
   const [autoMapping, setAutoMapping] = useState(false);
   const [autoMapResult, setAutoMapResult] = useState<{ auto_mapped: number; suggested: number; pending: number; already_mapped: number } | null>(null);
   const [items, setItems] = useState<AbcItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [projectName, setProjectName] = useState("");
+  const [scenarios, setScenarios] = useState<ScenarioResponse[]>([]);
+  const [selectedCurveId, setSelectedCurveId] = useState<string | null>(curveIdParam);
+  const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
+
+  // Carregar cenários para o seletor
+  useEffect(() => {
+    listScenarios(projectId).then((scens) => {
+      setScenarios(scens);
+      // Auto-select curve from first scenario if not set via query param
+      if (!selectedCurveId && scens.length > 0) {
+        // Fetch scenario detail to get abc_curve_id
+        const firstScen = scens.find((s) => s.is_base) ?? scens[0];
+        if (firstScen) {
+          setActiveScenarioId(firstScen.id);
+          const token = localStorage.getItem("znit_token");
+          fetch(`/api/scenarios/${firstScen.id}`, { headers: { Authorization: `Bearer ${token}` } })
+            .then((r) => r.json())
+            .then((data) => {
+              if (data.abc_curve_id) setSelectedCurveId(data.abc_curve_id);
+            })
+            .catch(() => {});
+        }
+      }
+    }).catch(() => {});
+  }, [projectId]);
 
   // Carregar itens da API
   const loadItems = useCallback(async () => {
     try {
       const [data, proj] = await Promise.all([
-        listAbcItems(projectId, curveIdParam ? { curve_id: curveIdParam } : undefined),
+        listAbcItems(projectId, selectedCurveId ? { curve_id: selectedCurveId } : undefined),
         getProject(projectId),
       ]);
       setProjectName(proj.name);
@@ -1173,7 +1202,7 @@ export default function ItemsPage() {
       console.error("Erro ao carregar itens");
     }
     setLoading(false);
-  }, []);
+  }, [selectedCurveId]);
 
   useEffect(() => { loadItems(); }, [loadItems]);
 
@@ -1215,8 +1244,8 @@ export default function ItemsPage() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <p className="text-xs font-semibold text-[#808181] uppercase tracking-widest mb-1">{projectName}</p>
-          <h1 className="text-2xl font-bold text-[#030304]">Itens da Curva ABC</h1>
-          <p className="text-sm text-[#808181] mt-0.5">{items.length} itens · Importado da API real</p>
+          <h1 className="text-2xl font-bold text-[#030304]">Itens</h1>
+          <p className="text-sm text-[#808181] mt-0.5">{items.length} itens</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={handleAutoMap} disabled={autoMapping}>
@@ -1244,6 +1273,46 @@ export default function ItemsPage() {
           }}><Download size={15} /> Exportar Excel</Button>
         </div>
       </div>
+
+      {/* Scenario selector */}
+      {scenarios.length > 0 && (
+        <div className="bg-white rounded-lg border border-[#E0E4E3] p-3 mb-4 flex items-center gap-3">
+          <span className="text-xs font-semibold text-[#808181]">Cenário:</span>
+          <div className="flex gap-1.5 flex-wrap">
+            {scenarios.map((s) => {
+              const isActive = activeScenarioId === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={async () => {
+                    setActiveScenarioId(s.id);
+                    const token = localStorage.getItem("znit_token");
+                    try {
+                      const res = await fetch(`/api/scenarios/${s.id}`, { headers: { Authorization: `Bearer ${token}` } });
+                      const data = await res.json();
+                      if (data.abc_curve_id) {
+                        setSelectedCurveId(data.abc_curve_id);
+                        setExpandedComps(new Set());
+                      }
+                    } catch {}
+                  }}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border",
+                    isActive
+                      ? "border-[#56B7A5] bg-[#E6F3EE] text-[#1d7a6b]"
+                      : "border-[#E0E4E3] text-[#404040] hover:border-[#56B7A5] hover:bg-[#F8FAF9]"
+                  )}
+                >
+                  {s.name}
+                  <span className={cn("font-normal ml-1", isActive ? "text-[#56B7A5]" : "text-[#808181]")}>
+                    ({(s.result?.total_tco2e ?? 0).toFixed(0)} tCO₂e)
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {autoMapResult && (
         <div className="bg-[#E6F3EE] border border-[#56B7A5]/30 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
@@ -1331,54 +1400,131 @@ export default function ItemsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((item) => {
-                const typeMeta = itemTypeMeta[item.itemType];
-                const statusMeta = mappingStatusMeta[item.mappingStatus];
-                const isOpen = openItem?.id === item.id;
-                return (
-                  <tr key={item.id} onDoubleClick={() => setOpenItem(isOpen ? null : item)}
-                    className={cn("border-b border-[#F0F4F3] text-sm transition-all cursor-pointer select-none",
-                      isOpen ? "bg-[#E6F3EE]" : "hover:bg-[#F8FAF9]")}>
-                    <td className="px-4 py-3 font-mono text-xs text-[#808181] whitespace-nowrap">{item.costCode}</td>
-                    <td className="px-4 py-3 font-medium text-[#030304] max-w-[220px]">
-                      <div className="truncate">{item.description}</div>
-                      {item.epd && <div className="text-[10px] text-[#808181] truncate mt-0.5">{item.epd}</div>}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold"
-                        style={{ backgroundColor: typeMeta.bg, color: typeMeta.color }}>{item.itemType}</span>
-                    </td>
-                    <td className="px-4 py-3 text-right text-xs text-[#404040] whitespace-nowrap">{item.quantity.toLocaleString("pt-BR")}</td>
-                    <td className="px-4 py-3 text-xs text-[#808181]">{item.unit}</td>
-                    <td className="px-4 py-3 text-right text-xs font-semibold text-[#030304] whitespace-nowrap">
-                      {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(item.totalCost)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn("font-bold text-sm",
-                        item.abcClass === "P1" ? "text-[#56B7A5]" : item.abcClass === "P2" ? "text-[#F59E0B]" : "text-[#BDBDBC]")}>
-                        {item.abcClass}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold"
-                        style={{ backgroundColor: statusMeta.bg, color: statusMeta.color }}>{statusMeta.label}</span>
-                      {item.confidence && (
-                        <span className={cn("ml-1 text-[10px] font-medium",
-                          item.confidence === "high" ? "text-[#56B7A5]" : item.confidence === "medium" ? "text-[#b45309]" : "text-[#DC2626]")}>
-                          {item.confidence === "high" ? "alta" : item.confidence === "medium" ? "média" : "baixa"}
+              {(() => {
+                // Separate parents (blocked compositions) from children and direct items
+                const parents = filtered.filter((i) => i.mappingStatus === "blocked" && !i.parentItemId);
+                const childrenByParent = new Map<string, AbcItem[]>();
+                const directItems: AbcItem[] = [];
+
+                for (const item of filtered) {
+                  if (item.parentItemId) {
+                    const list = childrenByParent.get(item.parentItemId) ?? [];
+                    list.push(item);
+                    childrenByParent.set(item.parentItemId, list);
+                  } else if (item.mappingStatus !== "blocked") {
+                    directItems.push(item);
+                  }
+                }
+
+                // Build render list: compositions with children first, then direct items
+                const renderRows: Array<{ item: AbcItem; isParent: boolean; isChild: boolean; childCount: number }> = [];
+
+                for (const parent of parents) {
+                  const children = childrenByParent.get(parent.id) ?? [];
+                  const childEmission = children.reduce((s, c) => s + (c.emissionTco2e ?? 0), 0);
+                  // Override parent emission with sum of children
+                  const parentWithEmission = { ...parent, emissionTco2e: childEmission > 0 ? childEmission : undefined };
+                  renderRows.push({ item: parentWithEmission, isParent: true, isChild: false, childCount: children.length });
+                  if (expandedComps.has(parent.id)) {
+                    for (const child of children) {
+                      renderRows.push({ item: child, isParent: false, isChild: true, childCount: 0 });
+                    }
+                  }
+                }
+
+                for (const item of directItems) {
+                  renderRows.push({ item, isParent: false, isChild: false, childCount: 0 });
+                }
+
+                return renderRows.map(({ item, isParent, isChild, childCount }) => {
+                  const typeMeta = itemTypeMeta[item.itemType];
+                  const statusMeta = mappingStatusMeta[item.mappingStatus];
+                  const isOpen = openItem?.id === item.id;
+                  const isExpanded = expandedComps.has(item.id);
+
+                  return (
+                    <tr key={item.id}
+                      onClick={() => {
+                        if (isParent) {
+                          setExpandedComps((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(item.id)) next.delete(item.id);
+                            else next.add(item.id);
+                            return next;
+                          });
+                        }
+                      }}
+                      onDoubleClick={() => { if (!isParent) setOpenItem(isOpen ? null : item); }}
+                      className={cn("border-b border-[#F0F4F3] text-sm transition-all select-none",
+                        isParent ? "bg-[#F8FAF9] cursor-pointer hover:bg-[#EDF5F3]" :
+                        isChild ? "bg-white hover:bg-[#F8FAF9] cursor-pointer" :
+                        isOpen ? "bg-[#E6F3EE] cursor-pointer" : "hover:bg-[#F8FAF9] cursor-pointer")}>
+                      <td className="px-4 py-3 font-mono text-xs text-[#808181] whitespace-nowrap">
+                        {isChild && <span className="text-[#BDBDBC] mr-1">└</span>}
+                        {item.costCode}
+                      </td>
+                      <td className={cn("px-4 py-3 font-medium max-w-[220px]", isChild ? "pl-8" : "")}>
+                        <div className="flex items-center gap-1.5">
+                          {isParent && (
+                            <ChevronDown size={14} className={cn("text-[#808181] shrink-0 transition-transform", isExpanded && "rotate-180")} />
+                          )}
+                          <div className="min-w-0">
+                            <div className={cn("truncate", isParent ? "font-bold text-[#1d7a6b]" : "text-[#030304]")}>
+                              {item.description}
+                            </div>
+                            {isParent && (
+                              <div className="text-[10px] text-[#808181] mt-0.5">{childCount} insumo{childCount !== 1 ? "s" : ""}</div>
+                            )}
+                            {!isParent && item.epd && <div className="text-[10px] text-[#808181] truncate mt-0.5">{item.epd}</div>}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold"
+                          style={{ backgroundColor: typeMeta.bg, color: typeMeta.color }}>
+                          {isParent ? "Comp" : item.itemType}
                         </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {item.emissionTco2e !== undefined
-                        ? item.emissionTco2e === 0
-                          ? <span className="text-[#BDBDBC] text-xs">—</span>
-                          : <span className="font-bold text-[#030304]">{item.emissionTco2e.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</span>
-                        : <span className="text-[#BDBDBC] text-xs">pendente</span>}
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-[#404040] whitespace-nowrap">{item.quantity.toLocaleString("pt-BR")}</td>
+                      <td className="px-4 py-3 text-xs text-[#808181]">{item.unit}</td>
+                      <td className="px-4 py-3 text-right text-xs font-semibold text-[#030304] whitespace-nowrap">
+                        {item.totalCost > 0
+                          ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(item.totalCost)
+                          : "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={cn("font-bold text-sm",
+                          item.abcClass === "P1" ? "text-[#56B7A5]" : item.abcClass === "P2" ? "text-[#F59E0B]" : "text-[#BDBDBC]")}>
+                          {item.abcClass}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {isParent ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[#E6F3EE] text-[#1d7a6b]">Composição</span>
+                        ) : (
+                          <>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold"
+                              style={{ backgroundColor: statusMeta.bg, color: statusMeta.color }}>{statusMeta.label}</span>
+                            {item.confidence && (
+                              <span className={cn("ml-1 text-[10px] font-medium",
+                                item.confidence === "high" ? "text-[#56B7A5]" : item.confidence === "medium" ? "text-[#b45309]" : "text-[#DC2626]")}>
+                                {item.confidence === "high" ? "alta" : item.confidence === "medium" ? "média" : "baixa"}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {item.emissionTco2e !== undefined && item.emissionTco2e > 0
+                          ? <span className={cn("font-bold", isParent ? "text-[#1d7a6b]" : "text-[#030304]")}>
+                              {item.emissionTco2e.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
+                            </span>
+                          : <span className="text-[#BDBDBC] text-xs">{isParent ? "Σ" : "pendente"}</span>}
+                      </td>
+                    </tr>
+                  );
+                });
+              })()}
             </tbody>
           </table>
         </div>

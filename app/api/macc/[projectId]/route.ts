@@ -23,6 +23,98 @@ async function loadAllEpdsWithGwp(): Promise<Record<string, unknown>[]> {
   return data ?? [];
 }
 
+async function loadAllEpdsWithoutGwp(): Promise<Record<string, unknown>[]> {
+  const { data, error } = await supabaseEmission
+    .from("epd_dev")
+    .select("id, titulo, company_name, country, geographical_scopes, declared_unit, declared_value, registration_number, informacao_produto")
+    .is("gwp_a1a3", null)
+    .ilike("country", "%Brazil%")
+    .order("company_name")
+    .limit(500);
+
+  if (error) {
+    console.error("Error loading EPDs without GWP:", error.message);
+    return [];
+  }
+  return data ?? [];
+}
+
+// PT→EN translations for EPD matching
+const EPD_TRANSLATIONS: Record<string, string[]> = {
+  concreto: ["concrete", "ready-mix", "ready mixed"],
+  cimento: ["cement", "portland"],
+  aco: ["steel", "reinforcing"],
+  armadura: ["reinforcing steel", "rebar"],
+  "ca-50": ["reinforcing steel", "rebar"],
+  "ca-60": ["reinforcing steel", "welded mesh"],
+  "ca-25": ["reinforcing steel"],
+  tela: ["welded mesh", "mesh"],
+  vergalhao: ["reinforcing steel", "rebar"],
+  arame: ["wire", "steel wire"],
+  diesel: ["diesel"],
+  madeira: ["wood", "timber", "sawn"],
+  forma: ["formwork", "plywood"],
+  bloco: ["concrete block", "masonry"],
+  argamassa: ["mortar"],
+  brita: ["gravel", "aggregate"],
+  areia: ["sand"],
+};
+
+function matchEpdsReferences(
+  description: string,
+  epds: Record<string, unknown>[]
+): Record<string, unknown>[] {
+  const keywords = extractKeywords(description);
+  const descLower = description.toLowerCase();
+  const matches: Record<string, unknown>[] = [];
+
+  // Build translated search terms
+  const searchTerms = [...keywords];
+  for (const kw of keywords) {
+    const translations = EPD_TRANSLATIONS[kw];
+    if (translations) searchTerms.push(...translations);
+  }
+
+  for (const epd of epds) {
+    const titulo = ((epd.titulo as string) ?? "").toLowerCase();
+    const info = ((epd.informacao_produto as string) ?? "").toLowerCase();
+    const company = ((epd.company_name as string) ?? "").toLowerCase();
+    const combined = `${titulo} ${info} ${company}`;
+
+    let relevant = false;
+    let matchCount = 0;
+    for (const term of searchTerms) {
+      if (combined.includes(term)) {
+        relevant = true;
+        matchCount++;
+      }
+    }
+    if (!relevant) continue;
+
+    // Score based on match count and specificity
+    let score = matchCount * 25;
+    score = Math.max(score, tokenSetScore(descLower, titulo));
+    score = Math.max(score, partialScore(descLower, titulo));
+
+    if (score < 20) continue;
+
+    matches.push({
+      epd_id: epd.id,
+      titulo: epd.titulo ?? "",
+      company_name: epd.company_name ?? "",
+      country: epd.country ?? epd.geographical_scopes ?? "",
+      declared_unit: ((epd.declared_unit as string) ?? "").trim(),
+      declared_value: epd.declared_value,
+      registration_number: epd.registration_number ?? "",
+      score,
+      has_gwp: false,
+    });
+  }
+
+  matches.sort((a, b) => (b.score as number) - (a.score as number));
+  return matches.slice(0, 5);
+}
+
 function extractKeywords(description: string): string[] {
   const words = description
     .toLowerCase()
@@ -309,5 +401,45 @@ export async function GET(
 
   const kpis = computeKpis(uniqueBars);
 
-  return Response.json({ bars: uniqueBars, kpis });
+  // Load EPDs without GWP and match to items by description
+  const allEpdsNoGwp = await loadAllEpdsWithoutGwp();
+  const recommendations: Record<string, unknown>[] = [];
+  const seenRec = new Set<string>();
+
+  for (const item of items) {
+    const mapping = mappingByItem[item.id];
+    if (!mapping || !mapping.factor_value) continue;
+
+    const baselineFactor = mapping.factor_value as number;
+    const baselineConv = getConversionFactor(
+      item.unit ?? "",
+      (mapping.factor_unit as string) ?? ""
+    );
+    const baselineEmissionKg = baselineFactor * (item.quantity ?? 0) * baselineConv;
+    if (baselineEmissionKg <= 0) continue;
+
+    const refMatches = matchEpdsReferences(
+      item.description ?? "",
+      allEpdsNoGwp
+    );
+
+    for (const ref of refMatches) {
+      const key = `${item.cost_code}|${ref.epd_id}`;
+      if (seenRec.has(key)) continue;
+      seenRec.add(key);
+      recommendations.push({
+        ...ref,
+        item_id: item.id,
+        item_description: item.description,
+        item_cost_code: item.cost_code,
+        item_quantity: item.quantity,
+        item_unit: item.unit,
+        item_unit_cost: item.unit_cost,
+        baseline_factor: Math.round(baselineFactor * 10000) / 10000,
+        baseline_emission_kg: Math.round(baselineEmissionKg * 100) / 100,
+      });
+    }
+  }
+
+  return Response.json({ bars: uniqueBars, kpis, epd_recommendations: recommendations });
 }

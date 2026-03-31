@@ -11,7 +11,45 @@ import { cn } from "@/lib/utils";
 import { uploadAbc, uploadScenario, getProject, UploadResult, ScenarioUploadResult } from "@/lib/api/projects";
 
 type Step = "upload" | "processing" | "preview" | "done";
-type ImportMode = "abc" | "scenario";
+type ImportMode = "abc" | "scenario" | "api";
+
+const API_INTEGRATIONS = [
+  {
+    id: "altoqi",
+    name: "AltoQI Visus",
+    description: "Plataforma BIM para gestão de projetos e quantitativos",
+    status: "active" as const,
+    logo: "/logos/altoqi.png",
+  },
+  {
+    id: "itwo",
+    name: "iTwo RIB",
+    description: "Orçamento e planejamento de obras — importação direta da Curva ABC",
+    status: "soon" as const,
+    logo: "/logos/itwo-rib.webp",
+  },
+  {
+    id: "orcafascio",
+    name: "OrçaFascio",
+    description: "Orçamento de obras com composições SINAPI e SICRO",
+    status: "soon" as const,
+    logo: "/logos/orcafascio.png",
+  },
+  {
+    id: "sienge",
+    name: "Sienge",
+    description: "ERP para construção civil — orçamento, compras e planejamento",
+    status: "soon" as const,
+    logo: "/logos/sienge.png",
+  },
+  {
+    id: "vigha",
+    name: "Vigha",
+    description: "Gestão de obras e orçamento integrado com BIM",
+    status: "soon" as const,
+    logo: "/logos/vigha.png",
+  },
+];
 
 const TYPE_LABELS: Record<string, { label: string; description: string; color: string; bg: string }> = {
   A: { label: "Material Direto",         description: "Material físico com EPD — mapeamento direto de emissões.",              color: "#1d7a6b", bg: "#E6F3EE" },
@@ -118,6 +156,7 @@ export default function ImportPage() {
           {[
             { id: "scenario" as ImportMode, label: "Cenário Completo" },
             { id: "abc" as ImportMode, label: "Curva ABC" },
+            { id: "api" as ImportMode, label: "Conexões API" },
           ].map((t) => (
             <button
               key={t.id}
@@ -333,6 +372,51 @@ export default function ImportPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── Conexões API ── */}
+        {mode === "api" && (
+          <div className="space-y-4">
+            <p className="text-sm text-[#808181]">
+              Conecte diretamente com seu software de orçamento para importar dados automaticamente.
+            </p>
+            <div className="grid grid-cols-1 gap-3">
+              {API_INTEGRATIONS.map((api) => (
+                <div
+                  key={api.id}
+                  className={cn(
+                    "bg-white rounded-xl border p-5 flex items-center gap-4 transition-all",
+                    api.status === "active"
+                      ? "border-[#56B7A5] shadow-[0_0_0_1px_rgba(86,183,165,0.15),0_2px_8px_rgba(86,183,165,0.1)]"
+                      : "border-[#E0E4E3] hover:border-[#BDBDBC]"
+                  )}
+                >
+                  <div className="w-12 h-12 rounded-lg bg-white border border-[#E0E4E3] flex items-center justify-center overflow-hidden shrink-0 p-1">
+                    <img src={api.logo} alt={api.name} className="w-full h-full object-contain" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-bold text-[#030304]">{api.name}</h3>
+                    <p className="text-xs text-[#808181] mt-0.5">{api.description}</p>
+                  </div>
+                  {api.status === "active" ? (
+                    <button className="text-xs font-bold px-4 py-1.5 rounded-lg bg-[#56B7A5] text-white hover:bg-[#1d7a6b] transition-colors shrink-0">
+                      Conectar
+                    </button>
+                  ) : (
+                    <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-[#F3F4F6] text-[#808181] shrink-0 uppercase tracking-wide">
+                      Em breve
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="bg-[#F8FAF9] rounded-xl border border-dashed border-[#E0E4E3] p-5 text-center">
+              <p className="text-xs text-[#808181]">
+                Tem interesse em uma integração? Entre em contato com{" "}
+                <a href="mailto:contato@znit.ai" className="text-[#56B7A5] font-semibold hover:underline">contato@znit.ai</a>
+              </p>
+            </div>
           </div>
         )}
 

@@ -23,15 +23,15 @@ const navItems = [
 ];
 
 const projectMenuItems = [
-  { label: "Visão Geral",    path: "overview",   icon: LayoutDashboard },
-  { label: "Importar ABC",   path: "import",     icon: Upload },
-  { label: "Itens",          path: "items",      icon: Table2 },
-  { label: "Regras Salvas",  path: "rules",      icon: BookOpen },
-  { label: "Curva MACC",      path: "macc",       icon: BarChart3 },
-  { label: "Simulação Carbono", path: "simulation", icon: Scale },
-  { label: "Cenários",       path: "scenarios",  icon: GitCompare },
-  { label: "Relatórios",     path: "reports",    icon: FileText },
-  { label: "Agente IA",      path: "agent",      icon: MessageSquare, comingSoon: true },
+  { label: "Visão Geral",       path: "overview",    icon: LayoutDashboard },
+  { label: "Importar",          path: "import",      icon: Upload },
+  { label: "Cenários",          path: "scenarios",   icon: GitCompare },
+  { label: "Itens",             path: "items",       icon: Table2 },
+  { label: "Regras Salvas",     path: "rules",       icon: BookOpen },
+  { label: "Curva MACC",        path: "macc",        icon: BarChart3 },
+  { label: "Simulação Carbono", path: "simulation",  icon: Scale },
+  { label: "Relatórios",        path: "reports",     icon: FileText },
+  { label: "Agente IA",         path: "agent",       icon: MessageSquare, comingSoon: true },
 ];
 
 export function Sidebar() {

@@ -45,6 +45,7 @@ export interface AbcItemResponse {
   item_order: number;
   mapping_status: string;
   classification_note: string | null;
+  parent_item_id: string | null;
   factor_name: string | null;
   factor_value: number | null;
   factor_unit: string | null;
