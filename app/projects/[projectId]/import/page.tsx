@@ -233,7 +233,7 @@ export default function ImportPage() {
                   <FileSpreadsheet size={20} className="text-[#56B7A5]" />
                 </div>
                 <h4 className="text-sm font-bold text-[#030304] mb-1">Planilha de Itens</h4>
-                <p className="text-xs text-[#808181] mb-2">Arquivo Solucao (orçamento)</p>
+                <p className="text-xs text-[#808181] mb-2">Arquivo de orçamento</p>
                 {itemsFile ? (
                   <div className="flex items-center gap-2 justify-center">
                     <CheckCircle2 size={14} className="text-[#56B7A5]" />
@@ -258,7 +258,7 @@ export default function ImportPage() {
                   <FileSpreadsheet size={20} className="text-[#56B7A5]" />
                 </div>
                 <h4 className="text-sm font-bold text-[#030304] mb-1">Planilha de Insumos</h4>
-                <p className="text-xs text-[#808181] mb-2">Arquivo SECAGEM (composições)</p>
+                <p className="text-xs text-[#808181] mb-2">Arquivo de composições</p>
                 {insumosFile ? (
                   <div className="flex items-center gap-2 justify-center">
                     <CheckCircle2 size={14} className="text-[#56B7A5]" />
