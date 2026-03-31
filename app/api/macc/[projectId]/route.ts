@@ -26,7 +26,7 @@ async function loadAllEpdsWithGwp(): Promise<Record<string, unknown>[]> {
 async function loadAllEpdsWithoutGwp(): Promise<Record<string, unknown>[]> {
   const { data, error } = await supabaseEmission
     .from("epd_dev")
-    .select("id, titulo, company_name, country, geographical_scopes, declared_unit, declared_value, registration_number, informacao_produto")
+    .select("id, titulo, company_name, country, geographical_scopes, declared_unit, declared_value, registration_number, informacao_produto, pdf_url, source_url")
     .is("gwp_a1a3", null)
     .ilike("country", "%Brazil%")
     .order("company_name")
@@ -106,6 +106,7 @@ function matchEpdsReferences(
       declared_unit: ((epd.declared_unit as string) ?? "").trim(),
       declared_value: epd.declared_value,
       registration_number: epd.registration_number ?? "",
+      pdf_url: epd.pdf_url ?? epd.source_url ?? "",
       score,
       has_gwp: false,
     });
