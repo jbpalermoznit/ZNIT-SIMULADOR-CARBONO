@@ -443,14 +443,18 @@ function ScenarioComparison({ scenarios }: { scenarios: ScenarioResponse[] }) {
     .slice(0, 15);
 
   // Calculate report-style indicators
-  const calcIndicators = (items: ScenarioItemResponse[]) => {
+  const calcIndicators = (items: ScenarioItemResponse[], parentItems: Record<string, unknown>[]) => {
     let concretoM3 = 0, concretoTco2e = 0;
     let acoKg = 0, acoTco2e = 0;
-    let totalCostR$ = 0;
+    // Project cost = parents (compositions) + direct items (no parent)
+    const parentsCost = parentItems.reduce((s, p) => s + ((p.total_cost as number) ?? 0), 0);
+    const directItemsCost = items
+      .filter((i) => !((i as unknown as Record<string, unknown>).parent_item_id))
+      .reduce((s, i) => s + (i.total_cost ?? 0), 0);
+    const totalCostR$ = parentsCost + directItemsCost;
 
     for (const item of items) {
       if (item.is_excluded) continue;
-      totalCostR$ += item.total_cost ?? 0;
       const desc = (item.description ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       const tco2e = item.emission_tco2e ?? 0;
       const qty = item.quantity ?? 0;
@@ -477,8 +481,10 @@ function ScenarioComparison({ scenarios }: { scenarios: ScenarioResponse[] }) {
     };
   };
 
-  const indA = calcIndicators(detailA.items);
-  const indB = calcIndicators(detailB.items);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const indA = calcIndicators(detailA.items, ((detailA as any).parent_items ?? []) as Record<string, unknown>[]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const indB = calcIndicators(detailB.items, ((detailB as any).parent_items ?? []) as Record<string, unknown>[]);
 
   const fmtNum = (v: number, d = 2) => v.toLocaleString("pt-BR", { maximumFractionDigits: d });
   const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });

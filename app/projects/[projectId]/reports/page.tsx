@@ -105,10 +105,15 @@ export default function ReportsPage() {
       ) => {
         const items = detail.items;
         const parents = (raw.parent_items ?? []) as Record<string, unknown>[];
-        let concretoM3 = 0, concretoTco2e = 0, acoKg = 0, acoTco2e = 0, totalCost = 0;
+        let concretoM3 = 0, concretoTco2e = 0, acoKg = 0, acoTco2e = 0;
+        // Project cost = parents (compositions) + direct items
+        const parentsCost = parents.reduce((s, p) => s + ((p.total_cost as number) ?? 0), 0);
+        const directItemsCost = items
+          .filter((i) => !(i as unknown as Record<string, unknown>).parent_item_id)
+          .reduce((s, i) => s + (i.total_cost ?? 0), 0);
+        const totalCost = parentsCost + directItemsCost;
 
         for (const item of items) {
-          totalCost += item.total_cost ?? 0;
           const desc = (item.description ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
           const tco2e = item.emission_tco2e ?? 0;
           const qty = item.quantity ?? 0;

@@ -83,11 +83,18 @@ export default function SimulationPage() {
           });
           if (res.ok) {
             const data = await res.json();
-            const totalCost = (data.items ?? []).reduce(
+            // Cost = parents (compositions) + direct items (no parent)
+            const parentsCost = (data.parent_items ?? []).reduce(
               (sum: number, i: { total_cost?: number }) => sum + (i.total_cost ?? 0),
               0
             );
-            costs[s.id] = totalCost;
+            const directItemsCost = (data.items ?? [])
+              .filter((i: { parent_item_id?: string }) => !i.parent_item_id)
+              .reduce(
+                (sum: number, i: { total_cost?: number }) => sum + (i.total_cost ?? 0),
+                0
+              );
+            costs[s.id] = parentsCost + directItemsCost;
           }
         } catch { /* ignore */ }
       }
