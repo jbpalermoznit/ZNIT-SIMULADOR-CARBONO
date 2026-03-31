@@ -112,7 +112,10 @@ export default function SimulationPage() {
   const reducaoTco2e = baseTco2e - altTco2e;
   const reducaoPct = baseTco2e > 0 ? (reducaoTco2e / baseTco2e) * 100 : 0;
   const economia = custoCompensarTudo - custoResidual;
-  const netSaving = economia - Math.max(0, deltaCostProject); // economia em compensação menos custo adicional do projeto
+  // Resultado líquido = economia em compensação - diferença de custo do projeto
+  // Se o projeto alternativo é mais barato (deltaCost < 0), soma a economia
+  // Se é mais caro (deltaCost > 0), subtrai o custo adicional
+  const netSaving = economia - deltaCostProject;
 
   // Chart dimensions
   const chartHeight = 280;
@@ -450,11 +453,11 @@ export default function SimulationPage() {
                         Resultado Liquido
                       </p>
                       <p className={`text-xl font-bold ${netSaving >= 0 ? "text-[#1d7a6b]" : "text-[#b45309]"}`}>
-                        {netSaving >= 0 ? "" : "+"}{fmtBRL(Math.abs(netSaving))}
+                        {netSaving >= 0 ? "-" : "+"}{fmtBRL(Math.abs(netSaving))}
                       </p>
                       <p className="text-xs text-[#808181] mt-1">
                         {netSaving >= 0
-                          ? "economia total (compensacao + projeto)"
+                          ? `economia total (${fmtBRL(economia)} compensacao ${deltaCostProject < 0 ? "+ " + fmtBRL(Math.abs(deltaCostProject)) + " projeto mais barato" : deltaCostProject > 0 ? "- " + fmtBRL(deltaCostProject) + " projeto mais caro" : ""})`
                           : "custo adicional do projeto supera a economia em compensacao"}
                       </p>
                     </div>
