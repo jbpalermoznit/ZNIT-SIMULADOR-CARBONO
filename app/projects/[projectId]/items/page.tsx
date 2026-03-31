@@ -549,7 +549,7 @@ function EditEpdView({ item, onBack, onSaved }: { item: AbcItem; onBack: () => v
             )}
             {(search ? [
               ...(tierFilter.ghg_protocol ? (results?.ghg_protocol || []).map((r: any) => ({ ...r, source_tier: "ghg_protocol", factor_name: r.produto, factor_value: r.co2e_total, factor_unit: "kgCO₂e", factor_source: r.versao_ghg || "GHG Protocol" })) : []),
-              ...(tierFilter.cecarbon ? (results?.cecarbon || []).map((r: any) => ({ ...r, source_tier: "cecarbon", factor_name: r.description, factor_value: r.factor_value, factor_unit: r.factor_unit, factor_source: r.reference, product_unit: r.unit })) : []),
+              ...(tierFilter.cecarbon ? (results?.cecarbon || []).map((r: any) => ({ ...r, source_tier: "cecarbon", factor_name: r["Descrição fator de emissao"] || r.description || "", factor_value: r["fator de emissão (kgCO2)"] || r.factor_value || 0, factor_unit: `kgCO₂/${r["Unidade"] || r.unit || "t"}`, factor_source: r["Referencia"] || r.reference || "CECarbon", product_unit: r["Unidade"] || r.unit || "", cecarbon_id: r.id })) : []),
               ...(tierFilter.ecoinvent ? (results?.ecoinvent || []).map((r: any) => ({ ...r, source_tier: "ecoinvent", factor_name: r.product_name, factor_value: r.impact_score, factor_unit: r.impact_unit, factor_source: r.activity_name, product_unit: r.product_unit })) : []),
             ] : autoMatch?.results)?.map((r: any, i: number) => {
               const tier = r.source_tier || "ecoinvent";
