@@ -93,7 +93,7 @@ export default function PlatformMockup() {
               <Factory size={14} className="text-[#56B7A5]" />
             </div>
             <div>
-              <p className="text-xs font-bold text-[#030304]">Grupo HTB</p>
+              <p className="text-xs font-bold text-[#030304]">ZNIT TECNOLOGIA</p>
               <p className="text-[10px] text-[#808181]">Industria & Construcao</p>
             </div>
           </div>
@@ -145,7 +145,7 @@ export default function PlatformMockup() {
             <div className="w-7 h-7 rounded-full bg-[#56B7A5] flex items-center justify-center text-white text-xs font-bold">JP</div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-[#030304]">Joao Palermo</p>
-              <p className="text-[10px] text-[#808181]">Admin · Grupo HTB</p>
+              <p className="text-[10px] text-[#808181]">Admin · ZNIT TECNOLOGIA</p>
             </div>
           </div>
         </div>
@@ -159,7 +159,7 @@ export default function PlatformMockup() {
           <div className="flex items-start justify-between mb-7">
             <div>
               <p className="text-xs font-semibold text-[#808181] uppercase tracking-widest mb-1">
-                Plataforma ESG · Grupo HTB
+                Plataforma ESG · ZNIT TECNOLOGIA
               </p>
               <h1 className="text-2xl font-bold text-[#030304]">
                 {modules.find((m) => m.id === activeModule)?.label ?? "Visao Geral"}
