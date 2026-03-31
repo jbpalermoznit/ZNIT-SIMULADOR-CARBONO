@@ -39,6 +39,7 @@ export interface EpdRecommendation {
   declared_unit: string;
   declared_value: number | null;
   registration_number: string;
+  pdf_url?: string;
   has_gwp: boolean;
   score: number;
   item_id: string;

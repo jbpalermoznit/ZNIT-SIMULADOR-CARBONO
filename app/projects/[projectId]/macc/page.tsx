@@ -852,7 +852,7 @@ export default function MaccPage() {
                           <td className="px-4 py-3">
                             {displayReg ? (
                               <a
-                                href={(rec as unknown as Record<string,string>).pdf_url || `https://www.environdec.com/library?keyword=${encodeURIComponent(displayReg.split(" ")[0])}`}
+                                href={rec.pdf_url || `https://www.environdec.com/library?keyword=${encodeURIComponent(displayReg.split(" ")[0])}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-[#56B7A5] hover:text-[#1d7a6b] p-1"
