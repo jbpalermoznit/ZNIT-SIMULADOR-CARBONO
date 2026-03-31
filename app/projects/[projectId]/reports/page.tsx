@@ -205,6 +205,30 @@ export default function ReportsPage() {
     setGenerating(null);
   };
 
+  const handleComparisonDownload = async () => {
+    if (scenarios.length < 2) {
+      alert("Necessário pelo menos 2 cenários");
+      return;
+    }
+    setGenerating("comparison");
+    try {
+      const token = localStorage.getItem("znit_token");
+      const resp = await fetch(
+        `/api/projects/${projectId}/export-comparison?scenario_a=${scenarios[0].id}&scenario_b=${scenarios[1].id}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const blob = await resp.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${projectName.replace(/\s+/g, "_")}_conferencia_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      alert("Erro ao exportar conferência");
+    }
+    setGenerating(null);
+  };
+
   const reports = [
     {
       id: "pdf",
@@ -217,6 +241,18 @@ export default function ReportsPage() {
       color: "#1d7a6b",
       bg: "#E6F3EE",
       onClick: handlePdfDownload,
+    },
+    {
+      id: "comparison",
+      icon: FileSpreadsheet,
+      title: "Conferência — Input vs Emissões Calculadas",
+      desc: "Comparativo dos dados de entrada (orçamento) com as emissões calculadas por composição e insumo",
+      badge: "Conferência",
+      format: ".xlsx",
+      ready: scenarios.length >= 2,
+      color: "#1e40af",
+      bg: "#DBEAFE",
+      onClick: handleComparisonDownload,
     },
     {
       id: "excel",
