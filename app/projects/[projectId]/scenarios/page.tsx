@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -23,11 +24,13 @@ function ScenarioCard({
   baseScen,
   selected,
   onSelect,
+  onSetBase,
 }: {
   scen: ScenarioResponse;
   baseScen: ScenarioResponse | null;
   selected: boolean;
   onSelect: () => void;
+  onSetBase?: () => void;
 }) {
   const isBase = scen.is_base;
   const totalTco2e = scen.result?.total_tco2e ?? 0;
@@ -46,10 +49,10 @@ function ScenarioCard({
         selected
           ? "border-[#56B7A5] shadow-[0_0_0_2px_rgba(86,183,165,0.2),0_4px_16px_rgba(86,183,165,0.12)]"
           : isBase
-          ? "border-[#E0E4E3] shadow-[0_1px_3px_rgba(3,3,4,0.06)]"
+          ? "border-[#56B7A5]/40 shadow-[0_1px_3px_rgba(3,3,4,0.06)]"
           : "border-[#E0E4E3] shadow-[0_1px_3px_rgba(3,3,4,0.06)] hover:border-[#A9D7CD]"
       )}
-      onClick={isBase ? undefined : onSelect}
+      onClick={onSelect}
     >
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="min-w-0">
@@ -59,10 +62,7 @@ function ScenarioCard({
                 BASE
               </span>
             )}
-            {scen.status === "locked" && !isBase && (
-              <Lock size={11} className="text-[#BDBDBC]" />
-            )}
-            {selected && !isBase && (
+            {selected && (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#56B7A5] text-white">
                 Selecionado
               </span>
@@ -84,7 +84,7 @@ function ScenarioCard({
         {scen.items_count != null && ` · ${scen.items_count} itens`}
       </p>
 
-      {!isBase && delta > 0 && (
+      {!isBase && baseTco2e > 0 && delta > 0 && (
         <div className="flex items-center gap-1.5 bg-[#E6F3EE] rounded-lg px-2.5 py-1.5 mb-3">
           <TrendingDown size={13} className="text-[#56B7A5]" />
           <span className="text-xs font-bold text-[#1d7a6b]">
@@ -93,23 +93,49 @@ function ScenarioCard({
         </div>
       )}
 
-      {isBase && (
-        <p className="text-[10px] text-[#BDBDBC]">Referência — gerado automaticamente</p>
-      )}
+      {isBase ? (
+        <p className="text-[10px] text-[#BDBDBC]">Cenário de referência para comparação</p>
+      ) : onSetBase ? (
+        <button
+          onClick={(e) => { e.stopPropagation(); onSetBase(); }}
+          className="text-[10px] font-semibold text-[#56B7A5] hover:text-[#1d7a6b] hover:underline transition-colors"
+        >
+          Definir como Base
+        </button>
+      ) : null}
     </div>
   );
 }
 
 // ─── Impact Analysis (scenario detail) ────────────────────────────────────────
 
-function ImpactAnalysis({ scenarioId }: { scenarioId: string }) {
+interface ParentItem {
+  id: string;
+  description: string;
+  cost_code: string;
+  quantity: number;
+  unit: string;
+  emission_tco2e: number;
+  children_count: number;
+}
+
+function ImpactAnalysis({ scenarioId, projectId }: { scenarioId: string; projectId: string }) {
   const [detail, setDetail] = useState<ScenarioDetailResponse | null>(null);
+  const [parentItems, setParentItems] = useState<ParentItem[]>([]);
+  const [curveId, setCurveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [expandedParent, setExpandedParent] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
     getScenario(scenarioId)
-      .then(setDetail)
+      .then((data) => {
+        setDetail(data);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw = data as any;
+        setParentItems((raw.parent_items ?? []) as ParentItem[]);
+        setCurveId(raw.abc_curve_id ?? null);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [scenarioId]);
@@ -122,9 +148,56 @@ function ImpactAnalysis({ scenarioId }: { scenarioId: string }) {
   }
 
   const r = detail.result;
-  const itemsWithEmission = detail.items
-    .filter((i) => i.emission_kgco2e && i.emission_kgco2e > 0 && !i.is_excluded)
-    .sort((a, b) => (b.emission_kgco2e ?? 0) - (a.emission_kgco2e ?? 0));
+  const hasHierarchy = parentItems.length > 0;
+
+  // Build composition view: parents with their children
+  const compositionsWithEmission = parentItems
+    .filter((p) => p.emission_tco2e > 0)
+    .sort((a, b) => b.emission_tco2e - a.emission_tco2e);
+
+  // Direct items (no parent) with emission
+  const directItems = detail.items
+    .filter((i) => !((i as unknown as Record<string, unknown>).parent_item_id) && (i.emission_tco2e ?? 0) > 0 && !i.is_excluded)
+    .sort((a, b) => (b.emission_tco2e ?? 0) - (a.emission_tco2e ?? 0));
+
+  // All items with emission (flat view)
+  const allEmitters = [...compositionsWithEmission.map((p) => ({
+    id: p.id,
+    description: p.description,
+    cost_code: p.cost_code,
+    quantity: p.quantity,
+    unit: p.unit,
+    emission_tco2e: p.emission_tco2e,
+    isComposition: true,
+    children_count: p.children_count,
+  })), ...directItems.map((i) => ({
+    id: i.id,
+    description: i.description ?? "",
+    cost_code: i.cost_code ?? "",
+    quantity: i.quantity,
+    unit: i.unit ?? "",
+    emission_tco2e: i.emission_tco2e ?? 0,
+    isComposition: false,
+    children_count: 0,
+  }))].sort((a, b) => b.emission_tco2e - a.emission_tco2e);
+
+  const getChildItems = (parentId: string) =>
+    detail.items
+      .filter((i) => ((i as unknown as Record<string, unknown>).parent_item_id) === parentId)
+      .sort((a, b) => (b.emission_tco2e ?? 0) - (a.emission_tco2e ?? 0));
+
+  const tierLabel = (tier: string | null | undefined) =>
+    tier === "ecoinvent" ? "Ecoinvent" :
+    tier === "ghg_protocol" ? "GHG Protocol" :
+    tier === "cecarbon" ? "CECarbon" :
+    tier === "epd" ? "EPD" : tier ?? "";
+
+  const tierColor = (tier: string | null | undefined) =>
+    tier === "ecoinvent" ? "bg-[#DBEAFE] text-[#1e40af]" :
+    tier === "ghg_protocol" ? "bg-[#E6F3EE] text-[#1d7a6b]" :
+    tier === "cecarbon" ? "bg-[#FEF3C7] text-[#92400e]" :
+    tier === "epd" ? "bg-[#EDE9FE] text-[#7c3aed]" :
+    "bg-[#F3F4F6] text-[#808181]";
 
   return (
     <div>
@@ -145,66 +218,360 @@ function ImpactAnalysis({ scenarioId }: { scenarioId: string }) {
           <p className="text-xs text-[#808181] mt-0.5">{r?.items_mapped ?? 0} de {r?.items_total ?? 0} itens</p>
         </div>
         <div className="bg-[#F8FAF9] rounded-xl p-4">
-          <p className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide mb-1">Itens com emissão</p>
-          <p className="text-2xl font-bold text-[#030304]">{itemsWithEmission.length}</p>
-          <p className="text-xs text-[#808181] mt-0.5">{r?.items_excluded ?? 0} excluídos</p>
+          <p className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide mb-1">
+            {hasHierarchy ? "Composições" : "Itens com emissão"}
+          </p>
+          <p className="text-2xl font-bold text-[#030304]">
+            {hasHierarchy ? compositionsWithEmission.length : allEmitters.length}
+          </p>
+          <p className="text-xs text-[#808181] mt-0.5">
+            {hasHierarchy
+              ? `+ ${directItems.length} itens diretos`
+              : `${r?.items_excluded ?? 0} excluídos`}
+          </p>
         </div>
       </div>
 
-      {/* Top emitters table */}
+      {/* Hierarchical emitters table */}
       <div className="bg-white rounded-xl border border-[#E0E4E3] overflow-hidden">
         <div className="px-5 py-3 border-b border-[#E0E4E3] bg-[#F8FAF9]">
-          <p className="text-xs font-bold text-[#030304]">Top emissores do cenário</p>
+          <p className="text-xs font-bold text-[#030304]">
+            {hasHierarchy ? "Emissões por Composição" : "Top emissores do cenário"}
+          </p>
+          {hasHierarchy && (
+            <p className="text-[10px] text-[#808181] mt-0.5">Clique na composição para ver os insumos e seus fatores de emissão</p>
+          )}
         </div>
-        {itemsWithEmission.length === 0 ? (
+        {allEmitters.length === 0 ? (
           <p className="text-sm text-[#BDBDBC] px-5 py-6 text-center">Nenhum item com emissão calculada.</p>
         ) : (
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-[#F0F4F3]">
-                {["Item", "Tipo", "Fator", "Fonte", "tCO₂e"].map((h) => (
-                  <th key={h} className="text-left px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase tracking-wide whitespace-nowrap">{h}</th>
-                ))}
+                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase tracking-wide">Item</th>
+                <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase tracking-wide">Qtd</th>
+                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase tracking-wide">Fator</th>
+                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase tracking-wide">Fonte</th>
+                <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase tracking-wide">tCO₂e</th>
               </tr>
             </thead>
             <tbody>
-              {itemsWithEmission.slice(0, 20).map((item) => (
-                <tr key={item.id} className="border-b border-[#F0F4F3] hover:bg-[#F8FAF9]">
-                  <td className="px-4 py-3">
-                    <p className="font-semibold text-[#030304] leading-snug">{item.description}</p>
-                    <p className="text-[10px] text-[#808181] font-mono">{item.cost_code}</p>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <span className="text-[10px] font-bold text-[#808181]">{item.item_type}</span>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <span className="text-[#030304]">
-                      {item.factor_value} {item.factor_unit}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    {item.source_tier && (
-                      <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded",
-                        item.source_tier === "ecoinvent" ? "bg-[#DBEAFE] text-[#1e40af]" :
-                        item.source_tier === "ghg_protocol" ? "bg-[#E6F3EE] text-[#1d7a6b]" :
-                        "bg-[#F3F4F6] text-[#808181]"
-                      )}>
-                        {item.source_tier === "ecoinvent" ? "Ecoinvent" :
-                         item.source_tier === "ghg_protocol" ? "GHG Protocol" :
-                         item.source_tier}
-                      </span>
+              {allEmitters.slice(0, 25).map((item) => (
+                <React.Fragment key={item.id}>
+                  <tr
+                    className={cn(
+                      "border-b border-[#F0F4F3] transition-colors",
+                      item.isComposition
+                        ? "bg-[#F8FAF9] hover:bg-[#EDF5F3] cursor-pointer"
+                        : "hover:bg-[#F8FAF9]"
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <span className="font-bold text-[#030304]">
-                      {(item.emission_tco2e ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
-                    </span>
-                  </td>
-                </tr>
+                    onClick={() => {
+                      if (item.isComposition) {
+                        setExpandedParent(expandedParent === item.id ? null : item.id);
+                      }
+                    }}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        {item.isComposition && (
+                          <ChevronDown
+                            size={14}
+                            className={cn(
+                              "text-[#808181] transition-transform shrink-0",
+                              expandedParent === item.id && "rotate-180"
+                            )}
+                          />
+                        )}
+                        <div>
+                          <p className={cn("font-semibold text-[#030304] leading-snug", item.isComposition && "text-[#1d7a6b]")}>
+                            {item.description}
+                          </p>
+                          <p className="text-[10px] text-[#808181]">
+                            {item.cost_code}
+                            {item.isComposition && ` · ${item.children_count} insumos`}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap text-[#808181]">
+                      {item.quantity?.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} {item.unit}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-[#808181]">
+                      {item.isComposition ? "Σ insumos" : "—"}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {item.isComposition && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#E6F3EE] text-[#1d7a6b]">
+                          Composição
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <span className="font-bold text-[#030304]">
+                        {item.emission_tco2e.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}
+                      </span>
+                    </td>
+                  </tr>
+                  {/* Expanded children (insumos) */}
+                  {item.isComposition && expandedParent === item.id && (
+                    getChildItems(item.id).map((child) => (
+                      <tr key={child.id} className="border-b border-[#F0F4F3] bg-white hover:bg-[#F8FAF9]">
+                        <td className="pl-12 pr-4 py-2.5">
+                          <p className="text-[#030304] leading-snug">{child.description}</p>
+                          <p className="text-[10px] text-[#BDBDBC]">{child.cost_code}</p>
+                        </td>
+                        <td className="px-4 py-2.5 text-right whitespace-nowrap text-[#808181]">
+                          {child.quantity?.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} {child.unit}
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap text-[#030304]">
+                          {child.factor_value} {child.factor_unit}
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          {child.source_tier && (
+                            <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded", tierColor(child.source_tier))}>
+                              {tierLabel(child.source_tier)}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-2">
+                            <span className={cn("font-semibold", (child.emission_tco2e ?? 0) > 0 ? "text-[#030304]" : "text-[#BDBDBC]")}>
+                              {(child.emission_tco2e ?? 0) > 0
+                                ? (child.emission_tco2e ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })
+                                : "—"}
+                            </span>
+                            <Link
+                              href={`/projects/${projectId}/items?item=${child.abc_item_id}${curveId ? `&curve_id=${curveId}` : ""}`}
+                              className="text-[#56B7A5] hover:text-[#1d7a6b] p-0.5 rounded hover:bg-[#E6F3EE] transition-colors"
+                              title="Editar fator de emissão"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Edit3 size={12} />
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Scenario Comparison ─────────────────────────────────────────────────────
+
+function ScenarioComparison({ scenarios }: { scenarios: ScenarioResponse[] }) {
+  const [details, setDetails] = useState<Record<string, ScenarioDetailResponse>>({});
+  const [loading, setLoading] = useState(true);
+  const [compareIds, setCompareIds] = useState<[string, string] | null>(null);
+
+  // Auto-select first two scenarios
+  useEffect(() => {
+    if (scenarios.length >= 2) {
+      const ids = scenarios.slice(0, 2).map((s) => s.id) as [string, string];
+      setCompareIds(ids);
+    }
+  }, [scenarios]);
+
+  useEffect(() => {
+    if (!compareIds) return;
+    setLoading(true);
+    Promise.all(compareIds.map((id) => getScenario(id)))
+      .then(([a, b]) => {
+        setDetails({ [compareIds[0]]: a, [compareIds[1]]: b });
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [compareIds]);
+
+  if (scenarios.length < 2) {
+    return (
+      <div className="flex flex-col items-center justify-center py-14 text-center bg-[#F8FAF9] rounded-xl border border-dashed border-[#E0E4E3]">
+        <GitCompare size={28} className="text-[#BDBDBC] mb-3" />
+        <p className="text-sm font-semibold text-[#808181]">Mínimo 2 cenários para comparar</p>
+        <p className="text-xs text-[#BDBDBC] mt-1">Importe outro cenário na página de importação.</p>
+      </div>
+    );
+  }
+
+  if (loading || !compareIds) {
+    return <div className="py-12 text-center"><Loader2 size={20} className="text-[#56B7A5] animate-spin mx-auto" /></div>;
+  }
+
+  const scenA = scenarios.find((s) => s.id === compareIds[0]);
+  const scenB = scenarios.find((s) => s.id === compareIds[1]);
+  const detailA = details[compareIds[0]];
+  const detailB = details[compareIds[1]];
+
+  if (!scenA || !scenB || !detailA || !detailB) return null;
+
+  const rA = scenA.result;
+  const rB = scenB.result;
+  const totalA = rA?.total_tco2e ?? 0;
+  const totalB = rB?.total_tco2e ?? 0;
+  const diff = totalA - totalB;
+  const diffPct = totalA > 0 ? (diff / totalA) * 100 : 0;
+
+  // Group items by material description for side-by-side
+  const groupItems = (items: ScenarioItemResponse[]) => {
+    const groups: Record<string, { tco2e: number; qty: number; unit: string }> = {};
+    for (const item of items) {
+      if (!item.emission_tco2e || item.emission_tco2e <= 0 || item.is_excluded) continue;
+      const key = item.description;
+      if (!groups[key]) groups[key] = { tco2e: 0, qty: 0, unit: item.unit };
+      groups[key].tco2e += item.emission_tco2e;
+      groups[key].qty += item.quantity;
+    }
+    return groups;
+  };
+
+  const groupsA = groupItems(detailA.items);
+  const groupsB = groupItems(detailB.items);
+  const allMaterials = [...new Set([...Object.keys(groupsA), ...Object.keys(groupsB)])];
+  const materialRows = allMaterials
+    .map((name) => ({
+      name,
+      a: groupsA[name]?.tco2e ?? 0,
+      b: groupsB[name]?.tco2e ?? 0,
+    }))
+    .sort((x, y) => Math.max(y.a, y.b) - Math.max(x.a, x.b))
+    .slice(0, 15);
+
+  return (
+    <div className="space-y-6">
+      {/* Scenario selectors */}
+      <div className="grid grid-cols-2 gap-4">
+        {[0, 1].map((idx) => (
+          <div key={idx}>
+            <label className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide mb-1 block">
+              {idx === 0 ? "Cenário A (Referência)" : "Cenário B (Comparação)"}
+            </label>
+            <select
+              className="w-full px-3 py-2 border border-[#E0E4E3] rounded-lg text-sm text-[#030304] focus:outline-none focus:ring-2 focus:ring-[#56B7A5]/30"
+              value={compareIds[idx]}
+              onChange={(e) => {
+                const ids = [...compareIds] as [string, string];
+                ids[idx] = e.target.value;
+                setCompareIds(ids);
+              }}
+            >
+              {scenarios.map((s) => (
+                <option key={s.id} value={s.id}>{s.name} ({(s.result?.total_tco2e ?? 0).toFixed(1)} tCO₂e)</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+
+      {/* Summary KPIs */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-white rounded-xl border border-[#E0E4E3] p-5 text-center">
+          <p className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide mb-2">{scenA.name}</p>
+          <p className="text-3xl font-bold text-[#030304]">{totalA.toFixed(1)}</p>
+          <p className="text-xs text-[#808181]">tCO₂e</p>
+        </div>
+        <div className="bg-white rounded-xl border border-[#E0E4E3] p-5 text-center">
+          <p className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide mb-2">{scenB.name}</p>
+          <p className="text-3xl font-bold text-[#030304]">{totalB.toFixed(1)}</p>
+          <p className="text-xs text-[#808181]">tCO₂e</p>
+        </div>
+        <div className={cn(
+          "rounded-xl border p-5 text-center",
+          diff > 0 ? "bg-[#E6F3EE] border-[#56B7A5]" : diff < 0 ? "bg-[#FEF3C7] border-[#F59E0B]" : "bg-[#F3F4F6] border-[#E0E4E3]"
+        )}>
+          <p className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide mb-2">Redução</p>
+          <p className={cn("text-3xl font-bold", diff > 0 ? "text-[#1d7a6b]" : "text-[#b45309]")}>
+            {diff > 0 ? "-" : "+"}{Math.abs(diffPct).toFixed(1)}%
+          </p>
+          <p className="text-xs text-[#808181]">
+            {diff > 0 ? "-" : "+"}{Math.abs(diff).toFixed(1)} tCO₂e
+          </p>
+        </div>
+      </div>
+
+      {/* Detailed comparison */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Scope breakdown */}
+        <div className="bg-white rounded-xl border border-[#E0E4E3] overflow-hidden">
+          <div className="px-5 py-3 border-b border-[#E0E4E3] bg-[#F8FAF9]">
+            <p className="text-xs font-bold text-[#030304]">Breakdown por Escopo</p>
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-[#F0F4F3]">
+                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">Métrica</th>
+                <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">{scenA.name.split(" - ")[0]}</th>
+                <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">{scenB.name.split(" - ")[0]}</th>
+                <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">Dif. %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { label: "Total", a: totalA, b: totalB },
+                { label: "Materiais (Escopo 3)", a: (rA?.scope3_materials_kgco2e ?? 0) / 1000, b: (rB?.scope3_materials_kgco2e ?? 0) / 1000 },
+                { label: "Logística (Escopo 3)", a: (rA?.scope3_logistics_kgco2e ?? 0) / 1000, b: (rB?.scope3_logistics_kgco2e ?? 0) / 1000 },
+                { label: "Itens mapeados", a: rA?.items_mapped ?? 0, b: rB?.items_mapped ?? 0 },
+                { label: "Cobertura", a: rA?.coverage_pct ?? 0, b: rB?.coverage_pct ?? 0 },
+              ].map((row) => {
+                const d = row.a > 0 ? ((row.a - row.b) / row.a * 100) : 0;
+                const isPercent = row.label === "Cobertura";
+                const isCount = row.label === "Itens mapeados";
+                const fmt = (v: number) => isPercent ? `${v.toFixed(0)}%` : isCount ? String(Math.round(v)) : v.toFixed(1);
+                return (
+                  <tr key={row.label} className="border-b border-[#F0F4F3]">
+                    <td className="px-4 py-2.5 font-semibold text-[#030304]">{row.label}</td>
+                    <td className="px-4 py-2.5 text-right text-[#030304]">{fmt(row.a)}</td>
+                    <td className="px-4 py-2.5 text-right text-[#030304]">{fmt(row.b)}</td>
+                    <td className={cn("px-4 py-2.5 text-right font-semibold", d > 0 ? "text-[#1d7a6b]" : d < 0 ? "text-[#b45309]" : "text-[#808181]")}>
+                      {d !== 0 ? `${d > 0 ? "-" : "+"}${Math.abs(d).toFixed(1)}%` : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Material-by-material comparison */}
+        <div className="bg-white rounded-xl border border-[#E0E4E3] overflow-hidden">
+          <div className="px-5 py-3 border-b border-[#E0E4E3] bg-[#F8FAF9]">
+            <p className="text-xs font-bold text-[#030304]">Top Emissores por Material</p>
+          </div>
+          <div className="max-h-[320px] overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-white">
+                <tr className="border-b border-[#F0F4F3]">
+                  <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">Material</th>
+                  <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">A</th>
+                  <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">B</th>
+                  <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">Dif.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {materialRows.map((row) => {
+                  const d = row.a > 0 ? ((row.a - row.b) / row.a * 100) : 0;
+                  return (
+                    <tr key={row.name} className="border-b border-[#F0F4F3]">
+                      <td className="px-4 py-2 text-[#030304] leading-snug max-w-[200px] truncate" title={row.name}>
+                        {row.name.length > 35 ? row.name.slice(0, 32) + "…" : row.name}
+                      </td>
+                      <td className="px-3 py-2 text-right text-[#030304] whitespace-nowrap">{row.a.toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right text-[#030304] whitespace-nowrap">{row.b.toFixed(1)}</td>
+                      <td className={cn("px-3 py-2 text-right font-semibold whitespace-nowrap", d > 0 ? "text-[#1d7a6b]" : d < 0 ? "text-[#b45309]" : "text-[#808181]")}>
+                        {row.a === 0 && row.b === 0 ? "—" : d > 0 ? `↓${d.toFixed(0)}%` : d < 0 ? `↑${Math.abs(d).toFixed(0)}%` : "="}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -241,6 +608,16 @@ export default function ScenariosPage() {
 
   const baseScen = scenarios.find((s) => s.is_base) ?? null;
   const selectedScen = scenarios.find((s) => s.id === selectedScenId);
+
+  const handleSetBase = async (scenarioId: string) => {
+    try {
+      const res = await fetch(`/api/scenarios/${scenarioId}/set-base`, { method: "POST", headers: { Authorization: `Bearer ${localStorage.getItem("znit_token")}` } });
+      if (!res.ok) throw new Error("Erro");
+      await loadScenarios();
+    } catch {
+      alert("Erro ao definir cenário base");
+    }
+  };
 
   const handleCreateBase = async () => {
     setCreatingBase(true);
@@ -316,6 +693,7 @@ export default function ScenariosPage() {
                 onSelect={() =>
                   setSelectedScenId(selectedScenId === scen.id ? null : scen.id)
                 }
+                onSetBase={scen.is_base ? undefined : () => handleSetBase(scen.id)}
               />
             ))}
 
@@ -375,21 +753,13 @@ export default function ScenariosPage() {
                     </p>
                   </div>
                 ) : (
-                  <ImpactAnalysis scenarioId={selectedScen.id} />
+                  <ImpactAnalysis scenarioId={selectedScen.id} projectId={projectId} />
                 )}
               </>
             )}
 
             {bottomTab === "compare" && (
-              <div className="flex flex-col items-center justify-center py-14 text-center bg-[#F8FAF9] rounded-xl border border-dashed border-[#E0E4E3]">
-                <GitCompare size={28} className="text-[#BDBDBC] mb-3" />
-                <p className="text-sm font-semibold text-[#808181]">
-                  Comparação entre cenários
-                </p>
-                <p className="text-xs text-[#BDBDBC] mt-1">
-                  Disponível quando houver cenários alternativos criados.
-                </p>
-              </div>
+              <ScenarioComparison scenarios={scenarios} />
             )}
           </div>
         </>

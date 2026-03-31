@@ -230,7 +230,12 @@ async function calculateScenarioResult(
 
 export async function createBaseScenario(
   projectId: string,
-  userId: string
+  userId: string,
+  options?: {
+    abcCurveId?: string;
+    scenarioName?: string;
+    isBase?: boolean;
+  }
 ) {
   // Get project
   const { data: project } = await supabase
@@ -241,67 +246,103 @@ export async function createBaseScenario(
 
   if (!project) throw new Error("Projeto não encontrado");
 
-  // Get latest ABC curve
-  const { data: curves } = await supabase
-    .from("abc_curves")
-    .select("*")
-    .eq("project_id", projectId)
-    .order("imported_at", { ascending: false })
-    .limit(1);
+  // Get ABC curve (specific or latest)
+  let curve: Record<string, unknown> | null = null;
+  if (options?.abcCurveId) {
+    const { data } = await supabase
+      .from("abc_curves")
+      .select("*")
+      .eq("id", options.abcCurveId)
+      .single();
+    curve = data;
+  } else {
+    const { data: curves } = await supabase
+      .from("abc_curves")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("imported_at", { ascending: false })
+      .limit(1);
+    curve = curves?.[0] ?? null;
+  }
 
-  const curve = curves?.[0];
   if (!curve) throw new Error("Nenhuma curva ABC importada");
 
-  // Remove old base scenario
-  const { data: oldBases } = await supabase
-    .from("scenarios")
-    .select("id")
-    .eq("project_id", projectId)
-    .eq("is_base", true);
+  const isBase = options?.isBase ?? true;
+  const scenarioName = options?.scenarioName ?? "Cenário Base";
 
-  if (oldBases && oldBases.length > 0) {
-    for (const ob of oldBases) {
-      await supabase
-        .from("scenario_items")
-        .delete()
-        .eq("scenario_id", ob.id);
-      await supabase
-        .from("scenario_results")
-        .delete()
-        .eq("scenario_id", ob.id);
-      await supabase.from("scenarios").delete().eq("id", ob.id);
+  // Remove old base scenario (only if creating a base scenario)
+  if (isBase) {
+    const { data: oldBases } = await supabase
+      .from("scenarios")
+      .select("id")
+      .eq("project_id", projectId)
+      .eq("is_base", true);
+
+    if (oldBases && oldBases.length > 0) {
+      for (const ob of oldBases) {
+        await supabase
+          .from("scenario_items")
+          .delete()
+          .eq("scenario_id", ob.id);
+        await supabase
+          .from("scenario_results")
+          .delete()
+          .eq("scenario_id", ob.id);
+        await supabase.from("scenarios").delete().eq("id", ob.id);
+      }
     }
   }
 
-  // Create scenario
-  const { data: scenario, error: scErr } = await supabase
+  // Create scenario (try with abc_curve_id, fallback without)
+  const scenarioInsert: Record<string, unknown> = {
+    project_id: projectId,
+    name: scenarioName,
+    description:
+      isBase
+        ? "Cenário base gerado automaticamente a partir dos mapeamentos atuais."
+        : `Cenário criado a partir da curva ${(curve as { file_name?: string }).file_name ?? ""}`,
+    is_base: isBase,
+    status: "draft",
+    created_by: userId,
+  };
+
+  let scenario: Record<string, unknown> | null = null;
+  let scErr: { message: string } | null = null;
+
+  const scRes1 = await supabase
     .from("scenarios")
-    .insert({
-      project_id: projectId,
-      name: "Cenário Base",
-      description:
-        "Cenário base gerado automaticamente a partir dos mapeamentos atuais.",
-      is_base: true,
-      status: "draft",
-      created_by: userId,
-    })
+    .insert({ ...scenarioInsert, abc_curve_id: curve.id as string })
     .select()
     .single();
 
+  if (scRes1.error?.message?.includes("abc_curve_id")) {
+    const scRes2 = await supabase
+      .from("scenarios")
+      .insert(scenarioInsert)
+      .select()
+      .single();
+    scenario = scRes2.data;
+    scErr = scRes2.error;
+  } else {
+    scenario = scRes1.data;
+    scErr = scRes1.error;
+  }
+
   if (scErr || !scenario) throw new Error("Erro ao criar cenário");
 
-  // Get all items from the curve
+  // Get all items from the curve — skip blocked items (composição-pai)
   const { data: items } = await supabase
     .from("abc_items")
     .select("*")
-    .eq("abc_curve_id", curve.id)
+    .eq("abc_curve_id", curve.id as string)
+    .neq("mapping_status", "blocked")
     .order("item_order");
 
   const allItems = (items ?? []) as AbcItemRow[];
   const itemIds = allItems.map((i) => i.id);
 
   // Pre-load mappings
-  let mappingByItem: Record<string, MappingRow> = {};
+  const mappingByItem: Record<string, MappingRow> = {};
   if (itemIds.length > 0) {
     const { data: mappings } = await supabase
       .from("item_mappings")
@@ -346,7 +387,7 @@ export async function createBaseScenario(
   }
 
   // Calculate result
-  const result = await calculateScenarioResult(scenario.id, project);
+  const result = await calculateScenarioResult(scenario.id as string, project as ProjectRow);
 
   return { scenario, result };
 }

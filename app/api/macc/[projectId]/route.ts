@@ -285,6 +285,7 @@ export async function GET(
         cost_per_tco2e: 0.0,
         score: candidate.score ?? 0,
         category: "low",
+        country: candidate.country ?? "",
       });
     }
   }

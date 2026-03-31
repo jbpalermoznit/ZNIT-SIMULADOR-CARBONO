@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { itemTypeMeta, mappingStatusMeta, type ItemType, type AbcClass, type AbcItem } from "@/lib/mock/data";
 import { listAbcItems, getProject, type AbcItemResponse, type ProjectResponse } from "@/lib/api/projects";
 import { getMapping, type MappingResponse } from "@/lib/api/emission-factors";
@@ -1140,6 +1140,9 @@ function ItemDrawer({ item, onClose, onSaved }: { item: AbcItem; onClose: () => 
 
 export default function ItemsPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const searchParams = useSearchParams();
+  const highlightItemId = searchParams.get("item");
+  const curveIdParam = searchParams.get("curve_id");
   const [typeFilter, setTypeFilter] = useState<ItemType | "all">("all");
   const [classFilter, setClassFilter] = useState<AbcClass | "all">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "auto" | "suggested" | "pending">("all");
@@ -1155,7 +1158,7 @@ export default function ItemsPage() {
   const loadItems = useCallback(async () => {
     try {
       const [data, proj] = await Promise.all([
-        listAbcItems(projectId),
+        listAbcItems(projectId, curveIdParam ? { curve_id: curveIdParam } : undefined),
         getProject(projectId),
       ]);
       setProjectName(proj.name);
@@ -1173,6 +1176,14 @@ export default function ItemsPage() {
   }, []);
 
   useEffect(() => { loadItems(); }, [loadItems]);
+
+  // Auto-open item from query param ?item=ID (linked from scenarios page)
+  useEffect(() => {
+    if (highlightItemId && items.length > 0 && !openItem) {
+      const found = items.find((i) => i.id === highlightItemId);
+      if (found) setOpenItem(found);
+    }
+  }, [highlightItemId, items]);
 
   const handleAutoMap = async () => {
     setAutoMapping(true);

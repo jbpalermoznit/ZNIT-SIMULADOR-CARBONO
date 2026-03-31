@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { listProjects, createProject, ProjectResponse } from "@/lib/api/projects";
-import { Plus, ArrowUpRight, Leaf, TrendingDown, X, Loader2 } from "lucide-react";
+import { Plus, ArrowUpRight, Leaf, TrendingDown, X, Loader2, Pencil, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const STORAGE_KEY = "znit_settings";
@@ -40,6 +40,23 @@ export default function DashboardPage() {
     } catch {}
     loadProjects();
   }, [loadProjects]);
+
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editSubtitle, setEditSubtitle] = useState("");
+
+  const saveTitle = () => {
+    const newTitle = editTitle.trim() || portfolioTitle;
+    const newSub = editSubtitle.trim() || portfolioSubtitle;
+    setPortfolioTitle(newTitle);
+    setPortfolioSubtitle(newSub);
+    setEditingTitle(false);
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const s = raw ? JSON.parse(raw) : {};
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...s, portfolioTitle: newTitle, portfolioSubtitle: newSub }));
+    } catch {}
+  };
 
   const [newName, setNewName] = useState("");
   const [newClient, setNewClient] = useState("");
@@ -86,8 +103,44 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-7">
         <div>
-          <h1 className="text-2xl font-bold text-[#030304] mb-1">{portfolioTitle}</h1>
-          <p className="text-sm text-[#808181]">{portfolioSubtitle}</p>
+          {editingTitle ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTitle(false); }}
+                  className="text-2xl font-bold text-[#030304] bg-transparent border-b-2 border-[#56B7A5] outline-none px-0 py-0 w-[300px]"
+                  placeholder="Título do portfólio"
+                />
+                <button onClick={saveTitle} className="text-[#56B7A5] hover:text-[#1d7a6b] p-1">
+                  <Check size={18} />
+                </button>
+                <button onClick={() => setEditingTitle(false)} className="text-[#808181] hover:text-[#030304] p-1">
+                  <X size={18} />
+                </button>
+              </div>
+              <input
+                value={editSubtitle}
+                onChange={(e) => setEditSubtitle(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") saveTitle(); }}
+                className="text-sm text-[#808181] bg-transparent border-b border-[#E0E4E3] outline-none px-0 py-0 w-[400px]"
+                placeholder="Subtítulo"
+              />
+            </div>
+          ) : (
+            <div
+              className="group cursor-pointer"
+              onClick={() => { setEditTitle(portfolioTitle); setEditSubtitle(portfolioSubtitle); setEditingTitle(true); }}
+            >
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold text-[#030304] mb-1">{portfolioTitle}</h1>
+                <Pencil size={14} className="text-[#BDBDBC] opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+              <p className="text-sm text-[#808181]">{portfolioSubtitle}</p>
+            </div>
+          )}
         </div>
         <Button onClick={() => setShowNewProject(true)}>
           <Plus size={15} />

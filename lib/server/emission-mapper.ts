@@ -639,10 +639,52 @@ export interface AutoMatchResult {
 export async function autoMatchItem(
   description: string,
   unit?: string | null,
-  _companyId?: string | null
+  companyId?: string | null
 ): Promise<AutoMatchResult> {
-  // Priority 0: Factor rules — skipped in TS port (would require DB access)
-  // TODO: implement check_factor_rules if needed
+  // Priority 0: Factor Rules — company-specific overrides
+  if (companyId) {
+    const { supabase } = await import("@/lib/server/supabase");
+    const descNorm = description
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+    const { data: rules } = await supabase
+      .from("factor_rules")
+      .select("*")
+      .eq("company_id", companyId)
+      .eq("is_active", true);
+
+    if (rules && rules.length > 0) {
+      for (const rule of rules) {
+        const keyword = String(rule.match_keyword ?? "").toLowerCase();
+        if (keyword && descNorm.includes(keyword)) {
+          // Direct match via rule — highest priority
+          const candidate: MatchCandidate = {
+            source_tier: rule.source_tier ?? "rule",
+            score: 100,
+            factor_value: rule.factor_value,
+            factor_unit: rule.factor_unit,
+            product_unit: rule.factor_unit?.replace(/^kgCO₂e?\//, "") ?? "",
+            factor_name: rule.factor_name,
+            factor_source: rule.source_description ?? "Factor Rule",
+            geography: "Brasil",
+          };
+          // Increment times_applied
+          await supabase
+            .from("factor_rules")
+            .update({ times_applied: (rule.times_applied ?? 0) + 1 })
+            .eq("id", rule.id);
+
+          return {
+            results: [candidate],
+            best: candidate,
+            confidence: "high",
+          };
+        }
+      }
+    }
+  }
 
   const keywords = extractKeywords(description);
   const { queries: ecoinventQueries, shouldGhg } =

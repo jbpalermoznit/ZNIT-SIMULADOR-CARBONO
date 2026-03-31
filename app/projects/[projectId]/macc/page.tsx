@@ -21,7 +21,7 @@ const TIER_COLORS: Record<string, [string, string]> = {
 };
 
 // Group bars by item, keep best alternative per item (highest abatement)
-function pickTopItems(bars: MaccBar[], count: number) {
+function pickTopItems(bars: MaccBar[]) {
   const byItem = new Map<string, MaccBar>();
   for (const bar of bars) {
     const existing = byItem.get(bar.item_cost_code);
@@ -30,9 +30,10 @@ function pickTopItems(bars: MaccBar[], count: number) {
     }
   }
   return [...byItem.values()]
-    .sort((a, b) => b.abatement_tco2e - a.abatement_tco2e)
-    .slice(0, count);
+    .sort((a, b) => b.abatement_tco2e - a.abatement_tco2e);
 }
+
+type CountryFilter = "all" | "brasil" | "outros";
 
 export default function MaccPage() {
   const params = useParams();
@@ -42,6 +43,7 @@ export default function MaccPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hoveredBar, setHoveredBar] = useState<string | null>(null);
+  const [countryFilter, setCountryFilter] = useState<CountryFilter>("all");
 
   // Cost multipliers: barId → multiplier (default 1.0 = same cost)
   const [multipliers, setMultipliers] = useState<Record<string, number>>({});
@@ -66,12 +68,32 @@ export default function MaccPage() {
     return () => { cancelled = true; };
   }, [projectId]);
 
-  // Top 5 most impactful items
-  const top5 = useMemo(() => pickTopItems(allBars, 5), [allBars]);
+  // Filter by country
+  const filteredBars = useMemo(() => {
+    if (countryFilter === "all") return allBars;
+    return allBars.filter((bar) => {
+      const country = (bar.country ?? "").toLowerCase();
+      const isBrasil = country.includes("brazil") || country.includes("brasil");
+      return countryFilter === "brasil" ? isBrasil : !isBrasil;
+    });
+  }, [allBars, countryFilter]);
+
+  const topItems = useMemo(() => pickTopItems(filteredBars), [filteredBars]);
+
+  // Count EPDs by country for the dropdown label
+  const countryStats = useMemo(() => {
+    let br = 0, other = 0;
+    for (const b of allBars) {
+      const c = (b.country ?? "").toLowerCase();
+      if (c.includes("brazil") || c.includes("brasil")) br++;
+      else other++;
+    }
+    return { br, other };
+  }, [allBars]);
 
   // Apply multipliers to compute cost in R$/tCO₂e
   const barsWithCost = useMemo(() => {
-    return top5.map((bar) => {
+    return topItems.map((bar) => {
       const mult = multipliers[bar.id] ?? 1.0;
       // Total baseline cost = unit_cost × quantity
       const baselineTotalCost = (bar.item_unit_cost ?? 0) * (bar.item_quantity ?? 0);
@@ -87,7 +109,7 @@ export default function MaccPage() {
         : "high" as const;
       return { ...bar, cost_per_tco2e: Math.round(costPerTco2e), category };
     });
-  }, [top5, multipliers]);
+  }, [topItems, multipliers]);
 
   // Sort by cost (MACC convention: cheapest first)
   const sorted = useMemo(
@@ -203,18 +225,27 @@ export default function MaccPage() {
   return (
     <div className="p-7">
       {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center gap-2 mb-1">
-          <h1 className="text-2xl font-bold text-[#030304]">Curva MACC</h1>
-          {allBars.length > 0 && (
-            <span className="text-[10px] font-bold bg-[#E6F3EE] text-[#1d7a6b] px-2 py-0.5 rounded">
-              TOP 5 MATERIAIS
-            </span>
-          )}
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-[#030304] mb-1">Curva MACC</h1>
+          <p className="text-sm text-[#808181]">
+            Curva de Custo Marginal de Abatimento — materiais com maior potencial de redução de carbono
+          </p>
         </div>
-        <p className="text-sm text-[#808181]">
-          Curva de Custo Marginal de Abatimento — 5 materiais com maior potencial de redução de carbono
-        </p>
+        {allBars.length > 0 && (
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide">EPDs de</label>
+            <select
+              value={countryFilter}
+              onChange={(e) => setCountryFilter(e.target.value as CountryFilter)}
+              className="px-3 py-1.5 border border-[#E0E4E3] rounded-lg text-xs text-[#030304] bg-white focus:outline-none focus:ring-2 focus:ring-[#56B7A5]/30"
+            >
+              <option value="all">Todos os países ({allBars.length})</option>
+              <option value="brasil">Brasil ({countryStats.br})</option>
+              <option value="outros">Outros países ({countryStats.other})</option>
+            </select>
+          </div>
+        )}
       </div>
 
       {loading && (
@@ -277,7 +308,7 @@ export default function MaccPage() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-semibold text-[#030304]">
-                  Curva MACC — 5 Principais Materiais
+                  Curva MACC — Principais Materiais
                 </h2>
                 <Info size={14} className="text-[#BDBDBC]" />
               </div>
@@ -409,7 +440,7 @@ export default function MaccPage() {
           {/* Table with editable multipliers */}
           <div className="bg-white rounded-xl border border-[#E0E4E3] shadow-[0_1px_3px_rgba(3,3,4,0.06)] overflow-hidden mb-6">
             <div className="px-6 py-4 border-b border-[#E0E4E3]">
-              <h2 className="text-sm font-semibold text-[#030304]">5 Principais — Multiplicador de Custo</h2>
+              <h2 className="text-sm font-semibold text-[#030304]">Substitutos EPD — Multiplicador de Custo</h2>
               <p className="text-[11px] text-[#808181] mt-0.5">
                 Ajuste o multiplicador para simular o custo da alternativa vs. baseline.
                 Ex: 0.90 = 10% mais barato, 1.10 = 10% mais caro.
@@ -420,7 +451,7 @@ export default function MaccPage() {
                 <tr className="border-b border-[#F0F4F3]">
                   <th className="text-left text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-6 py-3">Material (Item ABC)</th>
                   <th className="text-left text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-6 py-3">Alternativa EPD</th>
-                  <th className="text-left text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-6 py-3">Fonte</th>
+                  <th className="text-left text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-6 py-3">País</th>
                   <th className="text-right text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-6 py-3">Redução CO₂</th>
                   <th className="text-center text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-6 py-3">Multiplicador</th>
                   <th className="text-right text-[10px] font-semibold text-[#808181] uppercase tracking-wide px-6 py-3">R$/tCO₂e</th>
@@ -445,8 +476,12 @@ export default function MaccPage() {
                         <p className="text-[10px] text-[#808181]">{bar.supplier}</p>
                       </td>
                       <td className="px-6 py-3">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${(TIER_COLORS[bar.source_tier] ?? ["bg-[#F0F4F3]", "text-[#808181]"]).join(" ")}`}>
-                          {SOURCE_LABELS[bar.source_tier] || bar.source_tier}
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                          ((bar as unknown as Record<string,string>).country ?? "").toLowerCase().includes("brazil")
+                            ? "bg-[#E6F3EE] text-[#1d7a6b]"
+                            : "bg-[#F0F4F3] text-[#808181]"
+                        }`}>
+                          {(bar as unknown as Record<string,string>).country || "—"}
                         </span>
                       </td>
                       <td className="px-6 py-3 text-right">

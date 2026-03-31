@@ -148,7 +148,7 @@ export async function PUT(
         body.ecoinvent_activity_id ?? ""
       );
       if (row) {
-        factorName = factorName || (row.product_name as string) ?? "";
+        factorName = factorName || ((row.product_name as string) ?? "");
         factorSource = `Ecoinvent — ${(row.activity_name as string) ?? ""}`;
       }
     } else if (
@@ -157,13 +157,13 @@ export async function PUT(
     ) {
       const row = await getGhgById(body.ghg_factor_id);
       if (row) {
-        factorName = factorName || (row.produto as string) ?? "";
+        factorName = factorName || ((row.produto as string) ?? "");
         factorSource = `GHG Protocol BR ${(row.versao_ghg as string) ?? ""}`;
       }
     } else if (body.source_tier === "epd" && body.epd_id) {
       const row = await getEpdById(body.epd_id);
       if (row) {
-        factorName = factorName || (row.titulo as string) ?? "";
+        factorName = factorName || ((row.titulo as string) ?? "");
         const company = (row.company_name as string) ?? "";
         factorSource = company ? `EPD — ${company}` : "EPD";
       }

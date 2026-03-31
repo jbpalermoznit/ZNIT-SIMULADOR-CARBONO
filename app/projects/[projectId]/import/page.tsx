@@ -8,9 +8,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-import { uploadAbc, getProject, UploadResult } from "@/lib/api/projects";
+import { uploadAbc, uploadScenario, getProject, UploadResult, ScenarioUploadResult } from "@/lib/api/projects";
 
 type Step = "upload" | "processing" | "preview" | "done";
+type ImportMode = "abc" | "scenario";
 
 const TYPE_LABELS: Record<string, { label: string; description: string; color: string; bg: string }> = {
   A: { label: "Material Direto",         description: "Material físico com EPD — mapeamento direto de emissões.",              color: "#1d7a6b", bg: "#E6F3EE" },
@@ -47,6 +48,7 @@ const IMPORT_HISTORY = [
 export default function ImportPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const router = useRouter();
+  const [mode, setMode] = useState<ImportMode>("scenario");
   const [step, setStep] = useState<Step>("upload");
   const [dragging, setDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -54,6 +56,14 @@ export default function ImportPage() {
   const [error, setError] = useState("");
   const [projectName, setProjectName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Scenario mode state
+  const [itemsFile, setItemsFile] = useState<File | null>(null);
+  const [insumosFile, setInsumosFile] = useState<File | null>(null);
+  const [scenarioName, setScenarioName] = useState("");
+  const [scenarioResult, setScenarioResult] = useState<ScenarioUploadResult | null>(null);
+  const insumosInputRef = useRef<HTMLInputElement>(null);
+  const itemsInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { getProject(projectId).then((p) => setProjectName(p.name)).catch(() => {}); }, [projectId]);
 
@@ -71,8 +81,19 @@ export default function ImportPage() {
     try {
       const data = await uploadAbc(projectId, file);
       setResult(data); setStep("preview");
-    } catch (e: any) {
-      setError(e.message ?? "Erro ao processar arquivo"); setStep("upload");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erro ao processar arquivo"); setStep("upload");
+    }
+  };
+
+  const handleScenarioUpload = async () => {
+    if (!itemsFile || !insumosFile || !scenarioName) return;
+    setStep("processing"); setError("");
+    try {
+      const data = await uploadScenario(projectId, itemsFile, insumosFile, scenarioName);
+      setScenarioResult(data); setStep("preview");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erro ao processar cenário"); setStep("upload");
     }
   };
 
@@ -88,8 +109,27 @@ export default function ImportPage() {
         {/* Header */}
         <div className="mb-7">
           <p className="text-xs font-semibold text-[#808181] uppercase tracking-widest mb-1">{projectName}</p>
-          <h1 className="text-2xl font-bold text-[#030304]">Importar Curva ABC</h1>
-          <p className="text-sm text-[#808181] mt-0.5">Faça upload do arquivo XLSX ou XLSM exportado do iTwo</p>
+          <h1 className="text-2xl font-bold text-[#030304]">Importar Dados</h1>
+          <p className="text-sm text-[#808181] mt-0.5">Faça upload dos arquivos para calcular emissões de carbono</p>
+        </div>
+
+        {/* Mode tabs */}
+        <div className="flex gap-1 bg-[#F3F4F6] rounded-lg p-1 mb-6 w-fit">
+          {[
+            { id: "scenario" as ImportMode, label: "Cenário Completo" },
+            { id: "abc" as ImportMode, label: "Curva ABC" },
+          ].map((t) => (
+            <button
+              key={t.id}
+              onClick={() => { setMode(t.id); setStep("upload"); setError(""); setResult(null); setScenarioResult(null); }}
+              className={cn(
+                "px-4 py-1.5 rounded-md text-xs font-semibold transition-all",
+                mode === t.id ? "bg-white text-[#030304] shadow-sm" : "text-[#808181] hover:text-[#030304]"
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
         {/* Steps */}
@@ -122,8 +162,137 @@ export default function ImportPage() {
           })}
         </div>
 
-        {/* Upload */}
-        {step === "upload" && (
+        {/* ── Cenário Completo — Upload ── */}
+        {mode === "scenario" && step === "upload" && (
+          <div className="space-y-5">
+            {error && <Alert variant="danger"><strong>Erro:</strong> {error}</Alert>}
+
+            {/* Scenario name */}
+            <div>
+              <label className="text-xs font-semibold text-[#030304] mb-1 block">Nome do Cenário</label>
+              <input
+                type="text"
+                value={scenarioName}
+                onChange={(e) => setScenarioName(e.target.value)}
+                placeholder="Ex: Cenário Padrão - Estaca Helice"
+                className="w-full px-3 py-2 border border-[#E0E4E3] rounded-lg text-sm text-[#030304] placeholder:text-[#BDBDBC] focus:outline-none focus:ring-2 focus:ring-[#56B7A5]/30 focus:border-[#56B7A5]"
+              />
+            </div>
+
+            {/* Two file dropzones side by side */}
+            <div className="grid grid-cols-2 gap-4">
+              {/* Planilha de Itens */}
+              <div
+                className={cn(
+                  "border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer",
+                  itemsFile ? "border-[#56B7A5] bg-[#E6F3EE]" : "border-[#BDBDBC] bg-white hover:border-[#81C8B9] hover:bg-[#F8FAF9]"
+                )}
+                onClick={() => itemsInputRef.current?.click()}
+              >
+                <input ref={itemsInputRef} type="file" accept=".xlsx,.xlsm" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setItemsFile(f); setError(""); } }} />
+                <div className="w-10 h-10 bg-[#E6F3EE] rounded-lg flex items-center justify-center mx-auto mb-3">
+                  <FileSpreadsheet size={20} className="text-[#56B7A5]" />
+                </div>
+                <h4 className="text-sm font-bold text-[#030304] mb-1">Planilha de Itens</h4>
+                <p className="text-xs text-[#808181] mb-2">Arquivo Solucao (orçamento)</p>
+                {itemsFile ? (
+                  <div className="flex items-center gap-2 justify-center">
+                    <CheckCircle2 size={14} className="text-[#56B7A5]" />
+                    <span className="text-xs font-semibold text-[#56B7A5] truncate max-w-[160px]">{itemsFile.name}</span>
+                    <button onClick={(e) => { e.stopPropagation(); setItemsFile(null); }} className="text-[#808181] hover:text-red-500"><X size={12} /></button>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-[#BDBDBC]">Clique para selecionar</p>
+                )}
+              </div>
+
+              {/* Planilha de Insumos */}
+              <div
+                className={cn(
+                  "border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer",
+                  insumosFile ? "border-[#56B7A5] bg-[#E6F3EE]" : "border-[#BDBDBC] bg-white hover:border-[#81C8B9] hover:bg-[#F8FAF9]"
+                )}
+                onClick={() => insumosInputRef.current?.click()}
+              >
+                <input ref={insumosInputRef} type="file" accept=".xlsx,.xlsm" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setInsumosFile(f); setError(""); } }} />
+                <div className="w-10 h-10 bg-[#E6F3EE] rounded-lg flex items-center justify-center mx-auto mb-3">
+                  <FileSpreadsheet size={20} className="text-[#56B7A5]" />
+                </div>
+                <h4 className="text-sm font-bold text-[#030304] mb-1">Planilha de Insumos</h4>
+                <p className="text-xs text-[#808181] mb-2">Arquivo SECAGEM (composições)</p>
+                {insumosFile ? (
+                  <div className="flex items-center gap-2 justify-center">
+                    <CheckCircle2 size={14} className="text-[#56B7A5]" />
+                    <span className="text-xs font-semibold text-[#56B7A5] truncate max-w-[160px]">{insumosFile.name}</span>
+                    <button onClick={(e) => { e.stopPropagation(); setInsumosFile(null); }} className="text-[#808181] hover:text-red-500"><X size={12} /></button>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-[#BDBDBC]">Clique para selecionar</p>
+                )}
+              </div>
+            </div>
+
+            {/* Process button */}
+            {itemsFile && insumosFile && scenarioName && (
+              <div className="flex justify-end">
+                <Button onClick={handleScenarioUpload}>
+                  <Upload size={15} /> Processar Cenário
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Cenário Completo — Preview ── */}
+        {mode === "scenario" && step === "preview" && scenarioResult && (
+          <div className="space-y-5">
+            <Alert variant="success">
+              <strong>Cenário &quot;{scenarioResult.scenario_name}&quot; criado!</strong>{" "}
+              {scenarioResult.result.total_tco2e.toFixed(2)} tCO₂e calculados.
+            </Alert>
+
+            <div className="grid grid-cols-4 gap-4">
+              <div className="bg-white rounded-xl border border-[#E0E4E3] p-4">
+                <p className="text-xs text-[#808181]">Emissões Totais</p>
+                <p className="text-2xl font-bold text-[#030304]">{scenarioResult.result.total_tco2e.toFixed(1)}</p>
+                <p className="text-xs text-[#808181]">tCO₂e</p>
+              </div>
+              <div className="bg-white rounded-xl border border-[#E0E4E3] p-4">
+                <p className="text-xs text-[#808181]">Itens mapeados</p>
+                <p className="text-2xl font-bold text-[#56B7A5]">{scenarioResult.auto_mapped}</p>
+                <p className="text-xs text-[#808181]">auto + {scenarioResult.suggested} sugeridos</p>
+              </div>
+              <div className="bg-white rounded-xl border border-[#E0E4E3] p-4">
+                <p className="text-xs text-[#808181]">Cobertura</p>
+                <p className="text-2xl font-bold text-[#030304]">{scenarioResult.result.coverage_pct.toFixed(0)}%</p>
+                <p className="text-xs text-[#808181]">{scenarioResult.result.items_mapped}/{scenarioResult.result.items_total} itens</p>
+              </div>
+              <div className="bg-white rounded-xl border border-[#E0E4E3] p-4">
+                <p className="text-xs text-[#808181]">Expansão</p>
+                <p className="text-2xl font-bold text-[#030304]">{scenarioResult.total_parent_items}</p>
+                <p className="text-xs text-[#808181]">itens → {scenarioResult.total_child_items} insumos</p>
+              </div>
+            </div>
+
+            {scenarioResult.warnings.length > 0 && (
+              <Alert variant="warning">
+                {scenarioResult.warnings.slice(0, 3).join(" · ")}
+              </Alert>
+            )}
+
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => { setStep("upload"); setScenarioResult(null); setItemsFile(null); setInsumosFile(null); setScenarioName(""); }}>
+                Importar outro cenário
+              </Button>
+              <Button onClick={() => router.push(`/projects/${projectId}/scenarios`)}>
+                Ver Cenários
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Curva ABC — Upload ── */}
+        {mode === "abc" && step === "upload" && (
           <div className="space-y-5">
             {error && <Alert variant="danger"><strong>Erro ao processar:</strong> {error}</Alert>}
             <div
@@ -167,7 +336,7 @@ export default function ImportPage() {
           </div>
         )}
 
-        {/* Processing */}
+        {/* Processing (both modes) */}
         {step === "processing" && (
           <div className="bg-white rounded-xl border border-[#E0E4E3] p-10 text-center">
             <div className="w-16 h-16 bg-[#E6F3EE] rounded-xl flex items-center justify-center mx-auto mb-4">
@@ -179,8 +348,8 @@ export default function ImportPage() {
           </div>
         )}
 
-        {/* Preview */}
-        {step === "preview" && result && (
+        {/* ABC Preview */}
+        {mode === "abc" && step === "preview" && result && (
           <div className="space-y-5">
             <Alert variant="success">
               <strong>{result.total_items} itens detectados</strong> em <strong>{result.file_name}</strong> — confira antes de confirmar.
@@ -258,8 +427,8 @@ export default function ImportPage() {
           </div>
         )}
 
-        {/* Done */}
-        {step === "done" && result && (
+        {/* ABC Done */}
+        {mode === "abc" && step === "done" && result && (
           <div className="bg-white rounded-xl border border-[#E0E4E3] p-12 text-center">
             <div className="w-16 h-16 bg-[#E6F3EE] rounded-full flex items-center justify-center mx-auto mb-4">
               <CheckCircle2 size={32} className="text-[#56B7A5]" />

@@ -20,6 +20,7 @@ export interface MaccBar {
   cost_per_tco2e: number;
   score: number;
   category: "saving" | "low" | "medium" | "high";
+  country?: string;
 }
 
 export interface MaccKpis {

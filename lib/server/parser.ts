@@ -46,7 +46,7 @@ export interface ParseResult {
 
 const COLUMN_ALIASES: Record<string, string[]> = {
   cost_code: ["costcode", "cost code", "código", "codigo", "cod", "cód"],
-  description: ["descrição", "descricao", "description", "item", "desc"],
+  description: ["descrição", "descricao", "description", "desc"],
   adf: ["adf"],
   unit_cost: [
     "custo unitário",
@@ -55,9 +55,11 @@ const COLUMN_ALIASES: Record<string, string[]> = {
     "custo unit.",
     "preço unit",
     "unit cost",
+    "valor unit",
+    "valor unitario",
   ],
   quantity: ["quantidade", "qtd", "qty", "quant"],
-  unit: ["unidade", "unid"],
+  unit: ["unidade", "unid", "und"],
   total_cost: ["custo total", "total", "total cost"],
   cost_pct: ["% custo total", "% custo", "% total", "percentual"],
   supplier: ["fornecedor", "supplier", "fonte"],

@@ -88,12 +88,55 @@ export async function GET(
         is_excluded: si.is_excluded,
         exclusion_reason: si.exclusion_reason,
         item_order: ai.item_order ?? 0,
+        parent_item_id: ai.parent_item_id ?? null,
+        classification_note: ai.classification_note ?? null,
+        mapping_status: ai.mapping_status ?? null,
       };
     })
     .sort(
       (a, b) =>
         ((a.item_order as number) ?? 0) - ((b.item_order as number) ?? 0)
     );
+
+  // Load parent (blocked) items for composition hierarchy
+  // Try abc_curve_id first, fallback to finding curve from child items
+  let curveId = scenario.abc_curve_id;
+  if (!curveId && abcItemIds.length > 0) {
+    const firstItem = Object.values(abcItemsMap)[0];
+    if (firstItem) curveId = firstItem.abc_curve_id;
+  }
+  let parentItems: Array<Record<string, unknown>> = [];
+  if (curveId) {
+    const { data: blockedItems } = await supabase
+      .from("abc_items")
+      .select("id, cost_code, description, quantity, unit, total_cost, item_type, item_order, mapping_status, classification_note")
+      .eq("abc_curve_id", curveId)
+      .eq("mapping_status", "blocked")
+      .order("item_order");
+    parentItems = (blockedItems ?? []).map((bi) => ({
+      id: bi.id,
+      abc_item_id: bi.id,
+      cost_code: bi.cost_code,
+      description: bi.description,
+      quantity: bi.quantity,
+      unit: bi.unit,
+      total_cost: bi.total_cost,
+      item_type: bi.item_type,
+      item_order: bi.item_order,
+      mapping_status: bi.mapping_status,
+      classification_note: bi.classification_note,
+      parent_item_id: null,
+      is_parent: true,
+      // Sum child emissions
+      emission_tco2e: itemsResponse
+        .filter((i) => i.parent_item_id === bi.id && (i.emission_tco2e ?? 0) > 0)
+        .reduce((sum, i) => sum + (i.emission_tco2e ?? 0), 0),
+      emission_kgco2e: itemsResponse
+        .filter((i) => i.parent_item_id === bi.id && (i.emission_kgco2e ?? 0) > 0)
+        .reduce((sum, i) => sum + (i.emission_kgco2e ?? 0), 0),
+      children_count: itemsResponse.filter((i) => i.parent_item_id === bi.id).length,
+    }));
+  }
 
   return Response.json({
     id: scenario.id,
@@ -105,7 +148,9 @@ export async function GET(
     is_base: scenario.is_base,
     created_at: scenario.created_at,
     items_count: itemsResponse.length,
+    abc_curve_id: curveId ?? null,
     result: result ?? null,
     items: itemsResponse,
+    parent_items: parentItems,
   });
 }

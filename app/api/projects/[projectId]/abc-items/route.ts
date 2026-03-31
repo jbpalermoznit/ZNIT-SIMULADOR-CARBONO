@@ -34,21 +34,34 @@ export async function GET(
     );
   }
 
-  // Get latest curve
-  const { data: curves } = await supabase
-    .from("abc_curves")
-    .select("id")
-    .eq("project_id", projectId)
-    .order("imported_at", { ascending: false })
-    .limit(1);
+  // Get curve: specific (via query param) or latest
+  const searchParams = req.nextUrl.searchParams;
+  const curveIdParam = searchParams.get("curve_id");
 
-  const curve = curves?.[0];
+  let curve: { id: string } | null = null;
+  if (curveIdParam) {
+    const { data } = await supabase
+      .from("abc_curves")
+      .select("id")
+      .eq("id", curveIdParam)
+      .eq("project_id", projectId)
+      .single();
+    curve = data;
+  } else {
+    const { data: curves } = await supabase
+      .from("abc_curves")
+      .select("id")
+      .eq("project_id", projectId)
+      .order("imported_at", { ascending: false })
+      .limit(1);
+    curve = curves?.[0] ?? null;
+  }
+
   if (!curve) {
     return Response.json([]);
   }
 
   // Build query with optional filters
-  const searchParams = req.nextUrl.searchParams;
   const itemType = searchParams.get("item_type");
   const abcClass = searchParams.get("abc_class");
   const mappingStatus = searchParams.get("mapping_status");
