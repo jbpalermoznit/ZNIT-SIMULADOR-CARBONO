@@ -187,8 +187,6 @@ export default function ReportsPage() {
           projectName,
           scenarioA,
           scenarioB,
-          capacity: 100,
-          unit: "m³",
           createdAt: new Date().toLocaleDateString("pt-BR"),
         },
         branding ?? loadSettings()

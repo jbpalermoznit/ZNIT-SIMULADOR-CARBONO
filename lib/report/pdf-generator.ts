@@ -42,8 +42,6 @@ interface ReportData {
   projectName: string;
   scenarioA: ReportScenario;
   scenarioB: ReportScenario;
-  capacity: number;
-  unit: string;
   createdAt: string;
 }
 
@@ -116,26 +114,46 @@ export function generateComparisonPDF(
   doc.setTextColor(3, 3, 4);
   doc.text("RELATORIO COMPARATIVO DE EMISSOES", ml, y + 7);
 
-  doc.setFontSize(7.5);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(128, 129, 129);
-  doc.text(
-    "Projeto: " + data.projectName + "  |  Emitido em: " + data.createdAt + "  |  Capacidade: " + data.capacity + " " + data.unit,
-    ml, y + 12
-  );
-
-  y += 16;
+  y += 12;
   drawHeaderLine();
 
-  // Big numbers
-  doc.setFontSize(16);
+  // Scenario identification
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(128, 129, 129);
+  doc.text("Projeto: " + data.projectName + "  |  Emitido em: " + data.createdAt, ml, y + 3);
+
+  doc.setFontSize(8);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(3, 3, 4);
-  doc.text(aName.toUpperCase() + ": " + fmtN(data.scenarioA.totalTco2e) + " tCO2e", ml, y + 6);
-
+  doc.text("Cenario A (Referencia):  " + data.scenarioA.name, ml, y + 9);
   doc.setTextColor(...rgb);
-  doc.text(bName.toUpperCase() + ": " + fmtN(data.scenarioB.totalTco2e) + " tCO2e", ml, y + 13);
-  y += 20;
+  doc.text("Cenario B (Comparacao):  " + data.scenarioB.name, ml, y + 14);
+  y += 18;
+
+  // Big numbers
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(3, 3, 4);
+  doc.text(fmtN(data.scenarioA.totalTco2e) + " tCO2e", ml, y + 7);
+
+  const diffPct = data.scenarioA.totalTco2e > 0
+    ? ((data.scenarioA.totalTco2e - data.scenarioB.totalTco2e) / data.scenarioA.totalTco2e * 100).toFixed(1)
+    : "0";
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(128, 129, 129);
+  doc.text("vs", ml + 55, y + 5);
+
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(...rgb);
+  doc.text(fmtN(data.scenarioB.totalTco2e) + " tCO2e", ml + 62, y + 7);
+
+  doc.setFontSize(12);
+  doc.text("-" + diffPct + "%", ml + 130, y + 7);
+  y += 14;
 
   // Indicators table
   const a = data.scenarioA;
@@ -184,7 +202,10 @@ export function generateComparisonPDF(
   doc.setFontSize(7);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(128, 129, 129);
-  doc.text("Projeto: " + data.projectName, ml, y + 11);
+  doc.text(
+    data.scenarioA.name + "  vs  " + data.scenarioB.name,
+    ml, y + 11
+  );
   y += 14;
   drawHeaderLine();
 
