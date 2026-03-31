@@ -17,6 +17,7 @@ import type { ScopeDataPoint } from "@/components/charts/scope-donut";
 
 export default function OverviewPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const [allScenarios, setAllScenarios] = useState<ScenarioResponse[]>([]);
   const [baseScenario, setBaseScenario] = useState<ScenarioResponse | null>(null);
   const [scenarioCount, setScenariosCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
@@ -74,6 +75,7 @@ export default function OverviewPage() {
           getProject(projectId),
         ]);
         setProject(proj);
+        setAllScenarios(scenarios.filter((s) => s.result));
         const base = scenarios.find((s) => s.is_base);
         setBaseScenario(base ?? null);
         setScenariosCount(scenarios.length);
@@ -158,9 +160,7 @@ export default function OverviewPage() {
           <p className="text-xs font-semibold text-[#808181] uppercase tracking-widest mb-1">
             {[project?.name, project?.building_type, project?.address].filter(Boolean).join(" · ")}
           </p>
-          <h1 className="text-2xl font-bold text-[#030304]">
-            {baseScenario ? "Cenário Base" : "Visão Geral do Projeto"}
-          </h1>
+          <h1 className="text-2xl font-bold text-[#030304]">Visão Geral</h1>
           <p className="text-sm text-[#808181] mt-0.5">
             {baseScenario
               ? `${itemsMapped} de ${itemsTotal} itens calculados · ${coveragePct.toFixed(1)}% cobertura`
@@ -259,6 +259,60 @@ export default function OverviewPage() {
               sub={scenarioCount <= 1 ? "apenas o Base" : `Base + ${scenarioCount - 1} alternativa${scenarioCount > 2 ? "s" : ""}`}
             />
           </div>
+
+          {/* Scenarios comparison */}
+          {allScenarios.length > 0 && (
+            <div className="mb-6">
+              <h2 className="text-sm font-bold text-[#030304] mb-3">Cenários</h2>
+              <div className="grid grid-cols-2 gap-4">
+                {allScenarios
+                  .sort((a, b) => (b.result?.total_tco2e ?? 0) - (a.result?.total_tco2e ?? 0))
+                  .map((scen) => {
+                    const t = scen.result?.total_tco2e ?? 0;
+                    const baseT = baseScenario?.result?.total_tco2e ?? 0;
+                    const isBase = scen.is_base;
+                    const delta = baseT > 0 && !isBase ? ((baseT - t) / baseT * 100) : 0;
+                    const coverage = scen.result?.coverage_pct ?? 0;
+                    const mapped = scen.result?.items_mapped ?? 0;
+                    const total = scen.result?.items_total ?? 0;
+
+                    return (
+                      <Link key={scen.id} href={`/projects/${projectId}/scenarios`}>
+                        <div className={`bg-white rounded-xl border p-4 hover:border-[#56B7A5] transition-all cursor-pointer ${
+                          isBase ? "border-[#56B7A5]/40" : "border-[#E0E4E3]"
+                        }`}>
+                          <div className="flex items-start justify-between mb-2">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                {isBase && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#E6F3EE] text-[#56B7A5]">BASE</span>
+                                )}
+                                <h3 className="text-sm font-bold text-[#030304]">{scen.name}</h3>
+                              </div>
+                              <p className="text-xs text-[#808181]">{mapped}/{total} itens · {coverage.toFixed(0)}% cobertura</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xl font-bold text-[#030304]">
+                                {t.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
+                              </p>
+                              <p className="text-[10px] text-[#808181]">tCO₂e</p>
+                            </div>
+                          </div>
+                          {!isBase && delta > 0 && (
+                            <div className="flex items-center gap-1.5 bg-[#E6F3EE] rounded-lg px-2.5 py-1 mt-1">
+                              <TrendingDown size={12} className="text-[#56B7A5]" />
+                              <span className="text-xs font-bold text-[#1d7a6b]">
+                                -{delta.toFixed(1)}% vs Base ({(baseT - t).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} tCO₂e)
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </Link>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
 
           {/* Charts grid */}
           <div className="grid grid-cols-3 gap-4">
