@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { supabase } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import type { AuthUser } from "@/lib/server/auth";
+import { assertScenarioOwnership, ForbiddenError, forbidden } from "@/lib/server/access";
 
 // ---------------------------------------------------------------------------
 // GET /api/scenarios/[scenarioId] — scenario detail with items
@@ -18,6 +19,13 @@ export async function GET(
   }
 
   const { scenarioId } = await params;
+
+  try {
+    await assertScenarioOwnership(scenarioId, user);
+  } catch (e) {
+    if (e instanceof ForbiddenError) return forbidden(e.message);
+    throw e;
+  }
 
   const { data: scenario } = await supabase
     .from("scenarios")

@@ -7,6 +7,8 @@ const isPublicRoute = createRouteMatcher([
   "/sign-up(.*)",
   "/api/health(.*)",
   "/api/webhooks/clerk(.*)",
+  // PowerBI endpoints authenticate via shared API key (POWERBI_API_KEY), not Clerk
+  "/api/projects/(.*)/powerbi(.*)",
 ]);
 
 const isOnboardingRoute = createRouteMatcher(["/onboarding(.*)"]);
