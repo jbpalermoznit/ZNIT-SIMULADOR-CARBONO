@@ -191,26 +191,6 @@ export default function OverviewPage() {
               {creating ? "Calculando..." : "Gerar Cenário Base"}
             </Button>
           )}
-          {viewScenario && (
-            <>
-              <Button variant="secondary" onClick={handleCreateBase} disabled={creating}>
-                {creating ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
-                Recalcular
-              </Button>
-              <Link href={`/projects/${projectId}/agent`}>
-                <Button variant="secondary">
-                  <Sparkles size={15} />
-                  Agente IA
-                </Button>
-              </Link>
-              <Link href={`/projects/${projectId}/scenarios`}>
-                <Button>
-                  <Plus size={15} />
-                  Novo Cenário
-                </Button>
-              </Link>
-            </>
-          )}
         </div>
       </div>
 
