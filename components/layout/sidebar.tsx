@@ -24,10 +24,10 @@ const navItems = [
 ];
 
 const projectMenuItems = [
-  { label: "Visão Geral",       path: "overview",    icon: LayoutDashboard },
   { label: "Importar",          path: "import",      icon: Upload },
-  { label: "Cenários",          path: "scenarios",   icon: GitCompare },
   { label: "Itens",             path: "items",       icon: Table2 },
+  { label: "Visão Geral",       path: "overview",    icon: LayoutDashboard },
+  { label: "Cenários",          path: "scenarios",   icon: GitCompare },
   { label: "Regras Salvas",     path: "rules",       icon: BookOpen },
   { label: "Curva MACC",        path: "macc",        icon: BarChart3 },
   { label: "Simulação Carbono", path: "simulation",  icon: Scale },
