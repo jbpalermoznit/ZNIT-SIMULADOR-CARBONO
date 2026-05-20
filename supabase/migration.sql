@@ -214,14 +214,26 @@ ALTER TABLE public.factor_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.equipment_rules ENABLE ROW LEVEL SECURITY;
 
 -- Allow service_role to bypass RLS (used by Next.js API routes)
+-- Drop-then-create makes this idempotent: re-running the migration is safe.
+DROP POLICY IF EXISTS "service_role_all" ON public.companies;
 CREATE POLICY "service_role_all" ON public.companies FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_all" ON public.users;
 CREATE POLICY "service_role_all" ON public.users FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_all" ON public.projects;
 CREATE POLICY "service_role_all" ON public.projects FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_all" ON public.abc_curves;
 CREATE POLICY "service_role_all" ON public.abc_curves FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_all" ON public.abc_items;
 CREATE POLICY "service_role_all" ON public.abc_items FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_all" ON public.item_mappings;
 CREATE POLICY "service_role_all" ON public.item_mappings FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_all" ON public.scenarios;
 CREATE POLICY "service_role_all" ON public.scenarios FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_all" ON public.scenario_items;
 CREATE POLICY "service_role_all" ON public.scenario_items FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_all" ON public.scenario_results;
 CREATE POLICY "service_role_all" ON public.scenario_results FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_all" ON public.factor_rules;
 CREATE POLICY "service_role_all" ON public.factor_rules FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_role_all" ON public.equipment_rules;
 CREATE POLICY "service_role_all" ON public.equipment_rules FOR ALL USING (true) WITH CHECK (true);
