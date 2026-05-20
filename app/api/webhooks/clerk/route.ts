@@ -117,17 +117,26 @@ async function handleEvent(event: WebhookEvent) {
       const m = event.data;
       const clerkUserId = m.public_user_data?.user_id;
       const clerkOrgId = m.organization?.id;
-      if (!clerkUserId || !clerkOrgId) break;
+      console.log("[clerk-webhook] membership event", {
+        type: event.type,
+        clerkUserId,
+        clerkOrgId,
+        role: m.role,
+      });
+      if (!clerkUserId || !clerkOrgId) {
+        console.warn("[clerk-webhook] membership missing ids, skipping");
+        break;
+      }
 
       // Look up local company by clerk_org_id (must exist — created via
       // organization.created webhook before this one fires)
-      const { data: company } = await supabase
+      const { data: company, error: companyErr } = await supabase
         .from("companies")
         .select("id")
         .eq("clerk_org_id", clerkOrgId)
         .single();
-      if (!company) {
-        console.warn(`Membership for unknown org ${clerkOrgId}`);
+      if (companyErr || !company) {
+        console.warn(`[clerk-webhook] membership for unknown org ${clerkOrgId}`, companyErr);
         break;
       }
 
@@ -139,10 +148,27 @@ async function handleEvent(event: WebhookEvent) {
       // Map Clerk role to our local role (admin | analyst)
       const role = m.role === "org:admin" ? "admin" : "analyst";
 
-      await supabase
+      // Explicit select-then-insert-or-update because supabase-js upsert with
+      // onConflict on a partial unique index doesn't reliably target the
+      // index — falls back to plain INSERT which leaves us with rows missing
+      // clerk_org_id.
+      const { data: existing } = await supabase
         .from("users")
-        .upsert(
-          {
+        .select("id")
+        .eq("clerk_user_id", clerkUserId)
+        .eq("clerk_org_id", clerkOrgId)
+        .maybeSingle();
+
+      if (existing) {
+        const { error: updateErr } = await supabase
+          .from("users")
+          .update({ company_id: company.id, email, name, role, is_active: true })
+          .eq("id", existing.id);
+        if (updateErr) console.error("[clerk-webhook] update failed", updateErr);
+      } else {
+        const { error: insertErr } = await supabase
+          .from("users")
+          .insert({
             clerk_user_id: clerkUserId,
             clerk_org_id: clerkOrgId,
             company_id: company.id,
@@ -150,9 +176,9 @@ async function handleEvent(event: WebhookEvent) {
             name,
             role,
             is_active: true,
-          },
-          { onConflict: "clerk_user_id,clerk_org_id" }
-        );
+          });
+        if (insertErr) console.error("[clerk-webhook] insert failed", insertErr);
+      }
       break;
     }
 
