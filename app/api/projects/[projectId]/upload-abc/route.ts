@@ -25,6 +25,11 @@ export async function POST(
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
+  // Optional: when set, the upload creates a non-base scenario tied to this
+  // new curve and leaves the existing base untouched. Used by the "import
+  // new scenario from file" flow on Overview / Cenários.
+  const scenarioName = (formData.get("scenario_name") as string | null) ?? null;
+  const asScenario = (formData.get("as_scenario") as string | null) === "true";
 
   if (!file || !file.name.match(/\.(xlsx|xlsm)$/i)) {
     return Response.json({ detail: "Formato inválido. Use .xlsx ou .xlsm" }, { status: 400 });
@@ -102,12 +107,13 @@ export async function POST(
   try {
     const { scenario } = await createBaseScenario(projectId, user.id, {
       abcCurveId: curve.id,
-      isBase: true,
+      isBase: !asScenario,
+      scenarioName: asScenario ? scenarioName ?? "Cenário derivado" : undefined,
     });
     baseScenarioId = (scenario as { id: string }).id;
   } catch (e) {
-    baseScenarioError = e instanceof Error ? e.message : "Erro ao criar cenário base";
-    console.error("[upload-abc] base scenario failed", e);
+    baseScenarioError = e instanceof Error ? e.message : "Erro ao criar cenário";
+    console.error("[upload-abc] scenario creation failed", e);
   }
 
   return Response.json({

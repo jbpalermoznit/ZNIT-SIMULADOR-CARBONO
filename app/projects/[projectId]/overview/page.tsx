@@ -9,10 +9,11 @@ import { ParetoChart } from "@/components/charts/pareto-chart";
 import { ScopeDonut } from "@/components/charts/scope-donut";
 import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import Link from "next/link";
-import { Leaf, TrendingDown, BarChart2, AlertTriangle, Plus, Sparkles, Loader2, Zap } from "lucide-react";
+import { Leaf, TrendingDown, BarChart2, AlertTriangle, Loader2, Zap, Upload } from "lucide-react";
 import { createBaseScenario, getScenario, type ScenarioResponse, type ScenarioItemResponse } from "@/lib/api/scenarios";
 import { listAbcItems, getProject, type ProjectResponse } from "@/lib/api/projects";
 import { useActiveScenario } from "@/lib/hooks/use-active-scenario";
+import { NewScenarioFromUploadDialog } from "@/components/scenarios/new-scenario-from-upload-dialog";
 import type { ParetoDataPoint } from "@/components/charts/pareto-chart";
 import type { ScopeDataPoint } from "@/components/charts/scope-donut";
 
@@ -30,6 +31,7 @@ export default function OverviewPage() {
   const [paretoData, setParetoData] = useState<ParetoDataPoint[]>([]);
   const [scopeData, setScopeData] = useState<ScopeDataPoint[]>([]);
   const [project, setProject] = useState<ProjectResponse | null>(null);
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
 
   const buildChartsFromItems = useCallback((items: ScenarioItemResponse[], result: ScenarioResponse["result"] | null) => {
     // Pareto: group by factor_name, sum tco2e, sort desc, top 10
@@ -189,6 +191,12 @@ export default function OverviewPage() {
             <Button onClick={handleCreateBase} disabled={creating}>
               {creating ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
               {creating ? "Calculando..." : "Gerar Cenário Base"}
+            </Button>
+          )}
+          {viewScenario && (
+            <Button onClick={() => setShowUploadDialog(true)}>
+              <Upload size={15} />
+              Importar novo cenário
             </Button>
           )}
         </div>
@@ -353,6 +361,16 @@ export default function OverviewPage() {
           </div>
         </>
       )}
+
+      <NewScenarioFromUploadDialog
+        projectId={projectId}
+        open={showUploadDialog}
+        onClose={() => setShowUploadDialog(false)}
+        onCreated={() => {
+          setShowUploadDialog(false);
+          reloadScenarios();
+        }}
+      />
     </div>
   );
 }

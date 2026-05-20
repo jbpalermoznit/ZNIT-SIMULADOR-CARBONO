@@ -80,9 +80,15 @@ export function createProject(data: {
   return api.post<ProjectResponse>("/api/projects", data);
 }
 
-export function uploadAbc(projectId: string, file: File) {
+export function uploadAbc(
+  projectId: string,
+  file: File,
+  opts?: { scenarioName?: string; asScenario?: boolean }
+) {
   const form = new FormData();
   form.append("file", file);
+  if (opts?.scenarioName) form.append("scenario_name", opts.scenarioName);
+  if (opts?.asScenario) form.append("as_scenario", "true");
   return api.postForm<UploadResult>(`/api/projects/${projectId}/upload-abc`, form);
 }
 

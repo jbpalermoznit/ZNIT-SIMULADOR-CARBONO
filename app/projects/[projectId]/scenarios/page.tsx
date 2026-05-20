@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
-  Plus, Lock, TrendingDown, Copy, Edit3,
+  Plus, Lock, TrendingDown, Copy, Edit3, Upload,
   GitCompare, ChevronDown, Loader2,
   BarChart3, Zap, Leaf,
 } from "lucide-react";
@@ -15,6 +15,7 @@ import {
   type ScenarioResponse, type ScenarioDetailResponse, type ScenarioItemResponse,
 } from "@/lib/api/scenarios";
 import { getProject } from "@/lib/api/projects";
+import { NewScenarioFromUploadDialog } from "@/components/scenarios/new-scenario-from-upload-dialog";
 
 
 // ─── Scenario card ────────────────────────────────────────────────────────────
@@ -636,6 +637,7 @@ export default function ScenariosPage() {
   const [loading, setLoading] = useState(true);
   const [creatingBase, setCreatingBase] = useState(false);
   const [projectName, setProjectName] = useState("");
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
 
   const loadScenarios = async () => {
     try {
@@ -744,16 +746,19 @@ export default function ScenariosPage() {
               />
             ))}
 
-            {/* Add new placeholder */}
-            <button className="border-2 border-dashed border-[#BDBDBC] rounded-xl p-5 text-center hover:border-[#56B7A5] hover:bg-[#E6F3EE] transition-all group">
+            {/* Add new — upload-based scenario */}
+            <button
+              onClick={() => setShowUploadDialog(true)}
+              className="border-2 border-dashed border-[#BDBDBC] rounded-xl p-5 text-center hover:border-[#56B7A5] hover:bg-[#E6F3EE] transition-all group"
+            >
               <div className="w-10 h-10 bg-[#F3F4F6] rounded-xl flex items-center justify-center mx-auto mb-3 group-hover:bg-[#C8E6DE] transition-all">
-                <Plus size={18} className="text-[#BDBDBC] group-hover:text-[#56B7A5]" />
+                <Upload size={18} className="text-[#BDBDBC] group-hover:text-[#56B7A5]" />
               </div>
               <p className="text-sm font-semibold text-[#808181] group-hover:text-[#56B7A5]">
-                Novo Cenário
+                Novo cenário a partir de arquivo
               </p>
               <p className="text-xs text-[#BDBDBC] mt-1 leading-relaxed">
-                Duplique o Base e substitua materiais
+                Suba uma nova Curva ABC (ou items + insumos)
               </p>
             </button>
           </div>
@@ -811,6 +816,16 @@ export default function ScenariosPage() {
           </div>
         </>
       )}
+
+      <NewScenarioFromUploadDialog
+        projectId={projectId}
+        open={showUploadDialog}
+        onClose={() => setShowUploadDialog(false)}
+        onCreated={() => {
+          setShowUploadDialog(false);
+          loadScenarios();
+        }}
+      />
     </div>
   );
 }
