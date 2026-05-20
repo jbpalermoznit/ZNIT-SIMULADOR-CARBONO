@@ -107,24 +107,28 @@ Detalhes do escopo, regras de cálculo e contratos de API: [docs/specs/PRD.md](d
 
 ## Status do lançamento
 
-**Bloqueadores em andamento:**
-- [ ] Auth real com Clerk (substitui JWT + bcrypt caseiros)
-- [ ] Onboarding de empresa nova via Clerk Organizations
-- [ ] Row Level Security no Supabase com `company_id`
-- [ ] Deploy no Vercel
-- [ ] Backups automáticos do Supabase
-
-**Concluído nesta fase de prep:**
+**Pronto:**
+- [x] Auth com Clerk + Organizations (multi-tenant)
+- [x] Onboarding de empresa nova (`/onboarding`)
+- [x] Middleware protege todas as rotas exceto sign-in/sign-up/webhooks/PowerBI
+- [x] Sync Supabase ↔ Clerk via webhook em [/api/webhooks/clerk](app/api/webhooks/clerk/route.ts)
+- [x] Cross-tenant isolation no app layer (ver [docs/SECURITY.md](docs/SECURITY.md))
 - [x] Páginas de erro/404/loading padronizadas
 - [x] Security headers (CSP, HSTS, X-Frame-Options, …) em [next.config.ts](next.config.ts)
-- [x] README — este arquivo
+- [x] Sentry SDK integrado (opt-in via DSN)
+- [x] Guia de deploy completo em [docs/DEPLOY.md](docs/DEPLOY.md)
 
-**Polimento pendente:**
-- [ ] Sentry pra erros em produção
+**Falta antes do go-live em produção:**
+- [ ] Aplicar `supabase/migration-v3-clerk.sql` no banco de produção
+- [ ] Criar instância de produção do Clerk (`pk_live_…`, `sk_live_…`)
+- [ ] Configurar webhook no Clerk (URL pública após deploy)
+- [ ] Habilitar PITR (backups) no Supabase Pro
+- [ ] Deploy no Vercel + DNS custom (`app.znit.ai`)
 - [ ] Rate limiting nas APIs sensíveis (login, upload)
 - [ ] Testes E2E do fluxo crítico (login → upload → cenário)
 - [ ] Termos de uso, política de privacidade, LGPD
 - [ ] Validação rigorosa de uploads (tamanho/tipo)
+- [ ] PowerBI API key escopada por empresa (hoje é compartilhada)
 
 ## Contribuindo
 
