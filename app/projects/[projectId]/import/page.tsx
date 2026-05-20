@@ -119,6 +119,16 @@ export default function ImportPage() {
     try {
       const data = await uploadAbc(projectId, file);
       setResult(data); setStep("preview");
+      // The upload route now runs auto-map + base scenario + calculation
+      // inline. As soon as we have a base scenario id, persist it as the
+      // active scenario and route the user straight into Itens.
+      if (data.base_scenario_id) {
+        try {
+          localStorage.setItem(`znit_active_scenario_${projectId}`, data.base_scenario_id);
+        } catch {}
+        setStep("done");
+        setTimeout(() => router.push(`/projects/${projectId}/items`), 600);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erro ao processar arquivo"); setStep("upload");
     }

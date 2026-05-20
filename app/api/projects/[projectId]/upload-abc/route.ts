@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import { supabase } from "@/lib/server/supabase";
 import { parseAbcFile } from "@/lib/server/parser";
+import { runAutoMapForCurve } from "@/lib/server/auto-map";
+import { createBaseScenario } from "@/lib/server/calculator";
 
 export async function POST(
   req: NextRequest,
@@ -12,7 +14,6 @@ export async function POST(
 
   const { projectId } = await params;
 
-  // Verify project exists and belongs to user's company
   const { data: project } = await supabase
     .from("projects")
     .select("id, company_id")
@@ -38,7 +39,6 @@ export async function POST(
     return Response.json({ detail: e instanceof Error ? e.message : "Erro ao processar" }, { status: 422 });
   }
 
-  // Create AbcCurve
   const { data: curve, error: curveErr } = await supabase
     .from("abc_curves")
     .insert({
@@ -55,7 +55,6 @@ export async function POST(
     return Response.json({ detail: "Erro ao criar curva ABC" }, { status: 500 });
   }
 
-  // Insert items in batches of 50
   const itemRows = result.items.map((item) => ({
     abc_curve_id: curve.id,
     cost_code: item.cost_code,
@@ -79,12 +78,36 @@ export async function POST(
     await supabase.from("abc_items").insert(itemRows.slice(i, i + 50));
   }
 
-  // Build summary
   const typeSummary: Record<string, number> = {};
   const classSummary: Record<string, number> = {};
   for (const item of result.items) {
     typeSummary[item.item_type] = (typeSummary[item.item_type] ?? 0) + 1;
     classSummary[item.abc_class] = (classSummary[item.abc_class] ?? 0) + 1;
+  }
+
+  // Chain auto-map + base scenario + calculation so the user lands on Itens
+  // with everything ready. Each step is best-effort: if auto-map or base
+  // scenario creation fails, surface a partial response so the user can
+  // recover via the Visão Geral flow.
+  let autoMap: Awaited<ReturnType<typeof runAutoMapForCurve>> | null = null;
+  let baseScenarioId: string | null = null;
+  let baseScenarioError: string | null = null;
+
+  try {
+    autoMap = await runAutoMapForCurve(curve.id, user.company_id);
+  } catch (e) {
+    console.error("[upload-abc] auto-map failed", e);
+  }
+
+  try {
+    const { scenario } = await createBaseScenario(projectId, user.id, {
+      abcCurveId: curve.id,
+      isBase: true,
+    });
+    baseScenarioId = (scenario as { id: string }).id;
+  } catch (e) {
+    baseScenarioError = e instanceof Error ? e.message : "Erro ao criar cenário base";
+    console.error("[upload-abc] base scenario failed", e);
   }
 
   return Response.json({
@@ -95,5 +118,8 @@ export async function POST(
     type_summary: typeSummary,
     class_summary: classSummary,
     warnings: result.warnings,
+    auto_map: autoMap,
+    base_scenario_id: baseScenarioId,
+    base_scenario_error: baseScenarioError,
   }, { status: 201 });
 }

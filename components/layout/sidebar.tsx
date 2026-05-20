@@ -1,9 +1,10 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { listProjects, type ProjectResponse } from "@/lib/api/projects";
+import { useActiveScenario } from "@/lib/hooks/use-active-scenario";
 import { UserButton, OrganizationSwitcher } from "@clerk/nextjs";
 import {
   LayoutDashboard,
@@ -17,6 +18,7 @@ import {
   ChevronDown,
   BarChart3,
   Scale,
+  Layers,
 } from "lucide-react";
 
 const navItems = [
@@ -41,6 +43,30 @@ export function Sidebar() {
   const [projectOpen, setProjectOpen] = useState(false);
   const [projects, setProjects] = useState<ProjectResponse[]>([]);
   const [activeProject, setActiveProject] = useState<ProjectResponse | null>(null);
+  const [scenarioOpen, setScenarioOpen] = useState(false);
+  const scenarioPopRef = useRef<HTMLDivElement>(null);
+
+  const { scenarios, activeScenarioId, activeScenario, setActiveScenarioId } =
+    useActiveScenario(activeProject?.id ?? null);
+
+  useEffect(() => {
+    if (!scenarioOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (!scenarioPopRef.current?.contains(e.target as Node)) setScenarioOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [scenarioOpen]);
+
+  const handleScenarioSelect = (id: string) => {
+    setActiveScenarioId(id);
+    setScenarioOpen(false);
+    // Notify other components in the same tab — useActiveScenario reads
+    // localStorage on mount but doesn't subscribe to changes, so we trigger
+    // a soft refresh by dispatching a custom event consumers can listen to.
+    window.dispatchEvent(new CustomEvent("znit:active-scenario-changed", { detail: { id } }));
+    router.refresh();
+  };
 
   // Detect active project from URL
   useEffect(() => {
@@ -153,6 +179,61 @@ export function Sidebar() {
               </div>
             )}
           </div>
+
+          {/* Active scenario chip — visible across the whole project area */}
+          {activeProject && scenarios.length > 0 && (
+            <div className="relative mb-3" ref={scenarioPopRef}>
+              <button
+                onClick={() => setScenarioOpen((o) => !o)}
+                className="w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-[#E6F3EE] border border-[#A9D7CD] hover:border-[#56B7A5] transition-all"
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Layers size={12} className="text-[#56B7A5] shrink-0" />
+                  <span className="text-[10px] font-semibold text-[#1d7a6b] uppercase tracking-wider shrink-0">
+                    Cenário
+                  </span>
+                  <span className="text-xs font-semibold text-[#030304] truncate">
+                    {activeScenario?.name ?? "—"}
+                  </span>
+                </div>
+                <ChevronDown
+                  size={12}
+                  className={cn(
+                    "text-[#1d7a6b] shrink-0 transition-transform",
+                    scenarioOpen && "rotate-180"
+                  )}
+                />
+              </button>
+              {scenarioOpen && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#E0E4E3] rounded-lg shadow-[0_4px_16px_rgba(3,3,4,0.10)] z-10 overflow-hidden max-h-64 overflow-y-auto">
+                  {scenarios.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => handleScenarioSelect(s.id)}
+                      className={cn(
+                        "w-full text-left px-3 py-2 hover:bg-[#F8FAF9] transition-all",
+                        s.id === activeScenarioId && "bg-[#E6F3EE]"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-semibold text-[#030304] truncate flex-1">{s.name}</p>
+                        {s.is_base && (
+                          <span className="text-[9px] font-bold text-[#56B7A5] bg-white border border-[#A9D7CD] rounded px-1 py-px shrink-0">
+                            BASE
+                          </span>
+                        )}
+                      </div>
+                      {s.result?.total_tco2e != null && (
+                        <p className="text-[10px] text-[#808181] mt-0.5">
+                          {s.result.total_tco2e.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} tCO₂e
+                        </p>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Project nav items */}
           {projectMenuItems.map((item) => {

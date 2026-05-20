@@ -3,8 +3,9 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { itemTypeMeta, mappingStatusMeta, type ItemType, type AbcClass, type AbcItem } from "@/lib/mock/data";
 import { listAbcItems, getProject, type AbcItemResponse, type ProjectResponse } from "@/lib/api/projects";
-import { listScenarios, type ScenarioResponse } from "@/lib/api/scenarios";
 import { getMapping, type MappingResponse } from "@/lib/api/emission-factors";
+import { useActiveScenario } from "@/lib/hooks/use-active-scenario";
+import { SaveModeDialog, type SaveModeChoice } from "@/components/items/save-mode-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -281,7 +282,19 @@ const TIER_COLOR: Record<string, string> = {
   rule: "bg-teal-100 text-teal-700",
 };
 
-function EditEpdView({ item, onBack, onSaved }: { item: AbcItem; onBack: () => void; onSaved?: () => void }) {
+function EditEpdView({
+  item,
+  onBack,
+  onSaved,
+  onFactorSaveRequest,
+  onClose,
+}: {
+  item: AbcItem;
+  onBack: () => void;
+  onSaved?: () => void;
+  onFactorSaveRequest?: (body: MappingConfirmRequest, factorLabel: string, onFinish: () => void) => void;
+  onClose?: () => void;
+}) {
   const [tab, setTab] = useState<EpdTab>("search");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -366,10 +379,10 @@ function EditEpdView({ item, onBack, onSaved }: { item: AbcItem; onBack: () => v
           epd_id: selected!.epd_id,
         };
       }
-      await confirmMapping(item.id, body);
 
-      // Save as rule for future imports
-      if (saveAsRule) {
+      // Save as rule for future imports (independent of the scenario flow)
+      const saveRule = async () => {
+        if (!saveAsRule) return;
         try {
           await createFactorRule({
             original_description: item.description,
@@ -384,8 +397,23 @@ function EditEpdView({ item, onBack, onSaved }: { item: AbcItem; onBack: () => v
         } catch {
           // Non-blocking — rule save failure shouldn't break the mapping
         }
+      };
+
+      if (onFactorSaveRequest) {
+        // Delegate to the page-level SaveModeDialog. The page handles
+        // confirmMapping with scenario_id + mode and decides what to refresh.
+        await saveRule();
+        onFactorSaveRequest(body, body.factor_name ?? "edição", () => {
+          onSaved?.();
+          onClose?.();
+        });
+        setSaving(false);
+        return;
       }
 
+      // Legacy path (no active scenario): plain confirmMapping
+      await confirmMapping(item.id, body);
+      await saveRule();
       onSaved?.();
       onBack();
     } catch (e) {
@@ -1118,7 +1146,19 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
 
 type DrawerView = "detail" | "edit-epd" | "parametrize";
 
-function ItemDrawer({ item, onClose, onSaved }: { item: AbcItem; onClose: () => void; onSaved?: () => void }) {
+function ItemDrawer({
+  item,
+  onClose,
+  onSaved,
+  onFactorSaveRequest,
+}: {
+  item: AbcItem;
+  onClose: () => void;
+  onSaved?: () => void;
+  /** When provided, EditEpdView delegates the save to the page-level
+   *  SaveModeDialog instead of calling confirmMapping itself. */
+  onFactorSaveRequest?: (body: MappingConfirmRequest, factorLabel: string, onFinish: () => void) => void;
+}) {
   const [view, setView] = useState<DrawerView>("detail");
 
   return (
@@ -1132,7 +1172,7 @@ function ItemDrawer({ item, onClose, onSaved }: { item: AbcItem; onClose: () => 
           backLabel="Voltar ao detalhe"
         />
         {view === "detail"     && <DetailView item={item} onEditEpd={() => setView("edit-epd")} onParametrize={() => setView("parametrize")} />}
-        {view === "edit-epd"   && <EditEpdView item={item} onBack={() => setView("detail")} onSaved={onSaved} />}
+        {view === "edit-epd"   && <EditEpdView item={item} onBack={() => setView("detail")} onSaved={onSaved} onFactorSaveRequest={onFactorSaveRequest} onClose={onClose} />}
         {view === "parametrize"&& <ParametrizeView item={item} onBack={() => setView("detail")} onSaved={onSaved} />}
       </div>
     </>
@@ -1157,30 +1197,32 @@ export default function ItemsPage() {
   const [items, setItems] = useState<AbcItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [projectName, setProjectName] = useState("");
-  const [scenarios, setScenarios] = useState<ScenarioResponse[]>([]);
+  const { scenarios, activeScenarioId, activeScenario, setActiveScenarioId, reload: reloadScenarios } =
+    useActiveScenario(projectId);
   const [selectedCurveId, setSelectedCurveId] = useState<string | null>(curveIdParam);
-  const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
+  const [pendingFactorSave, setPendingFactorSave] = useState<{
+    body: MappingConfirmRequest;
+    itemId: string;
+    factorLabel: string;
+    onFinish?: () => void;
+  } | null>(null);
+  const [saveModeBusy, setSaveModeBusy] = useState(false);
 
-  // Carregar cenários para o seletor
+  // Whenever the active scenario changes, resolve its abc_curve_id so the
+  // items list filters to the right curve (cenários can in theory point at
+  // different historical curves).
   useEffect(() => {
-    listScenarios(projectId).then((scens) => {
-      setScenarios(scens);
-      // Auto-select curve from first scenario if not set via query param
-      if (!selectedCurveId && scens.length > 0) {
-        // Fetch scenario detail to get abc_curve_id
-        const firstScen = scens.find((s) => s.is_base) ?? scens[0];
-        if (firstScen) {
-          setActiveScenarioId(firstScen.id);
-          fetch(`/api/scenarios/${firstScen.id}`, { credentials: "include" })
-            .then((r) => r.json())
-            .then((data) => {
-              if (data.abc_curve_id) setSelectedCurveId(data.abc_curve_id);
-            })
-            .catch(() => {});
+    if (!activeScenarioId) return;
+    fetch(`/api/scenarios/${activeScenarioId}`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.abc_curve_id) {
+          setSelectedCurveId(data.abc_curve_id);
+          setExpandedComps(new Set());
         }
-      }
-    }).catch(() => {});
-  }, [projectId]);
+      })
+      .catch(() => {});
+  }, [activeScenarioId]);
 
   // Carregar itens da API
   const loadItems = useCallback(async () => {
@@ -1269,45 +1311,6 @@ export default function ItemsPage() {
           }}><Download size={15} /> Exportar Excel</Button>
         </div>
       </div>
-
-      {/* Scenario selector */}
-      {scenarios.length > 0 && (
-        <div className="bg-white rounded-lg border border-[#E0E4E3] p-3 mb-4 flex items-center gap-3">
-          <span className="text-xs font-semibold text-[#808181]">Cenário:</span>
-          <div className="flex gap-1.5 flex-wrap">
-            {scenarios.map((s) => {
-              const isActive = activeScenarioId === s.id;
-              return (
-                <button
-                  key={s.id}
-                  onClick={async () => {
-                    setActiveScenarioId(s.id);
-                    try {
-                      const res = await fetch(`/api/scenarios/${s.id}`, { credentials: "include" });
-                      const data = await res.json();
-                      if (data.abc_curve_id) {
-                        setSelectedCurveId(data.abc_curve_id);
-                        setExpandedComps(new Set());
-                      }
-                    } catch {}
-                  }}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border",
-                    isActive
-                      ? "border-[#56B7A5] bg-[#E6F3EE] text-[#1d7a6b]"
-                      : "border-[#E0E4E3] text-[#404040] hover:border-[#56B7A5] hover:bg-[#F8FAF9]"
-                  )}
-                >
-                  {s.name}
-                  <span className={cn("font-normal ml-1", isActive ? "text-[#56B7A5]" : "text-[#808181]")}>
-                    ({(s.result?.total_tco2e ?? 0).toFixed(0)} tCO₂e)
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {autoMapResult && (
         <div className="bg-[#E6F3EE] border border-[#56B7A5]/30 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
@@ -1525,7 +1528,60 @@ export default function ItemsPage() {
         </div>
       </div>}
 
-      {openItem && <ItemDrawer item={openItem} onClose={() => setOpenItem(null)} onSaved={loadItems} />}
+      {openItem && (
+        <ItemDrawer
+          item={openItem}
+          onClose={() => setOpenItem(null)}
+          onSaved={loadItems}
+          onFactorSaveRequest={
+            activeScenarioId
+              ? (body, factorLabel, onFinish) =>
+                  setPendingFactorSave({ body, itemId: openItem.id, factorLabel, onFinish })
+              : undefined
+          }
+        />
+      )}
+
+      <SaveModeDialog
+        key={pendingFactorSave?.itemId ?? "closed"}
+        open={!!pendingFactorSave}
+        saving={saveModeBusy}
+        activeScenarioName={activeScenario?.name ?? "cenário atual"}
+        changeLabel={pendingFactorSave?.factorLabel ?? "edição"}
+        onCancel={() => {
+          if (saveModeBusy) return;
+          pendingFactorSave?.onFinish?.();
+          setPendingFactorSave(null);
+        }}
+        onConfirm={async (choice: SaveModeChoice) => {
+          if (!pendingFactorSave || !activeScenarioId) return;
+          setSaveModeBusy(true);
+          try {
+            const body: MappingConfirmRequest = {
+              ...pendingFactorSave.body,
+              scenario_id: activeScenarioId,
+              mode: choice.mode,
+              ...(choice.mode === "fork" && choice.newScenarioName
+                ? { new_scenario_name: choice.newScenarioName }
+                : {}),
+            };
+            const res = await confirmMapping(pendingFactorSave.itemId, body);
+            if (res.new_scenario_id) {
+              await reloadScenarios();
+              setActiveScenarioId(res.new_scenario_id);
+            } else {
+              await reloadScenarios();
+            }
+            await loadItems();
+            pendingFactorSave.onFinish?.();
+            setPendingFactorSave(null);
+          } catch (e) {
+            alert("Erro ao salvar: " + (e instanceof Error ? e.message : "erro"));
+          } finally {
+            setSaveModeBusy(false);
+          }
+        }}
+      />
     </div>
   );
 }

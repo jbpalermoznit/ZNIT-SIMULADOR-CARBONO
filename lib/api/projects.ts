@@ -25,6 +25,15 @@ export interface UploadResult {
   type_summary: Record<string, number>;
   class_summary: Record<string, number>;
   warnings: string[];
+  auto_map: {
+    total_items: number;
+    auto_mapped: number;
+    suggested: number;
+    pending: number;
+    already_mapped: number;
+  } | null;
+  base_scenario_id: string | null;
+  base_scenario_error: string | null;
 }
 
 export interface AbcItemResponse {
