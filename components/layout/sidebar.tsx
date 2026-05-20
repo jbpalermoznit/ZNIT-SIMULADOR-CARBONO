@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { listProjects, type ProjectResponse } from "@/lib/api/projects";
+import { UserButton, OrganizationSwitcher } from "@clerk/nextjs";
 import {
   LayoutDashboard,
   Upload,
@@ -194,7 +195,20 @@ export function Sidebar() {
       </nav>
 
       {/* Bottom */}
-      <div className="px-3 py-3 border-t border-[#E0E4E3]">
+      <div className="px-3 py-3 border-t border-[#E0E4E3] space-y-2">
+        <div className="px-1">
+          <OrganizationSwitcher
+            hidePersonal
+            afterCreateOrganizationUrl="/dashboard"
+            afterSelectOrganizationUrl="/dashboard"
+            appearance={{
+              elements: {
+                rootBox: "w-full",
+                organizationSwitcherTrigger: "w-full justify-between",
+              },
+            }}
+          />
+        </div>
         <Link
           href="/settings"
           className="flex items-center gap-2.5 px-3 py-2 rounded text-sm font-medium text-[#808181] hover:bg-[rgba(86,183,165,0.06)] hover:text-[#404040] transition-all"
@@ -202,14 +216,9 @@ export function Sidebar() {
           <Settings size={15} />
           Configurações
         </Link>
-        <div className="flex items-center gap-2.5 px-3 py-2 mt-1">
-          <div className="w-7 h-7 rounded-full bg-[#56B7A5] flex items-center justify-center text-white text-xs font-bold">
-            JP
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-[#030304] truncate">João Palermo</p>
-            <p className="text-[10px] text-[#808181]">Admin · ZNIT</p>
-          </div>
+        <div className="flex items-center gap-2.5 px-3 py-1">
+          <UserButton />
+          <span className="text-[10px] text-[#808181]">Conta</span>
         </div>
       </div>
     </aside>

@@ -1171,8 +1171,7 @@ export default function ItemsPage() {
         const firstScen = scens.find((s) => s.is_base) ?? scens[0];
         if (firstScen) {
           setActiveScenarioId(firstScen.id);
-          const token = localStorage.getItem("znit_token");
-          fetch(`/api/scenarios/${firstScen.id}`, { headers: { Authorization: `Bearer ${token}` } })
+          fetch(`/api/scenarios/${firstScen.id}`, { credentials: "include" })
             .then((r) => r.json())
             .then((data) => {
               if (data.abc_curve_id) setSelectedCurveId(data.abc_curve_id);
@@ -1254,15 +1253,12 @@ export default function ItemsPage() {
           </Button>
           <Button variant="outline" onClick={async () => {
             try {
-              const token = localStorage.getItem("znit_token");
               const base = process.env.NEXT_PUBLIC_API_URL ?? "";
-              // Get project name for filename
-              const projResp = await fetch(`${base}/api/projects/${projectId}`, { headers: { Authorization: `Bearer ${token}` } });
+              const projResp = await fetch(`${base}/api/projects/${projectId}`, { credentials: "include" });
               const projData = await projResp.json();
               const projName = (projData.name || "Projeto").replace(/\s+/g, "_").replace(/\//g, "-");
               const date = new Date().toISOString().slice(0, 10);
-              // Download excel
-              const resp = await fetch(`${base}/api/projects/${projectId}/export-items`, { headers: { Authorization: `Bearer ${token}` } });
+              const resp = await fetch(`${base}/api/projects/${projectId}/export-items`, { credentials: "include" });
               const blob = await resp.blob();
               const a = document.createElement("a");
               a.href = URL.createObjectURL(blob);
@@ -1286,9 +1282,8 @@ export default function ItemsPage() {
                   key={s.id}
                   onClick={async () => {
                     setActiveScenarioId(s.id);
-                    const token = localStorage.getItem("znit_token");
                     try {
-                      const res = await fetch(`/api/scenarios/${s.id}`, { headers: { Authorization: `Bearer ${token}` } });
+                      const res = await fetch(`/api/scenarios/${s.id}`, { credentials: "include" });
                       const data = await res.json();
                       if (data.abc_curve_id) {
                         setSelectedCurveId(data.abc_curve_id);

@@ -658,7 +658,7 @@ export default function ScenariosPage() {
 
   const handleSetBase = async (scenarioId: string) => {
     try {
-      const res = await fetch(`/api/scenarios/${scenarioId}/set-base`, { method: "POST", headers: { Authorization: `Bearer ${localStorage.getItem("znit_token")}` } });
+      const res = await fetch(`/api/scenarios/${scenarioId}/set-base`, { method: "POST", credentials: "include" });
       if (!res.ok) throw new Error("Erro");
       await loadScenarios();
     } catch {

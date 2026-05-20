@@ -1,43 +1,14 @@
 /**
- * Auth service — JWT + bcrypt. Replaces backend/app/core/auth.py
+ * Auth service — Clerk + Supabase lookup.
+ *
+ * Clerk owns identity (signin/signup/sessions). We mirror users + companies
+ * into our public schema via the webhook (/api/webhooks/clerk) so the rest of
+ * the app continues to query a single source of truth keyed by the local
+ * `user.id` / `company.id`.
  */
-import bcrypt from "bcryptjs";
-import { SignJWT, jwtVerify } from "jose";
 import { NextRequest } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { supabase } from "./supabase";
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET ?? "change-me"
-);
-const JWT_EXPIRE_MINUTES = Number(process.env.JWT_EXPIRE_MINUTES ?? "60");
-const ALGORITHM = "HS256";
-
-export function hashPassword(password: string): string {
-  return bcrypt.hashSync(password, 10);
-}
-
-export function verifyPassword(plain: string, hashed: string): boolean {
-  return bcrypt.compareSync(plain, hashed);
-}
-
-export async function createAccessToken(data: Record<string, unknown>): Promise<string> {
-  const exp = Math.floor(Date.now() / 1000) + JWT_EXPIRE_MINUTES * 60;
-  return new SignJWT({ ...data, exp })
-    .setProtectedHeader({ alg: ALGORITHM })
-    .setIssuedAt()
-    .sign(JWT_SECRET);
-}
-
-export async function decodeToken(token: string): Promise<Record<string, unknown>> {
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET, {
-      algorithms: [ALGORITHM],
-    });
-    return payload as Record<string, unknown>;
-  } catch {
-    throw new Error("Token inválido ou expirado");
-  }
-}
 
 export interface AuthUser {
   id: string;
@@ -46,38 +17,40 @@ export interface AuthUser {
   email: string;
   role: string;
   is_active: boolean;
+  clerk_user_id: string;
+  clerk_org_id: string;
 }
 
 /**
- * Extracts and validates the JWT from the request, returns the user.
- * Throws on auth failure.
+ * Resolve the current request's Clerk session into our local user record.
+ *
+ * Throws when:
+ * - no Clerk session (not signed in)
+ * - signed in but no active Organization (caller is mid-onboarding)
+ * - signed in but no matching row in public.users (webhook hasn't fired yet,
+ *   or the user was deleted)
  */
-export async function getCurrentUser(req: NextRequest): Promise<AuthUser> {
-  const authHeader = req.headers.get("authorization") ?? "";
-  if (!authHeader.startsWith("Bearer ")) {
-    throw new Error("Autenticação necessária");
-  }
+export async function getCurrentUser(_req?: NextRequest): Promise<AuthUser> {
+  const { userId, orgId } = await auth();
 
-  const token = authHeader.slice(7);
-  const payload = await decodeToken(token);
-  const userId = payload.sub as string | undefined;
-
-  if (!userId) throw new Error("Token inválido");
+  if (!userId) throw new Error("Autenticação necessária");
+  if (!orgId) throw new Error("Usuário sem organização ativa");
 
   const { data: user, error } = await supabase
     .from("users")
-    .select("id, company_id, name, email, role, is_active")
-    .eq("id", userId)
+    .select("id, company_id, name, email, role, is_active, clerk_user_id, clerk_org_id")
+    .eq("clerk_user_id", userId)
+    .eq("clerk_org_id", orgId)
     .single();
 
   if (error || !user || !user.is_active) {
-    throw new Error("Usuário não encontrado");
+    throw new Error("Usuário não encontrado ou inativo");
   }
 
   return user as AuthUser;
 }
 
-/** Helper to return a 401 JSON response */
+/** 401 helper to keep route handlers terse */
 export function unauthorized(message = "Autenticação necessária") {
   return Response.json({ detail: message }, { status: 401 });
 }
