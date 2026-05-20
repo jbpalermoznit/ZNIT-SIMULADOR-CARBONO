@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Alert } from "@/components/ui/alert";
@@ -10,16 +10,19 @@ import { ScopeDonut } from "@/components/charts/scope-donut";
 import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import Link from "next/link";
 import { Leaf, TrendingDown, BarChart2, AlertTriangle, Plus, Sparkles, Loader2, Zap } from "lucide-react";
-import { listScenarios, createBaseScenario, getScenario, type ScenarioResponse, type ScenarioItemResponse } from "@/lib/api/scenarios";
+import { createBaseScenario, getScenario, type ScenarioResponse, type ScenarioItemResponse } from "@/lib/api/scenarios";
 import { listAbcItems, getProject, type ProjectResponse } from "@/lib/api/projects";
+import { useActiveScenario } from "@/lib/hooks/use-active-scenario";
 import type { ParetoDataPoint } from "@/components/charts/pareto-chart";
 import type { ScopeDataPoint } from "@/components/charts/scope-donut";
 
 export default function OverviewPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [allScenarios, setAllScenarios] = useState<ScenarioResponse[]>([]);
-  const [baseScenario, setBaseScenario] = useState<ScenarioResponse | null>(null);
-  const [scenarioCount, setScenariosCount] = useState(0);
+  const { scenarios, activeScenarioId, activeScenario, reload: reloadScenarios } =
+    useActiveScenario(projectId);
+  const allScenarios = scenarios.filter((s) => s.result);
+  const baseScenario = scenarios.find((s) => s.is_base) ?? null;
+  const scenarioCount = scenarios.length;
   const [pendingCount, setPendingCount] = useState(0);
   const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -28,7 +31,7 @@ export default function OverviewPage() {
   const [scopeData, setScopeData] = useState<ScopeDataPoint[]>([]);
   const [project, setProject] = useState<ProjectResponse | null>(null);
 
-  const buildChartsFromItems = (items: ScenarioItemResponse[], result: ScenarioResponse["result"] | null) => {
+  const buildChartsFromItems = useCallback((items: ScenarioItemResponse[], result: ScenarioResponse["result"] | null) => {
     // Pareto: group by factor_name, sum tco2e, sort desc, top 10
     const grouped: Record<string, number> = {};
     for (const item of items) {
@@ -62,62 +65,76 @@ export default function OverviewPage() {
           { name: "Escopo 1 — Combustão", value: Math.round((s1 / tot) * 1000) / 10, color: "#2D8B78" },
           { name: "Escopo 2 — Energia", value: Math.round((s2 / tot) * 1000) / 10, color: "#D4EDE7" },
         ].filter((d) => d.value > 0));
+      } else {
+        setScopeData([]);
       }
+    } else {
+      setScopeData([]);
     }
-  };
+  }, []);
 
+  // Load project + item counts once
   useEffect(() => {
     async function load() {
       try {
-        const [scenarios, items, proj] = await Promise.all([
-          listScenarios(projectId),
+        const [items, proj] = await Promise.all([
           listAbcItems(projectId),
           getProject(projectId),
         ]);
         setProject(proj);
-        setAllScenarios(scenarios.filter((s) => s.result));
-        const base = scenarios.find((s) => s.is_base);
-        setBaseScenario(base ?? null);
-        setScenariosCount(scenarios.length);
         setTotalItems(items.length);
         setPendingCount(items.filter((i) => i.mapping_status === "pending").length);
-
-        // Load scenario detail for charts
-        if (base) {
-          try {
-            const detail = await getScenario(base.id);
-            if (detail.items) {
-              buildChartsFromItems(detail.items, base.result ?? null);
-            }
-          } catch { /* charts stay empty */ }
-        }
       } catch {
         console.error("Erro ao carregar overview");
       }
       setLoading(false);
     }
     load();
-  }, []);
+  }, [projectId]);
+
+  // Reload charts whenever the user switches scenarios
+  useEffect(() => {
+    if (!activeScenarioId) {
+      setParetoData([]);
+      setScopeData([]);
+      return;
+    }
+    let cancelled = false;
+    getScenario(activeScenarioId)
+      .then((detail) => {
+        if (cancelled) return;
+        const scen = scenarios.find((s) => s.id === activeScenarioId);
+        if (detail.items) {
+          buildChartsFromItems(detail.items, scen?.result ?? null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setParetoData([]);
+          setScopeData([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeScenarioId, scenarios, buildChartsFromItems]);
 
   const handleCreateBase = async () => {
     setCreating(true);
     try {
-      const scenario = await createBaseScenario(projectId);
-      setBaseScenario(scenario);
-      // Refresh charts
-      try {
-        const detail = await getScenario(scenario.id);
-        if (detail.items) {
-          buildChartsFromItems(detail.items, scenario.result ?? null);
-        }
-      } catch { /* charts stay empty */ }
+      await createBaseScenario(projectId);
+      await reloadScenarios();
     } catch {
       alert("Erro ao criar cenário base. Verifique se há itens importados e mapeados.");
     }
     setCreating(false);
   };
 
-  const r = baseScenario?.result;
+  // KPIs/charts reflect the scenario the user is currently editing, not
+  // necessarily the base one. Falls back to base if no active scenario is
+  // selected yet.
+  const viewScenario = activeScenario ?? baseScenario;
+  const r = viewScenario?.result;
   const totalTco2e = r?.total_tco2e ?? 0;
   const intensityKg = r?.intensity_per_m2 ? r.intensity_per_m2 * 1000 : 0;
   const coveragePct = r?.coverage_pct ?? 0;
@@ -162,19 +179,19 @@ export default function OverviewPage() {
           </p>
           <h1 className="text-2xl font-bold text-[#030304]">Visão Geral</h1>
           <p className="text-sm text-[#808181] mt-0.5">
-            {baseScenario
-              ? `${itemsMapped} de ${itemsTotal} itens calculados · ${coveragePct.toFixed(1)}% cobertura`
+            {viewScenario
+              ? `Cenário: ${viewScenario.name} · ${itemsMapped} de ${itemsTotal} itens calculados · ${coveragePct.toFixed(1)}% cobertura`
               : `${totalItems} itens importados`}
           </p>
         </div>
         <div className="flex gap-2">
-          {!baseScenario && (
+          {!viewScenario && (
             <Button onClick={handleCreateBase} disabled={creating}>
               {creating ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
               {creating ? "Calculando..." : "Gerar Cenário Base"}
             </Button>
           )}
-          {baseScenario && (
+          {viewScenario && (
             <>
               <Button variant="secondary" onClick={handleCreateBase} disabled={creating}>
                 {creating ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
@@ -197,8 +214,8 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {/* No base scenario yet */}
-      {!baseScenario && (
+      {/* No scenarios yet */}
+      {!viewScenario && (
         <div className="space-y-4">
           <Alert variant="info">
             Nenhum Cenário Base calculado ainda. Importe uma Curva ABC, execute o Auto-Map e clique em <strong>"Gerar Cenário Base"</strong> para calcular as emissões.
@@ -211,8 +228,8 @@ export default function OverviewPage() {
         </div>
       )}
 
-      {/* With base scenario */}
-      {baseScenario && r && (
+      {/* With an active scenario */}
+      {viewScenario && r && (
         <>
           {/* Alerts */}
           <div className="space-y-2 mb-6">
