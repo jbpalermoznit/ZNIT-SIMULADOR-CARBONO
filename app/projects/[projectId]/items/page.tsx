@@ -151,11 +151,84 @@ function DrawerHeader({ item, onClose, back, backLabel }: {
 
 // ─── View: Detail ────────────────────────────────────────────────────────────
 
-function DetailView({ item, onEditEpd, onParametrize }: {
-  item: AbcItem; onEditEpd: () => void; onParametrize: () => void;
+function DetailView({ item, mapping, onEditEpd, onParametrize }: {
+  item: AbcItem;
+  mapping: MappingResponse | null;
+  onEditEpd: () => void;
+  onParametrize: () => void;
 }) {
   const statusMeta = mappingStatusMeta[item.mappingStatus];
   const conf = item.confidence ? CONFIDENCE_LABEL[item.confidence] : null;
+
+  // Decision-of-the-AI block: one of four buckets, each with its own colour
+  // and explanation. Falls back to a stable default when the mapping row is
+  // still loading.
+  const aiDecision = (() => {
+    const status = item.mappingStatus;
+    if (status === "excluded") {
+      return {
+        kind: "excluded" as const,
+        title: "IA desconsiderou este item",
+        body:
+          mapping?.exclusion_justification ??
+          "Excluído do inventário por premissa metodológica.",
+        bg: "#F3F4F6",
+        border: "#D1D5DB",
+        color: "#374151",
+      };
+    }
+    if (status === "auto") {
+      const tier = (mapping?.source_tier ?? "").toLowerCase();
+      const tierLabel =
+        tier === "epd" ? "EPD certificada" :
+        tier === "ghg_protocol" ? "GHG Protocol BR" :
+        tier === "cecarbon" ? "CECarbon" :
+        tier === "ecoinvent" ? "Ecoinvent" :
+        tier === "rule" ? "Regra da empresa" :
+        tier || "Fonte desconhecida";
+      const score = mapping?.similarity_score
+        ? Math.round(mapping.similarity_score * 100)
+        : null;
+      return {
+        kind: "auto" as const,
+        title: "IA mapeou automaticamente",
+        body: `Fator obtido de ${tierLabel}${score ? ` · score ${score}/100` : ""}${mapping?.notes ? ` · ${mapping.notes}` : ""}${mapping?.factor_source ? ` · ${mapping.factor_source}` : ""}.`,
+        bg: "#E6F3EE",
+        border: "#A9D7CD",
+        color: "#1d7a6b",
+      };
+    }
+    if (status === "manual") {
+      return {
+        kind: "manual" as const,
+        title: "IA sugeriu — revisar",
+        body: mapping?.mapped_by === "user_custom"
+          ? "Fator definido manualmente pelo analista."
+          : `Match de confiança ${item.confidence ?? "média"}. Revise antes de assumir como definitivo${mapping?.factor_source ? ` · Fonte: ${mapping.factor_source}` : ""}.`,
+        bg: "#DBEAFE",
+        border: "#93C5FD",
+        color: "#1e40af",
+      };
+    }
+    if (status === "blocked") {
+      return {
+        kind: "blocked" as const,
+        title: "Aguardando decomposição",
+        body: "Item agrupado — precisa ser quebrado em componentes antes do mapeamento.",
+        bg: "#EDE9FE",
+        border: "#C4B5FD",
+        color: "#5B21B6",
+      };
+    }
+    return {
+      kind: "pending" as const,
+      title: "IA não encontrou fator",
+      body: "Nenhuma fonte (EPD, GHG Protocol, CECarbon, Ecoinvent) trouxe candidato com fator > 0. Mapeie manualmente em \"Editar Fator de Emissão\" ou desconsidere com justificativa.",
+      bg: "#FEF3C7",
+      border: "#FCD34D",
+      color: "#92400e",
+    };
+  })();
 
   return (
     <>
@@ -170,6 +243,22 @@ function DetailView({ item, onEditEpd, onParametrize }: {
           } />
           <Row label="% do orçamento" value={`${item.costPct.toFixed(2)}%`} />
           <Row label="% acumulado" value={`${item.cumulativePct.toFixed(2)}%`} />
+        </Section>
+
+        <Section title="Decisão da IA">
+          <div
+            className="rounded-lg border px-3 py-2.5 flex items-start gap-2"
+            style={{
+              backgroundColor: aiDecision.bg,
+              borderColor: aiDecision.border,
+              color: aiDecision.color,
+            }}
+          >
+            <div className="text-xs leading-relaxed">
+              <p className="font-bold mb-0.5">{aiDecision.title}</p>
+              <p>{aiDecision.body}</p>
+            </div>
+          </div>
         </Section>
 
         <Section title="Fator de Emissão">
@@ -1160,6 +1249,11 @@ function ItemDrawer({
   onFactorSaveRequest?: (body: MappingConfirmRequest, factorLabel: string, onFinish: () => void) => void;
 }) {
   const [view, setView] = useState<DrawerView>("detail");
+  const [mapping, setMapping] = useState<MappingResponse | null>(null);
+
+  useEffect(() => {
+    getMapping(item.id).then(setMapping).catch(() => setMapping(null));
+  }, [item.id]);
 
   return (
     <>
@@ -1171,7 +1265,7 @@ function ItemDrawer({
           back={view !== "detail" ? () => setView("detail") : undefined}
           backLabel="Voltar ao detalhe"
         />
-        {view === "detail"     && <DetailView item={item} onEditEpd={() => setView("edit-epd")} onParametrize={() => setView("parametrize")} />}
+        {view === "detail"     && <DetailView item={item} mapping={mapping} onEditEpd={() => setView("edit-epd")} onParametrize={() => setView("parametrize")} />}
         {view === "edit-epd"   && <EditEpdView item={item} onBack={() => setView("detail")} onSaved={onSaved} onFactorSaveRequest={onFactorSaveRequest} onClose={onClose} />}
         {view === "parametrize"&& <ParametrizeView item={item} onBack={() => setView("detail")} onSaved={onSaved} />}
       </div>
@@ -1186,9 +1280,14 @@ export default function ItemsPage() {
   const searchParams = useSearchParams();
   const highlightItemId = searchParams.get("item");
   const curveIdParam = searchParams.get("curve_id");
+  const statusParam = searchParams.get("status");
+  const initialStatus =
+    statusParam === "auto" || statusParam === "suggested" || statusParam === "pending" || statusParam === "excluded"
+      ? statusParam
+      : "all";
   const [typeFilter, setTypeFilter] = useState<ItemType | "all">("all");
   const [classFilter, setClassFilter] = useState<AbcClass | "all">("all");
-  const [statusFilter, setStatusFilter] = useState<"all" | "auto" | "suggested" | "pending">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "auto" | "suggested" | "pending" | "excluded">(initialStatus);
   const [search, setSearch] = useState("");
   const [openItem, setOpenItem] = useState<AbcItem | null>(null);
   const [expandedComps, setExpandedComps] = useState<Set<string>>(new Set());
@@ -1275,6 +1374,7 @@ export default function ItemsPage() {
     if (statusFilter === "auto" && item.mappingStatus !== "auto") return false;
     if (statusFilter === "suggested" && item.mappingStatus !== "manual") return false;
     if (statusFilter === "pending" && !["pending", "blocked"].includes(item.mappingStatus)) return false;
+    if (statusFilter === "excluded" && item.mappingStatus !== "excluded") return false;
     if (search && !item.description.toLowerCase().includes(search.toLowerCase()) && !item.costCode.includes(search))
       return false;
     return true;
@@ -1366,6 +1466,7 @@ export default function ItemsPage() {
             { value: "all", label: "Todos", activeColor: "bg-[#030304]" },
             { value: "auto", label: "Mapeados", activeColor: "bg-[#56B7A5]" },
             { value: "suggested", label: "Sugeridos", activeColor: "bg-[#1e40af]" },
+            { value: "excluded", label: "Excluídos", activeColor: "bg-[#6b7280]" },
             { value: "pending", label: "Pendentes", activeColor: "bg-[#b45309]" },
           ] as const).map((s) => (
             <button key={s.value} onClick={() => setStatusFilter(s.value)}

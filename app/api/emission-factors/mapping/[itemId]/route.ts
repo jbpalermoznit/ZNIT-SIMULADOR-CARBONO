@@ -54,6 +54,7 @@ export async function GET(
     similarity_score: mapping.similarity_score,
     mapped_by: mapping.mapped_by,
     notes: mapping.notes,
+    exclusion_justification: mapping.exclusion_justification ?? null,
   });
 }
 

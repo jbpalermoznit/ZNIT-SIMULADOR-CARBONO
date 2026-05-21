@@ -25,6 +25,10 @@ export default function OverviewPage() {
   const baseScenario = scenarios.find((s) => s.is_base) ?? null;
   const scenarioCount = scenarios.length;
   const [pendingCount, setPendingCount] = useState(0);
+  const [autoCount, setAutoCount] = useState(0);
+  const [manualCount, setManualCount] = useState(0);
+  const [excludedCount, setExcludedCount] = useState(0);
+  const [blockedCount, setBlockedCount] = useState(0);
   const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -86,6 +90,10 @@ export default function OverviewPage() {
         setProject(proj);
         setTotalItems(items.length);
         setPendingCount(items.filter((i) => i.mapping_status === "pending").length);
+        setAutoCount(items.filter((i) => i.mapping_status === "auto").length);
+        setManualCount(items.filter((i) => i.mapping_status === "manual").length);
+        setExcludedCount(items.filter((i) => i.mapping_status === "excluded").length);
+        setBlockedCount(items.filter((i) => i.mapping_status === "blocked").length);
       } catch {
         console.error("Erro ao carregar overview");
       }
@@ -263,6 +271,58 @@ export default function OverviewPage() {
               value={String(scenarioCount)}
               sub={scenarioCount <= 1 ? "apenas o Base" : `Base + ${scenarioCount - 1} alternativa${scenarioCount > 2 ? "s" : ""}`}
             />
+          </div>
+
+          {/* AI audit — transparency about what the auto-mapper decided */}
+          <div className="bg-white rounded-xl border border-[#E0E4E3] p-5 mb-6">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <h2 className="text-sm font-bold text-[#030304]">Auditoria da IA</h2>
+                <p className="text-xs text-[#808181] mt-0.5">
+                  O que o mapeamento automático fez com cada item da Curva ABC.
+                </p>
+              </div>
+              <Link
+                href={`/projects/${projectId}/items`}
+                className="text-xs font-semibold text-[#56B7A5] hover:text-[#1d7a6b]"
+              >
+                Ver detalhes →
+              </Link>
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              <Link
+                href={`/projects/${projectId}/items?status=auto`}
+                className="bg-[#E6F3EE] rounded-lg p-3 border border-[#A9D7CD] hover:border-[#56B7A5] transition-all"
+              >
+                <p className="text-[10px] font-bold text-[#1d7a6b] uppercase tracking-wider">Auto-mapeado</p>
+                <p className="text-2xl font-bold text-[#1d7a6b] mt-1">{autoCount}</p>
+                <p className="text-[10px] text-[#1d7a6b] mt-0.5">IA assumiu o fator (alta confiança)</p>
+              </Link>
+              <Link
+                href={`/projects/${projectId}/items?status=suggested`}
+                className="bg-[#DBEAFE] rounded-lg p-3 border border-[#93C5FD] hover:border-[#1e40af] transition-all"
+              >
+                <p className="text-[10px] font-bold text-[#1e40af] uppercase tracking-wider">Sugerido</p>
+                <p className="text-2xl font-bold text-[#1e40af] mt-1">{manualCount}</p>
+                <p className="text-[10px] text-[#1e40af] mt-0.5">Match incerto · revisar</p>
+              </Link>
+              <Link
+                href={`/projects/${projectId}/items?status=excluded`}
+                className="bg-[#F3F4F6] rounded-lg p-3 border border-[#D1D5DB] hover:border-[#6b7280] transition-all"
+              >
+                <p className="text-[10px] font-bold text-[#374151] uppercase tracking-wider">Desconsiderado</p>
+                <p className="text-2xl font-bold text-[#374151] mt-1">{excludedCount}</p>
+                <p className="text-[10px] text-[#374151] mt-0.5">Mão-de-obra, equipamento, serviços</p>
+              </Link>
+              <Link
+                href={`/projects/${projectId}/items?status=pending`}
+                className="bg-[#FEF3C7] rounded-lg p-3 border border-[#FCD34D] hover:border-[#b45309] transition-all"
+              >
+                <p className="text-[10px] font-bold text-[#92400e] uppercase tracking-wider">Pendente</p>
+                <p className="text-2xl font-bold text-[#92400e] mt-1">{pendingCount + blockedCount}</p>
+                <p className="text-[10px] text-[#92400e] mt-0.5">Sem match · mapear manual</p>
+              </Link>
+            </div>
           </div>
 
           {/* Scenarios comparison */}

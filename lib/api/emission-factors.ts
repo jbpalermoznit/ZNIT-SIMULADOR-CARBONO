@@ -129,6 +129,8 @@ export interface MappingResponse {
   similarity_score?: number;
   mapped_by: string;
   notes?: string;
+  /** Justification text written by the auto-exclusion pass (B/D/E/F). */
+  exclusion_justification?: string | null;
   /** Set when the server forked a new scenario (mode=fork). */
   new_scenario_id?: string | null;
   scenario_apply_error?: string | null;
