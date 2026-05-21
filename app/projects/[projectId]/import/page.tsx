@@ -103,6 +103,14 @@ export default function ImportPage() {
   const insumosInputRef = useRef<HTMLInputElement>(null);
   const itemsInputRef = useRef<HTMLInputElement>(null);
 
+  // Optional enrichment files (ABC mode) — boost coverage by feeding the
+  // iTwo Cost Code catalog and Relatório Proof alongside the ABC.
+  const [costCodesFile, setCostCodesFile] = useState<File | null>(null);
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const costCodesInputRef = useRef<HTMLInputElement>(null);
+  const proofInputRef = useRef<HTMLInputElement>(null);
+  const [showEnrichment, setShowEnrichment] = useState(false);
+
   useEffect(() => { getProject(projectId).then((p) => setProjectName(p.name)).catch(() => {}); }, [projectId]);
 
   const handleFile = (f: File) => { setFile(f); setError(""); };
@@ -117,7 +125,10 @@ export default function ImportPage() {
     if (!file) return;
     setStep("processing"); setError("");
     try {
-      const data = await uploadAbc(projectId, file);
+      const data = await uploadAbc(projectId, file, {
+        costCodesFile: costCodesFile ?? undefined,
+        proofFile: proofFile ?? undefined,
+      });
       setResult(data); setStep("preview");
       // The upload route now runs auto-map + base scenario + calculation
       // inline. As soon as we have a base scenario id, persist it as the
@@ -380,6 +391,86 @@ export default function ImportPage() {
                   <button onClick={() => setFile(null)} className="text-[#808181] hover:text-[#404040] p-1"><X size={16} /></button>
                   <Button onClick={handleUpload}>Processar arquivo</Button>
                 </div>
+              </div>
+            )}
+
+            {/* Optional enrichment files — boost coverage */}
+            {file && (
+              <div className="bg-white rounded-xl border border-[#E0E4E3] p-4 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setShowEnrichment((v) => !v)}
+                  className="flex items-center justify-between w-full text-left"
+                >
+                  <div>
+                    <p className="text-xs font-bold text-[#030304]">
+                      {showEnrichment ? "− Arquivos opcionais para aumentar cobertura" : "+ Adicionar arquivos opcionais para aumentar cobertura"}
+                    </p>
+                    <p className="text-[11px] text-[#808181] mt-0.5">
+                      Catálogo Cost Code (iTwo) + Relatório Proof. Cada um aumenta a precisão do mapeamento automático.
+                    </p>
+                  </div>
+                </button>
+                {showEnrichment && (
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    {[
+                      {
+                        file: costCodesFile,
+                        setFile: setCostCodesFile,
+                        ref: costCodesInputRef,
+                        label: "Cost Code (catálogo iTwo)",
+                        hint: "Descrições canônicas por código",
+                      },
+                      {
+                        file: proofFile,
+                        setFile: setProofFile,
+                        ref: proofInputRef,
+                        label: "Relatório Proof",
+                        hint: "Composições por cost code",
+                      },
+                    ].map((slot, idx) => (
+                      <div key={idx}>
+                        <p className="text-[11px] font-semibold text-[#404040] mb-1">{slot.label}</p>
+                        {slot.file ? (
+                          <div className="flex items-center justify-between gap-2 rounded-lg border border-[#56B7A5] bg-[#E6F3EE] px-3 py-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileSpreadsheet size={14} className="text-[#56B7A5] shrink-0" />
+                              <span className="text-[11px] font-semibold text-[#1d7a6b] truncate">
+                                {slot.file.name}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => slot.setFile(null)}
+                              className="text-[#1d7a6b] hover:text-[#030304]"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => slot.ref.current?.click()}
+                            className="w-full rounded-lg border-2 border-dashed border-[#E0E4E3] bg-[#F8FAF9] px-3 py-3 text-left hover:border-[#A9D7CD] transition-all"
+                          >
+                            <p className="text-[11px] font-semibold text-[#404040]">Selecionar arquivo</p>
+                            <p className="text-[10px] text-[#808181] mt-0.5">{slot.hint}</p>
+                          </button>
+                        )}
+                        <input
+                          ref={slot.ref}
+                          type="file"
+                          accept=".xlsx,.xlsm,.xls"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) slot.setFile(f);
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

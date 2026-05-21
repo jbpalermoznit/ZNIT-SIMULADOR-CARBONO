@@ -950,3 +950,94 @@ export async function autoMatchItem(
     confidence,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Enriched auto-match — runs autoMatchItem against the primary description
+// plus each assembly description, plus an optional canonical (catalog)
+// description, and returns whichever attempt produced the strongest match.
+// Optional supplier (e.g. "GERDAU", "POLIMIX") boosts EPD candidates whose
+// company_name matches.
+// ---------------------------------------------------------------------------
+
+export interface EnrichedMatchInput {
+  description: string;
+  unit?: string | null;
+  companyId?: string | null;
+  /** Canonical description from the iTwo Cost Code catalog, if available. */
+  canonicalDescription?: string | null;
+  /** Assembly descriptions from the Relatório Proof. */
+  assemblyDescriptions?: string[];
+  /** Supplier name from the ABC (e.g. "GERDAU"). */
+  supplier?: string | null;
+}
+
+export interface EnrichedMatchResult extends AutoMatchResult {
+  /** Which query string produced the best match. */
+  matched_via: "description" | "canonical" | "assembly" | null;
+  /** Index into assemblyDescriptions when matched_via === "assembly". */
+  matched_assembly_index?: number;
+}
+
+export async function autoMatchEnriched(
+  input: EnrichedMatchInput
+): Promise<EnrichedMatchResult> {
+  const attempts: Array<{
+    via: "description" | "canonical" | "assembly";
+    text: string;
+    assemblyIndex?: number;
+  }> = [{ via: "description", text: input.description }];
+
+  if (input.canonicalDescription && input.canonicalDescription !== input.description) {
+    attempts.push({ via: "canonical", text: input.canonicalDescription });
+  }
+
+  for (let i = 0; i < (input.assemblyDescriptions ?? []).length; i++) {
+    const desc = input.assemblyDescriptions![i];
+    if (desc) attempts.push({ via: "assembly", text: desc, assemblyIndex: i });
+  }
+
+  let bestResult: AutoMatchResult | null = null;
+  let bestVia: EnrichedMatchResult["matched_via"] = null;
+  let bestAssemblyIndex: number | undefined;
+
+  for (const attempt of attempts) {
+    const result = await autoMatchItem(attempt.text, input.unit, input.companyId);
+    if (!result.best) continue;
+
+    // Supplier boost: when the supplier name appears in the candidate's
+    // factor_source / factor_name (case-insensitive), bump its score so an
+    // EPD/factor tied to that fabricator wins over a generic one. The boost
+    // is conservative (+10) to avoid flipping low-quality matches.
+    if (input.supplier && result.best) {
+      const supplier = input.supplier.toLowerCase().trim();
+      for (const cand of result.results) {
+        const haystack = `${cand.factor_source ?? ""} ${cand.factor_name ?? ""}`.toLowerCase();
+        if (supplier && supplier.length >= 3 && haystack.includes(supplier)) {
+          cand.score = Math.min(100, cand.score + 10);
+        }
+      }
+      result.results.sort((a, b) => b.score - a.score);
+      result.best = result.results[0] ?? null;
+      if (result.best) {
+        if (result.best.score >= 80) result.confidence = "high";
+        else if (result.best.score >= 60) result.confidence = "medium";
+        else result.confidence = "low";
+      }
+    }
+
+    if (!bestResult || (result.best && result.best.score > (bestResult.best?.score ?? 0))) {
+      bestResult = result;
+      bestVia = attempt.via;
+      bestAssemblyIndex = attempt.assemblyIndex;
+    }
+  }
+
+  if (!bestResult) {
+    return { results: [], best: null, confidence: null, matched_via: null };
+  }
+  return {
+    ...bestResult,
+    matched_via: bestVia,
+    matched_assembly_index: bestAssemblyIndex,
+  };
+}

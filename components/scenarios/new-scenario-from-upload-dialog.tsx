@@ -89,6 +89,10 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
   const [abcFile, setAbcFile] = useState<File | null>(null);
   const [itemsFile, setItemsFile] = useState<File | null>(null);
   const [insumosFile, setInsumosFile] = useState<File | null>(null);
+  // Optional enrichment files that lift coverage when paired with an ABC.
+  const [costCodesFile, setCostCodesFile] = useState<File | null>(null);
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [showEnrichment, setShowEnrichment] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [busyStep, setBusyStep] = useState("");
@@ -109,10 +113,16 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
       let newScenarioId: string | null = null;
 
       if (mode === "abc" && abcFile) {
-        setBusyStep("Enviando arquivo…");
+        setBusyStep(
+          costCodesFile || proofFile
+            ? "Enviando arquivos, enriquecendo e calculando…"
+            : "Enviando arquivo…"
+        );
         const res = await uploadAbc(projectId, abcFile, {
           scenarioName: name.trim(),
           asScenario: true,
+          costCodesFile: costCodesFile ?? undefined,
+          proofFile: proofFile ?? undefined,
         });
         newScenarioId = res.base_scenario_id;
         if (res.base_scenario_error) throw new Error(res.base_scenario_error);
@@ -189,13 +199,41 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
 
           {/* Drop zones */}
           {mode === "abc" ? (
-            <DropZone
-              file={abcFile}
-              onFile={setAbcFile}
-              label="Curva ABC (XLSX/XLSM)"
-              hint=".xlsx ou .xlsm exportado do iTwo"
-              disabled={busy}
-            />
+            <>
+              <DropZone
+                file={abcFile}
+                onFile={setAbcFile}
+                label="Curva ABC (XLSX/XLSM)"
+                hint=".xlsx ou .xlsm exportado do iTwo"
+                disabled={busy}
+              />
+              <button
+                type="button"
+                onClick={() => setShowEnrichment((v) => !v)}
+                disabled={busy}
+                className="text-[11px] font-semibold text-[#56B7A5] hover:text-[#1d7a6b] transition-all"
+              >
+                {showEnrichment ? "− Ocultar" : "+ Adicionar"} arquivos opcionais para aumentar cobertura
+              </button>
+              {showEnrichment && (
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <DropZone
+                    file={costCodesFile}
+                    onFile={setCostCodesFile}
+                    label="Cost Code (catálogo iTwo)"
+                    hint="Opcional · descrições canônicas"
+                    disabled={busy}
+                  />
+                  <DropZone
+                    file={proofFile}
+                    onFile={setProofFile}
+                    label="Relatório Proof"
+                    hint="Opcional · composições por cost code"
+                    disabled={busy}
+                  />
+                </div>
+              )}
+            </>
           ) : (
             <div className="grid grid-cols-2 gap-3">
               <DropZone

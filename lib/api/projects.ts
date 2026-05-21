@@ -31,9 +31,14 @@ export interface UploadResult {
     suggested: number;
     pending: number;
     already_mapped: number;
+    auto_excluded?: number;
   } | null;
   base_scenario_id: string | null;
   base_scenario_error: string | null;
+  enrichment?: {
+    cost_codes_loaded: number;
+    proof_cost_codes_loaded: number;
+  };
 }
 
 export interface AbcItemResponse {
@@ -83,12 +88,21 @@ export function createProject(data: {
 export function uploadAbc(
   projectId: string,
   file: File,
-  opts?: { scenarioName?: string; asScenario?: boolean }
+  opts?: {
+    scenarioName?: string;
+    asScenario?: boolean;
+    /** Optional iTwo Cost Code catalog for canonical descriptions. */
+    costCodesFile?: File;
+    /** Optional Relatório Proof for assemblies-per-cost-code. */
+    proofFile?: File;
+  }
 ) {
   const form = new FormData();
   form.append("file", file);
   if (opts?.scenarioName) form.append("scenario_name", opts.scenarioName);
   if (opts?.asScenario) form.append("as_scenario", "true");
+  if (opts?.costCodesFile) form.append("cost_codes_file", opts.costCodesFile);
+  if (opts?.proofFile) form.append("proof_file", opts.proofFile);
   return api.postForm<UploadResult>(`/api/projects/${projectId}/upload-abc`, form);
 }
 

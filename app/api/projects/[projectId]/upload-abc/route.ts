@@ -2,7 +2,9 @@ import { NextRequest } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import { supabase } from "@/lib/server/supabase";
 import { parseAbcFile } from "@/lib/server/parser";
-import { runAutoMapForCurve } from "@/lib/server/auto-map";
+import { parseCostCodeFile, type CostCodeRecord } from "@/lib/server/parser-cost-codes";
+import { parseProofFile, type ProofAssembly } from "@/lib/server/parser-proof";
+import { runAutoMapForCurve, runEnrichedAutoMapForCurve } from "@/lib/server/auto-map";
 import { createBaseScenario } from "@/lib/server/calculator";
 
 export async function POST(
@@ -30,6 +32,10 @@ export async function POST(
   // new scenario from file" flow on Overview / Cenários.
   const scenarioName = (formData.get("scenario_name") as string | null) ?? null;
   const asScenario = (formData.get("as_scenario") as string | null) === "true";
+  // Optional enrichment files. When present, parsed into in-memory maps and
+  // fed to runEnrichedAutoMapForCurve to lift coverage.
+  const costCodesFile = formData.get("cost_codes_file") as File | null;
+  const proofFile = formData.get("proof_file") as File | null;
 
   if (!file || !file.name.match(/\.(xlsx|xlsm)$/i)) {
     return Response.json({ detail: "Formato inválido. Use .xlsx ou .xlsm" }, { status: 400 });
@@ -42,6 +48,36 @@ export async function POST(
     result = parseAbcFile(buffer, file.name);
   } catch (e: unknown) {
     return Response.json({ detail: e instanceof Error ? e.message : "Erro ao processar" }, { status: 422 });
+  }
+
+  // Parse the enrichment files up-front so we can fail fast if they're
+  // malformed, before touching the database.
+  let costCodes: Map<string, CostCodeRecord> | null = null;
+  let proof: Map<string, ProofAssembly[]> | null = null;
+  const enrichmentWarnings: string[] = [];
+
+  if (costCodesFile) {
+    try {
+      const buf = Buffer.from(await costCodesFile.arrayBuffer());
+      const parsed = parseCostCodeFile(buf, costCodesFile.name);
+      costCodes = parsed.byCode;
+    } catch (e) {
+      enrichmentWarnings.push(
+        `Catálogo Cost Code ignorado: ${e instanceof Error ? e.message : "erro"}`
+      );
+    }
+  }
+
+  if (proofFile) {
+    try {
+      const buf = Buffer.from(await proofFile.arrayBuffer());
+      const parsed = parseProofFile(buf, proofFile.name);
+      proof = parsed.byCostCode;
+    } catch (e) {
+      enrichmentWarnings.push(
+        `Relatório Proof ignorado: ${e instanceof Error ? e.message : "erro"}`
+      );
+    }
   }
 
   const { data: curve, error: curveErr } = await supabase
@@ -99,7 +135,14 @@ export async function POST(
   let baseScenarioError: string | null = null;
 
   try {
-    autoMap = await runAutoMapForCurve(curve.id, user.company_id);
+    if (costCodes || proof) {
+      autoMap = await runEnrichedAutoMapForCurve(curve.id, user.company_id, {
+        costCodes,
+        proof,
+      });
+    } else {
+      autoMap = await runAutoMapForCurve(curve.id, user.company_id);
+    }
   } catch (e) {
     console.error("[upload-abc] auto-map failed", e);
   }
@@ -123,9 +166,13 @@ export async function POST(
     total_cost: result.total_cost,
     type_summary: typeSummary,
     class_summary: classSummary,
-    warnings: result.warnings,
+    warnings: [...result.warnings, ...enrichmentWarnings],
     auto_map: autoMap,
     base_scenario_id: baseScenarioId,
     base_scenario_error: baseScenarioError,
+    enrichment: {
+      cost_codes_loaded: costCodes ? costCodes.size : 0,
+      proof_cost_codes_loaded: proof ? proof.size : 0,
+    },
   }, { status: 201 });
 }
