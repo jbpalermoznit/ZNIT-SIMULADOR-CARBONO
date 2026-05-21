@@ -20,6 +20,7 @@ import {
   inferTypeFromCostCode,
   shouldAutoExcludeType,
   autoExclusionReason,
+  type ItemType,
 } from "./cost-code-classifier";
 
 export interface AutoMapResult {
@@ -156,11 +157,25 @@ export async function runEnrichedAutoMapForCurve(
   }
 
   // 1. Pre-pass: enrich every item row with catalog + proof data,
-  //    classify by cost-code prefix, and auto-exclude labor/services.
+  //    classify by cost-code prefix, and auto-exclude labor/services/
+  //    embedded materials/equipment.
   const { data: allItems } = await supabase
     .from("abc_items")
     .select("id, cost_code, description, item_type, mapping_status")
     .eq("abc_curve_id", curveId);
+
+  // Helper: an item should be auto-excluded if EITHER classifier (parser
+  // item_type OR cost-code prefix) flagged it as a non-material category.
+  // This catches cases like "Bombeamento de Concreto" where the parser
+  // labels it D (embedded) but the cost-code prefix 42xx says A.
+  function deriveExcludeType(
+    parserType: ItemType | null,
+    prefixType: ItemType | null
+  ): ItemType | null {
+    if (parserType && shouldAutoExcludeType(parserType)) return parserType;
+    if (prefixType && shouldAutoExcludeType(prefixType)) return prefixType;
+    return null;
+  }
 
   // In-memory enrichment per item id — used when persistence isn't available
   type EnrichedRow = {
@@ -198,12 +213,12 @@ export async function runEnrichedAutoMapForCurve(
         if (inferred) update.inferred_type = inferred;
       }
 
-      // Auto-exclude labor/services so they don't sit forever as "pending"
-      if (
-        inferred &&
-        shouldAutoExcludeType(inferred) &&
-        item.mapping_status !== "excluded"
-      ) {
+      // Auto-exclude labor / embedded materials / equipment / services so
+      // they don't sit forever as "pending" (and don't grab a nonsense
+      // factor through an unrelated assembly description).
+      const parserType = (item.item_type as ItemType | null) ?? null;
+      const excludeType = deriveExcludeType(parserType, inferred);
+      if (excludeType && item.mapping_status !== "excluded") {
         await supabase.from("item_mappings").insert({
           abc_item_id: item.id,
           source_tier: "excluded",
@@ -211,7 +226,7 @@ export async function runEnrichedAutoMapForCurve(
           factor_unit: "kg CO2-Eq",
           factor_name: "Excluído",
           mapped_by: "excluded",
-          exclusion_justification: autoExclusionReason(inferred),
+          exclusion_justification: autoExclusionReason(excludeType),
         });
         update.mapping_status = "excluded";
         autoExcluded++;

@@ -38,16 +38,27 @@ export function inferTypeFromCostCode(costCode: string): ItemType | null {
 }
 
 /**
- * For types where there's no direct Scope 3 material emission (labor,
- * subcontracts, services, overheads), the auto-mapping flow should mark the
- * item excluded with a stable justification rather than leave it pending.
+ * For types where there's no direct Scope 3 material emission, the
+ * auto-mapping flow should mark the item excluded with a stable
+ * justification rather than leave it pending or — worse — let it match
+ * via the wrong assembly description.
+ *
+ * - B (labor): no material; emissions are indirect.
+ * - D (embedded material): the material is already counted in the parent
+ *   item (e.g. "Bombeamento de Concreto" — the concrete itself sits in a
+ *   different ABC line).
+ * - E (equipment): emission depends on fuel × hours, not on an EPD. Use
+ *   the "Parametrizar item" UI to set fuel type, consumption and hours.
+ * - F (services / overheads / subcontracts).
  */
 export function shouldAutoExcludeType(type: ItemType): boolean {
-  return type === "B" || type === "F";
+  return type === "B" || type === "D" || type === "E" || type === "F";
 }
 
 export function autoExclusionReason(type: ItemType): string {
   if (type === "B") return "Mão-de-obra — sem emissão direta de Scope 3 materiais (classificação automática por código de custo).";
+  if (type === "D") return "Material embutido — emissão já contabilizada no item de material correspondente (evita dupla contagem).";
+  if (type === "E") return "Equipamento — emissão deve ser parametrizada via consumo de combustível × horas de uso, não por fator EPD/GHG (use 'Parametrizar item').";
   if (type === "F") return "Serviço/Administrativo — sem emissão direta de Scope 3 materiais (classificação automática por código de custo).";
   return "";
 }
