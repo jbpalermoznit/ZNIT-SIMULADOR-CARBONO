@@ -6,12 +6,13 @@ import { listAbcItems, getProject, type AbcItemResponse, type ProjectResponse } 
 import { getMapping, type MappingResponse } from "@/lib/api/emission-factors";
 import { useActiveScenario } from "@/lib/hooks/use-active-scenario";
 import { SaveModeDialog, type SaveModeChoice } from "@/components/items/save-mode-dialog";
+import { ExcludeItemDialog, type ExcludeChoice } from "@/components/items/exclude-item-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   Search, Filter, Download, X, ChevronRight, AlertTriangle,
   CheckCircle, Edit3, ArrowLeft, ChevronDown, FileText, Database,
-  Globe, Pencil, ExternalLink, Loader2, Zap, BookOpen,
+  Globe, Pencil, ExternalLink, Loader2, Zap, BookOpen, Ban,
 } from "lucide-react";
 import {
   searchEmissionFactors, autoMatchItem, autoMapProject, confirmMapping,
@@ -151,11 +152,12 @@ function DrawerHeader({ item, onClose, back, backLabel }: {
 
 // ─── View: Detail ────────────────────────────────────────────────────────────
 
-function DetailView({ item, mapping, onEditEpd, onParametrize }: {
+function DetailView({ item, mapping, onEditEpd, onParametrize, onExclude }: {
   item: AbcItem;
   mapping: MappingResponse | null;
   onEditEpd: () => void;
   onParametrize: () => void;
+  onExclude?: () => void;
 }) {
   const statusMeta = mappingStatusMeta[item.mappingStatus];
   const conf = item.confidence ? CONFIDENCE_LABEL[item.confidence] : null;
@@ -324,13 +326,24 @@ function DetailView({ item, mapping, onEditEpd, onParametrize }: {
         </Section>
       </div>
 
-      <div className="px-5 py-4 border-t border-[#E0E4E3] flex gap-2">
-        <Button variant="outline" size="sm" className="flex-1" onClick={onEditEpd}>
-          <Edit3 size={13} /> Editar Fator de Emissão
-        </Button>
-        <Button size="sm" className="flex-1" onClick={onParametrize}>
-          <ChevronRight size={13} /> Parametrizar item
-        </Button>
+      <div className="px-5 py-4 border-t border-[#E0E4E3] space-y-2">
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="flex-1" onClick={onEditEpd}>
+            <Edit3 size={13} /> Editar Fator de Emissão
+          </Button>
+          <Button size="sm" className="flex-1" onClick={onParametrize}>
+            <ChevronRight size={13} /> Parametrizar item
+          </Button>
+        </div>
+        {onExclude && item.mappingStatus !== "excluded" && (
+          <button
+            onClick={onExclude}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-[#E0E4E3] text-xs font-semibold text-[#6b7280] hover:border-[#9ca3af] hover:text-[#374151] hover:bg-[#F3F4F6] transition-all"
+          >
+            <Ban size={13} />
+            Desconsiderar este item do cálculo
+          </button>
+        )}
       </div>
     </>
   );
@@ -1240,6 +1253,7 @@ function ItemDrawer({
   onClose,
   onSaved,
   onFactorSaveRequest,
+  onExcludeRequest,
 }: {
   item: AbcItem;
   onClose: () => void;
@@ -1247,6 +1261,9 @@ function ItemDrawer({
   /** When provided, EditEpdView delegates the save to the page-level
    *  SaveModeDialog instead of calling confirmMapping itself. */
   onFactorSaveRequest?: (body: MappingConfirmRequest, factorLabel: string, onFinish: () => void) => void;
+  /** When provided, the 'Desconsiderar' button opens the page-level
+   *  exclusion dialog. */
+  onExcludeRequest?: (item: AbcItem, onFinish: () => void) => void;
 }) {
   const [view, setView] = useState<DrawerView>("detail");
   const [mapping, setMapping] = useState<MappingResponse | null>(null);
@@ -1265,7 +1282,19 @@ function ItemDrawer({
           back={view !== "detail" ? () => setView("detail") : undefined}
           backLabel="Voltar ao detalhe"
         />
-        {view === "detail"     && <DetailView item={item} mapping={mapping} onEditEpd={() => setView("edit-epd")} onParametrize={() => setView("parametrize")} />}
+        {view === "detail"     && (
+          <DetailView
+            item={item}
+            mapping={mapping}
+            onEditEpd={() => setView("edit-epd")}
+            onParametrize={() => setView("parametrize")}
+            onExclude={
+              onExcludeRequest
+                ? () => onExcludeRequest(item, () => onClose())
+                : undefined
+            }
+          />
+        )}
         {view === "edit-epd"   && <EditEpdView item={item} onBack={() => setView("detail")} onSaved={onSaved} onFactorSaveRequest={onFactorSaveRequest} onClose={onClose} />}
         {view === "parametrize"&& <ParametrizeView item={item} onBack={() => setView("detail")} onSaved={onSaved} />}
       </div>
@@ -1306,6 +1335,11 @@ export default function ItemsPage() {
     onFinish?: () => void;
   } | null>(null);
   const [saveModeBusy, setSaveModeBusy] = useState(false);
+  const [pendingExclude, setPendingExclude] = useState<{
+    item: AbcItem;
+    onFinish?: () => void;
+  } | null>(null);
+  const [excludeBusy, setExcludeBusy] = useState(false);
 
   // Whenever the active scenario changes, resolve its abc_curve_id so the
   // items list filters to the right curve (cenários can in theory point at
@@ -1640,6 +1674,11 @@ export default function ItemsPage() {
                   setPendingFactorSave({ body, itemId: openItem.id, factorLabel, onFinish })
               : undefined
           }
+          onExcludeRequest={
+            activeScenarioId
+              ? (item, onFinish) => setPendingExclude({ item, onFinish })
+              : undefined
+          }
         />
       )}
 
@@ -1680,6 +1719,48 @@ export default function ItemsPage() {
             alert("Erro ao salvar: " + (e instanceof Error ? e.message : "erro"));
           } finally {
             setSaveModeBusy(false);
+          }
+        }}
+      />
+
+      <ExcludeItemDialog
+        key={pendingExclude?.item.id ?? "closed-exclude"}
+        open={!!pendingExclude}
+        saving={excludeBusy}
+        itemDescription={pendingExclude?.item.description ?? ""}
+        activeScenarioName={activeScenario?.name ?? "cenário atual"}
+        onCancel={() => {
+          if (excludeBusy) return;
+          pendingExclude?.onFinish?.();
+          setPendingExclude(null);
+        }}
+        onConfirm={async (choice: ExcludeChoice) => {
+          if (!pendingExclude || !activeScenarioId) return;
+          setExcludeBusy(true);
+          try {
+            const body: MappingConfirmRequest = {
+              source_tier: "excluded",
+              exclusion_justification: choice.justification,
+              scenario_id: activeScenarioId,
+              mode: choice.mode,
+              ...(choice.mode === "fork" && choice.newScenarioName
+                ? { new_scenario_name: choice.newScenarioName }
+                : {}),
+            };
+            const res = await confirmMapping(pendingExclude.item.id, body);
+            if (res.new_scenario_id) {
+              await reloadScenarios();
+              setActiveScenarioId(res.new_scenario_id);
+            } else {
+              await reloadScenarios();
+            }
+            await loadItems();
+            pendingExclude.onFinish?.();
+            setPendingExclude(null);
+          } catch (e) {
+            alert("Erro ao excluir: " + (e instanceof Error ? e.message : "erro"));
+          } finally {
+            setExcludeBusy(false);
           }
         }}
       />
