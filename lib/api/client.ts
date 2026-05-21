@@ -23,6 +23,11 @@ async function request<T>(
     throw new Error(error.detail ?? "Erro na requisição");
   }
 
+  // 204 No Content and empty bodies — return undefined cast as T so callers
+  // can typeof void operations (e.g. DELETE) without crashing on res.json().
+  if (res.status === 204 || res.headers.get("content-length") === "0") {
+    return undefined as unknown as T;
+  }
   return res.json();
 }
 

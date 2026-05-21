@@ -162,3 +162,37 @@ export async function GET(
     parent_items: parentItems,
   });
 }
+
+// ---------------------------------------------------------------------------
+// DELETE /api/scenarios/[scenarioId] — remove scenario + children
+// ---------------------------------------------------------------------------
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ scenarioId: string }> }
+) {
+  let user: AuthUser;
+  try {
+    user = await getCurrentUser(req);
+  } catch {
+    return unauthorized();
+  }
+
+  const { scenarioId } = await params;
+
+  try {
+    await assertScenarioOwnership(scenarioId, user);
+  } catch (e) {
+    if (e instanceof ForbiddenError) return forbidden(e.message);
+    throw e;
+  }
+
+  // Foreign keys aren't ON DELETE CASCADE everywhere, so clean children
+  // first to keep the operation safe regardless of schema state.
+  await supabase.from("scenario_results").delete().eq("scenario_id", scenarioId);
+  await supabase.from("scenario_items").delete().eq("scenario_id", scenarioId);
+  const { error } = await supabase.from("scenarios").delete().eq("id", scenarioId);
+  if (error) {
+    return Response.json({ detail: error.message }, { status: 500 });
+  }
+  return new Response(null, { status: 204 });
+}

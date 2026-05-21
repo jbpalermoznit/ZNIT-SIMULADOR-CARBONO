@@ -6,12 +6,12 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
-  Plus, Lock, TrendingDown, Copy, Edit3, Upload,
+  Plus, Lock, TrendingDown, Copy, Edit3, Upload, Trash2,
   GitCompare, ChevronDown, Loader2,
   BarChart3, Zap, Leaf,
 } from "lucide-react";
 import {
-  listScenarios, createBaseScenario, createScenario, getScenario,
+  listScenarios, createBaseScenario, createScenario, getScenario, deleteScenario,
   type ScenarioResponse, type ScenarioDetailResponse, type ScenarioItemResponse,
 } from "@/lib/api/scenarios";
 import { getProject } from "@/lib/api/projects";
@@ -26,12 +26,14 @@ function ScenarioCard({
   selected,
   onSelect,
   onSetBase,
+  onDelete,
 }: {
   scen: ScenarioResponse;
   baseScen: ScenarioResponse | null;
   selected: boolean;
   onSelect: () => void;
   onSetBase?: () => void;
+  onDelete?: () => void;
 }) {
   const isBase = scen.is_base;
   const totalTco2e = scen.result?.total_tco2e ?? 0;
@@ -74,6 +76,20 @@ function ScenarioCard({
             <p className="text-[11px] text-[#808181] mt-0.5 leading-relaxed line-clamp-2">{scen.description}</p>
           )}
         </div>
+        {onDelete && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm(`Excluir cenário "${scen.name}"? Esta ação não pode ser desfeita.`)) {
+                onDelete();
+              }
+            }}
+            title="Excluir cenário"
+            className="text-[#BDBDBC] hover:text-[#DC2626] p-1 -m-1 rounded transition-colors shrink-0"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
       </div>
 
       <div className="text-2xl font-bold text-[#030304] mb-0.5">
@@ -679,6 +695,22 @@ export default function ScenariosPage() {
     setCreatingBase(false);
   };
 
+  const handleDelete = async (scenarioId: string) => {
+    try {
+      await deleteScenario(scenarioId);
+      if (selectedScenId === scenarioId) setSelectedScenId(null);
+      // Clear the active scenario pointer if we just deleted it
+      const key = `znit_active_scenario_${projectId}`;
+      if (typeof window !== "undefined" && localStorage.getItem(key) === scenarioId) {
+        localStorage.removeItem(key);
+        window.dispatchEvent(new CustomEvent("znit:active-scenario-changed", { detail: { id: null } }));
+      }
+      await loadScenarios();
+    } catch (e) {
+      alert("Erro ao excluir cenário: " + (e instanceof Error ? e.message : "erro"));
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-7 flex items-center justify-center min-h-[400px]">
@@ -743,6 +775,7 @@ export default function ScenariosPage() {
                   setSelectedScenId(selectedScenId === scen.id ? null : scen.id)
                 }
                 onSetBase={scen.is_base ? undefined : () => handleSetBase(scen.id)}
+                onDelete={() => handleDelete(scen.id)}
               />
             ))}
 

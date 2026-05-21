@@ -84,3 +84,7 @@ export function getScenario(scenarioId: string): Promise<ScenarioDetailResponse>
 export function calculateScenario(scenarioId: string): Promise<ScenarioResultResponse> {
   return api.post(`/api/scenarios/${scenarioId}/calculate`, {});
 }
+
+export function deleteScenario(scenarioId: string): Promise<void> {
+  return api.delete(`/api/scenarios/${scenarioId}`);
+}
