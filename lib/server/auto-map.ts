@@ -140,12 +140,34 @@ export async function runEnrichedAutoMapForCurve(
   companyId: string,
   enrichment: EnrichmentInputs
 ): Promise<AutoMapResult> {
+  // Probe whether migration v5 columns exist. If not, we degrade gracefully:
+  // assemblies / canonical_description / inferred_type aren't persisted, but
+  // the enrichment still applies in-memory for the main matching loop.
+  const probe = await supabase
+    .from("abc_items")
+    .select("canonical_description")
+    .eq("abc_curve_id", curveId)
+    .limit(1);
+  const enrichedColumnsAvailable = !probe.error;
+  if (!enrichedColumnsAvailable) {
+    console.warn(
+      "[auto-map] migration-v5-coverage-enrichment.sql not applied; running with in-memory enrichment only"
+    );
+  }
+
   // 1. Pre-pass: enrich every item row with catalog + proof data,
   //    classify by cost-code prefix, and auto-exclude labor/services.
   const { data: allItems } = await supabase
     .from("abc_items")
     .select("id, cost_code, description, item_type, mapping_status")
     .eq("abc_curve_id", curveId);
+
+  // In-memory enrichment per item id — used when persistence isn't available
+  type EnrichedRow = {
+    canonical_description: string | null;
+    assemblies: Array<{ description: string }>;
+  };
+  const inMemoryEnrich: Map<string, EnrichedRow> = new Map();
 
   let autoExcluded = 0;
   if (allItems && (enrichment.costCodes || enrichment.proof)) {
@@ -157,17 +179,24 @@ export async function runEnrichedAutoMapForCurve(
       const assemblies = enrichment.proof?.get(code) ?? [];
       const inferred = inferTypeFromCostCode(code);
 
+      inMemoryEnrich.set(item.id as string, {
+        canonical_description: catalog?.description ?? null,
+        assemblies: assemblies.map((a) => ({ description: a.description })),
+      });
+
       const update: Record<string, unknown> = {};
-      if (catalog && catalog.description) update.canonical_description = catalog.description;
-      if (assemblies.length > 0) {
-        update.assemblies = assemblies.map((a) => ({
-          code: a.code,
-          description: a.description,
-          uom: a.uom,
-          rn_code: a.rn_code ?? null,
-        }));
+      if (enrichedColumnsAvailable) {
+        if (catalog && catalog.description) update.canonical_description = catalog.description;
+        if (assemblies.length > 0) {
+          update.assemblies = assemblies.map((a) => ({
+            code: a.code,
+            description: a.description,
+            uom: a.uom,
+            rn_code: a.rn_code ?? null,
+          }));
+        }
+        if (inferred) update.inferred_type = inferred;
       }
-      if (inferred) update.inferred_type = inferred;
 
       // Auto-exclude labor/services so they don't sit forever as "pending"
       if (
@@ -194,8 +223,9 @@ export async function runEnrichedAutoMapForCurve(
     }
   }
 
-  // 2. Main pass: still focus on Type A items (post-exclusions). Pull the
-  //    enriched columns so the mapper can use them.
+  // 2. Main pass: still focus on Type A items (post-exclusions). Read either
+  //    the v5 enriched columns or fall back to the in-memory map populated
+  //    above.
   const { count: alreadyMapped } = await supabase
     .from("abc_items")
     .select("id", { count: "exact", head: true })
@@ -203,11 +233,12 @@ export async function runEnrichedAutoMapForCurve(
     .eq("item_type", "A")
     .in("mapping_status", ["auto", "manual"]);
 
+  const selectCols = enrichedColumnsAvailable
+    ? "id, cost_code, description, unit, item_order, supplier, canonical_description, assemblies"
+    : "id, cost_code, description, unit, item_order, supplier";
   const { data: items } = await supabase
     .from("abc_items")
-    .select(
-      "id, cost_code, description, unit, item_order, supplier, canonical_description, assemblies"
-    )
+    .select(selectCols)
     .eq("abc_curve_id", curveId)
     .eq("item_type", "A")
     .eq("mapping_status", "pending")
@@ -228,20 +259,31 @@ export async function runEnrichedAutoMapForCurve(
   let suggested = 0;
   let pending = 0;
 
-  for (const item of items) {
-    const assemblyDescriptions = Array.isArray(item.assemblies)
-      ? (item.assemblies as Array<{ description?: string }>)
-          .map((a) => a.description ?? "")
-          .filter((d) => d.length > 0)
+  for (const itemRow of items as unknown as Array<Record<string, unknown>>) {
+    const itemId = itemRow.id as string;
+    const memEnrich = inMemoryEnrich.get(itemId);
+    const persistedAssemblies = enrichedColumnsAvailable
+      ? Array.isArray(itemRow.assemblies)
+        ? (itemRow.assemblies as Array<{ description?: string }>)
+        : []
       : [];
+    const assemblyDescriptions = (
+      persistedAssemblies.length > 0
+        ? persistedAssemblies.map((a) => a.description ?? "")
+        : (memEnrich?.assemblies ?? []).map((a) => a.description)
+    ).filter((d) => d && d.length > 0);
+
+    const canonicalDescription = enrichedColumnsAvailable
+      ? (itemRow.canonical_description as string | null) ?? null
+      : memEnrich?.canonical_description ?? null;
 
     const match = await autoMatchEnriched({
-      description: item.description as string,
-      unit: item.unit as string,
+      description: itemRow.description as string,
+      unit: itemRow.unit as string,
       companyId,
-      canonicalDescription: (item.canonical_description as string | null) ?? null,
+      canonicalDescription,
       assemblyDescriptions,
-      supplier: (item.supplier as string | null) ?? null,
+      supplier: (itemRow.supplier as string | null) ?? null,
     });
 
     const best = match.best;
@@ -256,7 +298,7 @@ export async function runEnrichedAutoMapForCurve(
       }
 
       await supabase.from("item_mappings").insert({
-        abc_item_id: item.id,
+        abc_item_id: itemId,
         source_tier: best.source_tier,
         ecoinvent_product_id: best.ecoinvent_product_id ?? null,
         ecoinvent_activity_id: best.ecoinvent_activity_id ?? null,
@@ -276,7 +318,7 @@ export async function runEnrichedAutoMapForCurve(
       await supabase
         .from("abc_items")
         .update({ mapping_status: newStatus })
-        .eq("id", item.id);
+        .eq("id", itemId);
 
       if (confidence === "high") mapped++;
       else suggested++;

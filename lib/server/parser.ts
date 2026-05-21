@@ -354,6 +354,47 @@ export function parseAbcFile(buffer: Buffer, fileName: string): ParseResult {
 
   const dataRows = allRows.slice(headerIdx + 1);
 
+  // Heuristic supplier fallback: some iTwo exports leave the supplier
+  // column unnamed at the tail of the row. If no supplier alias was
+  // matched by the header, scan unmapped columns and pick the one whose
+  // sample cells are mostly free-text strings (≥3 chars, not numeric).
+  // This is what catches "GERDAU" / "POLIMIX" in the Raízen-style sheets.
+  if (colMap["supplier"] === undefined) {
+    const mapped = new Set(Object.values(colMap));
+    const headerRow = allRows[headerIdx] ?? [];
+    const sample = dataRows.slice(0, Math.min(20, dataRows.length));
+    let bestCol = -1;
+    let bestScore = 0;
+    const maxCol = Math.max(headerRow.length, ...sample.map((r) => r.length));
+    for (let c = 0; c < maxCol; c++) {
+      if (mapped.has(c)) continue;
+      const headerCell = String(headerRow[c] ?? "").trim();
+      // Allow either empty header or non-meaningful header (e.g. plain "")
+      if (headerCell && /[a-z]/i.test(headerCell) && headerCell.length > 2) continue;
+      let textCount = 0;
+      for (const row of sample) {
+        const cell = row?.[c];
+        if (cell == null) continue;
+        if (typeof cell === "number") continue;
+        const s = String(cell).trim();
+        if (s.length < 3) continue;
+        // Skip pure numbers in string form
+        if (/^-?[\d.,]+$/.test(s)) continue;
+        textCount++;
+      }
+      if (textCount > bestScore) {
+        bestScore = textCount;
+        bestCol = c;
+      }
+    }
+    if (bestCol >= 0 && bestScore >= Math.max(3, Math.floor(sample.length * 0.3))) {
+      colMap["supplier"] = bestCol;
+      warnings.push(
+        `Coluna ${bestCol + 1} detectada como fornecedor (sem header) — ${bestScore} valores de texto nas primeiras linhas.`
+      );
+    }
+  }
+
   // Extract valid items
   interface RawItem {
     cost_code: string;
