@@ -13,6 +13,7 @@
  */
 import { supabase } from "./supabase";
 import { autoMatchItem, autoMatchEnriched } from "./emission-mapper";
+import { getConversionFactor } from "./calculator";
 import type { CostCodeRecord } from "./parser-cost-codes";
 import { lookupCostCode } from "./parser-cost-codes";
 import type { ProofAssembly } from "./parser-proof";
@@ -73,8 +74,11 @@ export async function runAutoMapForCurve(
     );
     const best = match.best;
     const confidence = match.confidence;
+    const conversion = best
+      ? getConversionFactor(item.unit as string, best.factor_unit)
+      : 0;
 
-    if (best && (best.factor_value ?? 0) > 0) {
+    if (best && (best.factor_value ?? 0) > 0 && conversion > 0) {
       await supabase.from("item_mappings").insert({
         abc_item_id: item.id,
         source_tier: best.source_tier,
@@ -304,7 +308,10 @@ export async function runEnrichedAutoMapForCurve(
     const best = match.best;
     const confidence = match.confidence;
 
-    if (best && (best.factor_value ?? 0) > 0) {
+    const conversion = best
+      ? getConversionFactor(itemRow.unit as string, best.factor_unit)
+      : 0;
+    if (best && (best.factor_value ?? 0) > 0 && conversion > 0) {
       const notesParts: string[] = [];
       if (match.matched_via === "canonical") notesParts.push("via catálogo");
       if (match.matched_via === "assembly" && match.matched_assembly_index != null) {

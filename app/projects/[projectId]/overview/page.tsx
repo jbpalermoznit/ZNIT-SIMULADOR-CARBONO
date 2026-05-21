@@ -229,16 +229,18 @@ export default function OverviewPage() {
         <>
           {/* Alerts */}
           <div className="space-y-2 mb-6">
-            {pendingCount > 0 && (
+            {(pendingCount + blockedCount) > 0 && (
               <Alert variant="warning">
-                <span className="font-semibold">{pendingCount} itens aguardam mapeamento</span> — revisar itens pendentes ou bloqueados em{" "}
-                <Link href={`/projects/${projectId}/items`} className="underline font-semibold">Itens →</Link>
+                <span className="font-semibold">{pendingCount + blockedCount} {pendingCount + blockedCount === 1 ? "item aguarda" : "itens aguardam"} mapeamento</span>
+                {" "}— sem fator em nenhum catálogo. Mapeie manualmente ou desconsidere com justificativa em{" "}
+                <Link href={`/projects/${projectId}/items?status=pending`} className="underline font-semibold">Itens →</Link>
               </Alert>
             )}
-            {coveragePct < 100 && (
+            {manualCount > 0 && (
               <Alert variant="info">
-                <span className="font-semibold">{coveragePct.toFixed(1)}% de cobertura</span> — {itemsTotal - itemsMapped} itens sem emissão calculada.{" "}
-                <Link href={`/projects/${projectId}/items`} className="underline font-semibold">Ver itens →</Link>
+                <span className="font-semibold">{manualCount} {manualCount === 1 ? "item sugerido" : "itens sugeridos"} para revisão</span>
+                {" "}— match com confiança média ou baixa. Confirme ou ajuste em{" "}
+                <Link href={`/projects/${projectId}/items?status=suggested`} className="underline font-semibold">Itens →</Link>
               </Alert>
             )}
           </div>
