@@ -150,6 +150,13 @@ export default function OverviewPage() {
   const coveragePct = r?.coverage_pct ?? 0;
   const itemsMapped = r?.items_mapped ?? 0;
   const itemsTotal = r?.items_total ?? totalItems;
+  const itemsExcluded = r?.items_excluded ?? 0;
+  // Coverage is computed over the eligible base (total minus intentionally
+  // excluded items). Spell it out in the UI so 83 % doesn't read as
+  // "17 % missing" — it really means "9 of 53 eligible items still need a
+  // factor; the other 60 are out of scope by design".
+  const itemsEligible = itemsTotal - itemsExcluded;
+  const itemsStillMissing = itemsEligible - itemsMapped;
 
   const scope3Mat = r?.scope3_materials_kgco2e ?? 0;
   const scope3Log = r?.scope3_logistics_kgco2e ?? 0;
@@ -190,7 +197,7 @@ export default function OverviewPage() {
           <h1 className="text-2xl font-bold text-[#030304]">Visão Geral</h1>
           <p className="text-sm text-[#808181] mt-0.5">
             {viewScenario
-              ? `Cenário: ${viewScenario.name} · ${itemsMapped} de ${itemsTotal} itens calculados · ${coveragePct.toFixed(1)}% cobertura`
+              ? `Cenário: ${viewScenario.name} · ${itemsMapped} de ${itemsEligible} itens elegíveis calculados (${coveragePct.toFixed(0)}%) · ${itemsExcluded} desconsiderados fora da base`
               : `${totalItems} itens importados`}
           </p>
         </div>
@@ -263,9 +270,9 @@ export default function OverviewPage() {
               icon={<TrendingDown size={20} />}
             />
             <KpiCard
-              label="Cobertura"
+              label="Cobertura do escopo"
               value={`${coveragePct.toFixed(0)}%`}
-              sub={`${itemsMapped} de ${itemsTotal} itens calculados`}
+              sub={`${itemsMapped} de ${itemsEligible} elegíveis · ${itemsStillMissing > 0 ? `${itemsStillMissing} ainda sem fator` : "tudo calculado"}`}
               icon={<BarChart2 size={20} />}
             />
             <KpiCard
