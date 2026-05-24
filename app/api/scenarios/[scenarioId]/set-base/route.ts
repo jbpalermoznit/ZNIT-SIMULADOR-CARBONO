@@ -1,35 +1,35 @@
 import { NextRequest } from "next/server";
 import { supabase } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
+import type { AuthUser } from "@/lib/server/auth";
+import { assertScenarioOwnership, ForbiddenError, forbidden } from "@/lib/server/access";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ scenarioId: string }> }
 ) {
+  let user: AuthUser;
   try {
-    await getCurrentUser(req);
+    user = await getCurrentUser(req);
   } catch {
     return unauthorized();
   }
 
   const { scenarioId } = await params;
 
-  // Get the scenario to find its project
-  const { data: scenario } = await supabase
-    .from("scenarios")
-    .select("id, project_id")
-    .eq("id", scenarioId)
-    .single();
-
-  if (!scenario) {
-    return Response.json({ detail: "Cenário não encontrado" }, { status: 404 });
+  let projectId: string;
+  try {
+    ({ projectId } = await assertScenarioOwnership(scenarioId, user));
+  } catch (e) {
+    if (e instanceof ForbiddenError) return forbidden(e.message);
+    throw e;
   }
 
   // Unset all other base scenarios in the same project
   await supabase
     .from("scenarios")
     .update({ is_base: false })
-    .eq("project_id", scenario.project_id)
+    .eq("project_id", projectId)
     .eq("is_base", true);
 
   // Set this one as base

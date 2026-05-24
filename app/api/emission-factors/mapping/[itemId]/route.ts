@@ -12,6 +12,8 @@ import {
   getGhgById,
   getEpdById,
 } from "@/lib/server/supabase-emission";
+import { applyFactorToScenarioItem } from "@/lib/server/calculator";
+import { assertScenarioOwnership, ForbiddenError, forbidden } from "@/lib/server/access";
 
 // ---------------------------------------------------------------------------
 // GET — current mapping for an item
@@ -52,6 +54,7 @@ export async function GET(
     similarity_score: mapping.similarity_score,
     mapped_by: mapping.mapped_by,
     notes: mapping.notes,
+    exclusion_justification: mapping.exclusion_justification ?? null,
   });
 }
 
@@ -73,6 +76,14 @@ interface MappingConfirmBody {
   transport_modal?: string | null;
   exclusion_justification?: string | null;
   notes?: string | null;
+  // Scenario-aware save: if provided, the edit also propagates to scenario_items.
+  //   mode=update → modify the given scenario in place + recalc
+  //   mode=fork   → clone the given scenario, apply the edit on the clone,
+  //                 recalc the clone, return its id in `new_scenario_id`
+  scenario_id?: string;
+  mode?: "update" | "fork";
+  new_scenario_name?: string;
+  new_scenario_description?: string;
 }
 
 export async function PUT(
@@ -209,6 +220,84 @@ export async function PUT(
     );
   }
 
+  // Scenario-aware propagation. When the client passes scenario_id + mode,
+  // also apply the change to scenario_items so the active scenario reflects
+  // the new factor without an extra "recalc" step.
+  let newScenarioId: string | null = null;
+  let scenarioApplyError: string | null = null;
+
+  if (body.scenario_id && body.mode) {
+    try {
+      await assertScenarioOwnership(body.scenario_id, user);
+
+      const factorPatch = {
+        factor_value: body.source_tier === "excluded" ? 0 : (body.factor_value ?? 0),
+        factor_unit: body.source_tier === "excluded" ? "kg CO2-Eq" : (body.factor_unit ?? "kgCO2e"),
+        factor_name: body.source_tier === "excluded" ? "Excluído" : (body.factor_name ?? ""),
+        source_tier: body.source_tier,
+        is_excluded: body.source_tier === "excluded",
+        exclusion_reason: body.source_tier === "excluded" ? body.exclusion_justification ?? null : null,
+      };
+
+      let targetScenarioId = body.scenario_id;
+
+      if (body.mode === "fork") {
+        const { data: srcScenario } = await supabase
+          .from("scenarios")
+          .select("project_id")
+          .eq("id", body.scenario_id)
+          .single();
+
+        if (!srcScenario) throw new Error("Cenário origem não encontrado");
+
+        const { data: newScenario, error: newErr } = await supabase
+          .from("scenarios")
+          .insert({
+            project_id: srcScenario.project_id,
+            name: body.new_scenario_name ?? "Cenário derivado",
+            description: body.new_scenario_description ?? null,
+            is_base: false,
+            created_by: user.id,
+          })
+          .select("id")
+          .single();
+
+        if (newErr || !newScenario) throw new Error(newErr?.message ?? "Erro ao criar cenário");
+
+        const { data: sourceItems } = await supabase
+          .from("scenario_items")
+          .select("*")
+          .eq("scenario_id", body.scenario_id);
+
+        if (sourceItems && sourceItems.length > 0) {
+          const cloned = sourceItems.map((si) => ({
+            scenario_id: newScenario.id,
+            abc_item_id: si.abc_item_id,
+            factor_value: si.factor_value,
+            factor_unit: si.factor_unit,
+            factor_name: si.factor_name,
+            source_tier: si.source_tier,
+            quantity_override: si.quantity_override,
+            emission_kgco2e: si.emission_kgco2e,
+            emission_scope3_logistics_kgco2e: si.emission_scope3_logistics_kgco2e,
+            is_excluded: si.is_excluded,
+            exclusion_reason: si.exclusion_reason,
+          }));
+          await supabase.from("scenario_items").insert(cloned);
+        }
+
+        targetScenarioId = newScenario.id;
+        newScenarioId = newScenario.id;
+      }
+
+      await applyFactorToScenarioItem(targetScenarioId, itemId, factorPatch);
+    } catch (e) {
+      if (e instanceof ForbiddenError) return forbidden(e.message);
+      scenarioApplyError = e instanceof Error ? e.message : "Erro ao aplicar no cenário";
+      console.error("[mapping PUT] scenario apply failed", e);
+    }
+  }
+
   return Response.json({
     id: inserted.id,
     abc_item_id: inserted.abc_item_id,
@@ -221,5 +310,7 @@ export async function PUT(
     similarity_score: inserted.similarity_score,
     mapped_by: inserted.mapped_by,
     notes: inserted.notes,
+    new_scenario_id: newScenarioId,
+    scenario_apply_error: scenarioApplyError,
   });
 }

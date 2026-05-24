@@ -36,9 +36,8 @@ export default function ReportsPage() {
   const handleExcelDownload = async () => {
     setGenerating("excel");
     try {
-      const token = localStorage.getItem("znit_token");
       const resp = await fetch(`/api/projects/${projectId}/export-items`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       const blob = await resp.blob();
       const a = document.createElement("a");
@@ -55,9 +54,8 @@ export default function ReportsPage() {
   const handleCsvDownload = async () => {
     setGenerating("csv");
     try {
-      const token = localStorage.getItem("znit_token");
       const resp = await fetch(`/api/projects/${projectId}/export-items`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       const blob = await resp.blob();
       const a = document.createElement("a");
@@ -78,7 +76,6 @@ export default function ReportsPage() {
     }
     setGenerating("pdf");
     try {
-      const token = localStorage.getItem("znit_token");
       // Load details for first two scenarios
       const [detailA, detailB] = await Promise.all([
         getScenario(scenarios[0].id),
@@ -87,9 +84,7 @@ export default function ReportsPage() {
 
       // Also load parent items
       const loadParents = async (scenId: string) => {
-        const res = await fetch(`/api/scenarios/${scenId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(`/api/scenarios/${scenId}`, { credentials: "include" });
         return res.json();
       };
 
@@ -212,10 +207,9 @@ export default function ReportsPage() {
     }
     setGenerating("comparison");
     try {
-      const token = localStorage.getItem("znit_token");
       const resp = await fetch(
         `/api/projects/${projectId}/export-comparison?scenario_a=${scenarios[0].id}&scenario_b=${scenarios[1].id}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { credentials: "include" }
       );
       const blob = await resp.blob();
       const a = document.createElement("a");

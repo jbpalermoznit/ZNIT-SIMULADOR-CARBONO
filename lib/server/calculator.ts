@@ -448,3 +448,46 @@ export async function recalculateScenario(scenarioId: string) {
   const result = await calculateScenarioResult(scenarioId, project);
   return result;
 }
+
+// --------------------------------------------------------------------------
+// Apply a factor change to a scenario item, then recalculate the scenario
+// --------------------------------------------------------------------------
+
+export interface ScenarioItemFactorPatch {
+  factor_value: number | null;
+  factor_unit: string | null;
+  factor_name: string | null;
+  source_tier: string | null;
+  is_excluded?: boolean;
+  exclusion_reason?: string | null;
+}
+
+/**
+ * Patch the scenario_items row for {scenarioId, abcItemId} with the new
+ * factor data, then recalculate the whole scenario. Returns the recalculated
+ * scenario_results row.
+ */
+export async function applyFactorToScenarioItem(
+  scenarioId: string,
+  abcItemId: string,
+  patch: ScenarioItemFactorPatch
+) {
+  const update: Record<string, unknown> = {
+    factor_value: patch.factor_value,
+    factor_unit: patch.factor_unit,
+    factor_name: patch.factor_name,
+    source_tier: patch.source_tier,
+  };
+  if (patch.is_excluded !== undefined) update.is_excluded = patch.is_excluded;
+  if (patch.exclusion_reason !== undefined) update.exclusion_reason = patch.exclusion_reason;
+
+  const { error } = await supabase
+    .from("scenario_items")
+    .update(update)
+    .eq("scenario_id", scenarioId)
+    .eq("abc_item_id", abcItemId);
+
+  if (error) throw new Error(`Erro ao atualizar item do cenário: ${error.message}`);
+
+  return recalculateScenario(scenarioId);
+}

@@ -77,10 +77,7 @@ export default function SimulationPage() {
       const costs: Record<string, number> = {};
       for (const s of scenarios) {
         try {
-          const token = localStorage.getItem("znit_token");
-          const res = await fetch(`/api/scenarios/${s.id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
+          const res = await fetch(`/api/scenarios/${s.id}`, { credentials: "include" });
           if (res.ok) {
             const data = await res.json();
             // Cost = parents (compositions) + direct items (no parent)

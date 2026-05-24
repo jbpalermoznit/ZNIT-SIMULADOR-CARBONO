@@ -2,6 +2,10 @@ import { NextRequest } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import { supabase } from "@/lib/server/supabase";
 import { parseAbcFile } from "@/lib/server/parser";
+import { parseCostCodeFile, type CostCodeRecord } from "@/lib/server/parser-cost-codes";
+import { parseProofFile, type ProofAssembly } from "@/lib/server/parser-proof";
+import { runAutoMapForCurve, runEnrichedAutoMapForCurve } from "@/lib/server/auto-map";
+import { createBaseScenario } from "@/lib/server/calculator";
 
 export async function POST(
   req: NextRequest,
@@ -12,7 +16,6 @@ export async function POST(
 
   const { projectId } = await params;
 
-  // Verify project exists and belongs to user's company
   const { data: project } = await supabase
     .from("projects")
     .select("id, company_id")
@@ -24,6 +27,15 @@ export async function POST(
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
+  // Optional: when set, the upload creates a non-base scenario tied to this
+  // new curve and leaves the existing base untouched. Used by the "import
+  // new scenario from file" flow on Overview / Cenários.
+  const scenarioName = (formData.get("scenario_name") as string | null) ?? null;
+  const asScenario = (formData.get("as_scenario") as string | null) === "true";
+  // Optional enrichment files. When present, parsed into in-memory maps and
+  // fed to runEnrichedAutoMapForCurve to lift coverage.
+  const costCodesFile = formData.get("cost_codes_file") as File | null;
+  const proofFile = formData.get("proof_file") as File | null;
 
   if (!file || !file.name.match(/\.(xlsx|xlsm)$/i)) {
     return Response.json({ detail: "Formato inválido. Use .xlsx ou .xlsm" }, { status: 400 });
@@ -38,7 +50,36 @@ export async function POST(
     return Response.json({ detail: e instanceof Error ? e.message : "Erro ao processar" }, { status: 422 });
   }
 
-  // Create AbcCurve
+  // Parse the enrichment files up-front so we can fail fast if they're
+  // malformed, before touching the database.
+  let costCodes: Map<string, CostCodeRecord> | null = null;
+  let proof: Map<string, ProofAssembly[]> | null = null;
+  const enrichmentWarnings: string[] = [];
+
+  if (costCodesFile) {
+    try {
+      const buf = Buffer.from(await costCodesFile.arrayBuffer());
+      const parsed = parseCostCodeFile(buf, costCodesFile.name);
+      costCodes = parsed.byCode;
+    } catch (e) {
+      enrichmentWarnings.push(
+        `Catálogo Cost Code ignorado: ${e instanceof Error ? e.message : "erro"}`
+      );
+    }
+  }
+
+  if (proofFile) {
+    try {
+      const buf = Buffer.from(await proofFile.arrayBuffer());
+      const parsed = parseProofFile(buf, proofFile.name);
+      proof = parsed.byCostCode;
+    } catch (e) {
+      enrichmentWarnings.push(
+        `Relatório Proof ignorado: ${e instanceof Error ? e.message : "erro"}`
+      );
+    }
+  }
+
   const { data: curve, error: curveErr } = await supabase
     .from("abc_curves")
     .insert({
@@ -55,7 +96,6 @@ export async function POST(
     return Response.json({ detail: "Erro ao criar curva ABC" }, { status: 500 });
   }
 
-  // Insert items in batches of 50
   const itemRows = result.items.map((item) => ({
     abc_curve_id: curve.id,
     cost_code: item.cost_code,
@@ -79,12 +119,44 @@ export async function POST(
     await supabase.from("abc_items").insert(itemRows.slice(i, i + 50));
   }
 
-  // Build summary
   const typeSummary: Record<string, number> = {};
   const classSummary: Record<string, number> = {};
   for (const item of result.items) {
     typeSummary[item.item_type] = (typeSummary[item.item_type] ?? 0) + 1;
     classSummary[item.abc_class] = (classSummary[item.abc_class] ?? 0) + 1;
+  }
+
+  // Chain auto-map + base scenario + calculation so the user lands on Itens
+  // with everything ready. Each step is best-effort: if auto-map or base
+  // scenario creation fails, surface a partial response so the user can
+  // recover via the Visão Geral flow.
+  let autoMap: Awaited<ReturnType<typeof runAutoMapForCurve>> | null = null;
+  let baseScenarioId: string | null = null;
+  let baseScenarioError: string | null = null;
+
+  try {
+    if (costCodes || proof) {
+      autoMap = await runEnrichedAutoMapForCurve(curve.id, user.company_id, {
+        costCodes,
+        proof,
+      });
+    } else {
+      autoMap = await runAutoMapForCurve(curve.id, user.company_id);
+    }
+  } catch (e) {
+    console.error("[upload-abc] auto-map failed", e);
+  }
+
+  try {
+    const { scenario } = await createBaseScenario(projectId, user.id, {
+      abcCurveId: curve.id,
+      isBase: !asScenario,
+      scenarioName: asScenario ? scenarioName ?? "Cenário derivado" : undefined,
+    });
+    baseScenarioId = (scenario as { id: string }).id;
+  } catch (e) {
+    baseScenarioError = e instanceof Error ? e.message : "Erro ao criar cenário";
+    console.error("[upload-abc] scenario creation failed", e);
   }
 
   return Response.json({
@@ -94,6 +166,13 @@ export async function POST(
     total_cost: result.total_cost,
     type_summary: typeSummary,
     class_summary: classSummary,
-    warnings: result.warnings,
+    warnings: [...result.warnings, ...enrichmentWarnings],
+    auto_map: autoMap,
+    base_scenario_id: baseScenarioId,
+    base_scenario_error: baseScenarioError,
+    enrichment: {
+      cost_codes_loaded: costCodes ? costCodes.size : 0,
+      proof_cost_codes_loaded: proof ? proof.size : 0,
+    },
   }, { status: 201 });
 }

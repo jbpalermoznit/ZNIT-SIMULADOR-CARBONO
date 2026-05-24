@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Alert } from "@/components/ui/alert";
@@ -9,26 +9,35 @@ import { ParetoChart } from "@/components/charts/pareto-chart";
 import { ScopeDonut } from "@/components/charts/scope-donut";
 import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import Link from "next/link";
-import { Leaf, TrendingDown, BarChart2, AlertTriangle, Plus, Sparkles, Loader2, Zap } from "lucide-react";
-import { listScenarios, createBaseScenario, getScenario, type ScenarioResponse, type ScenarioItemResponse } from "@/lib/api/scenarios";
+import { Leaf, TrendingDown, BarChart2, AlertTriangle, Loader2, Zap, Upload } from "lucide-react";
+import { createBaseScenario, getScenario, type ScenarioResponse, type ScenarioItemResponse } from "@/lib/api/scenarios";
 import { listAbcItems, getProject, type ProjectResponse } from "@/lib/api/projects";
+import { useActiveScenario } from "@/lib/hooks/use-active-scenario";
+import { NewScenarioFromUploadDialog } from "@/components/scenarios/new-scenario-from-upload-dialog";
 import type { ParetoDataPoint } from "@/components/charts/pareto-chart";
 import type { ScopeDataPoint } from "@/components/charts/scope-donut";
 
 export default function OverviewPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [allScenarios, setAllScenarios] = useState<ScenarioResponse[]>([]);
-  const [baseScenario, setBaseScenario] = useState<ScenarioResponse | null>(null);
-  const [scenarioCount, setScenariosCount] = useState(0);
+  const { scenarios, activeScenarioId, activeScenario, reload: reloadScenarios } =
+    useActiveScenario(projectId);
+  const allScenarios = scenarios.filter((s) => s.result);
+  const baseScenario = scenarios.find((s) => s.is_base) ?? null;
+  const scenarioCount = scenarios.length;
   const [pendingCount, setPendingCount] = useState(0);
+  const [autoCount, setAutoCount] = useState(0);
+  const [manualCount, setManualCount] = useState(0);
+  const [excludedCount, setExcludedCount] = useState(0);
+  const [blockedCount, setBlockedCount] = useState(0);
   const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [paretoData, setParetoData] = useState<ParetoDataPoint[]>([]);
   const [scopeData, setScopeData] = useState<ScopeDataPoint[]>([]);
   const [project, setProject] = useState<ProjectResponse | null>(null);
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
 
-  const buildChartsFromItems = (items: ScenarioItemResponse[], result: ScenarioResponse["result"] | null) => {
+  const buildChartsFromItems = useCallback((items: ScenarioItemResponse[], result: ScenarioResponse["result"] | null) => {
     // Pareto: group by factor_name, sum tco2e, sort desc, top 10
     const grouped: Record<string, number> = {};
     for (const item of items) {
@@ -62,67 +71,92 @@ export default function OverviewPage() {
           { name: "Escopo 1 — Combustão", value: Math.round((s1 / tot) * 1000) / 10, color: "#2D8B78" },
           { name: "Escopo 2 — Energia", value: Math.round((s2 / tot) * 1000) / 10, color: "#D4EDE7" },
         ].filter((d) => d.value > 0));
+      } else {
+        setScopeData([]);
       }
+    } else {
+      setScopeData([]);
     }
-  };
+  }, []);
 
+  // Load project + item counts once
   useEffect(() => {
     async function load() {
       try {
-        const [scenarios, items, proj] = await Promise.all([
-          listScenarios(projectId),
+        const [items, proj] = await Promise.all([
           listAbcItems(projectId),
           getProject(projectId),
         ]);
         setProject(proj);
-        setAllScenarios(scenarios.filter((s) => s.result));
-        const base = scenarios.find((s) => s.is_base);
-        setBaseScenario(base ?? null);
-        setScenariosCount(scenarios.length);
         setTotalItems(items.length);
         setPendingCount(items.filter((i) => i.mapping_status === "pending").length);
-
-        // Load scenario detail for charts
-        if (base) {
-          try {
-            const detail = await getScenario(base.id);
-            if (detail.items) {
-              buildChartsFromItems(detail.items, base.result ?? null);
-            }
-          } catch { /* charts stay empty */ }
-        }
+        setAutoCount(items.filter((i) => i.mapping_status === "auto").length);
+        setManualCount(items.filter((i) => i.mapping_status === "manual").length);
+        setExcludedCount(items.filter((i) => i.mapping_status === "excluded").length);
+        setBlockedCount(items.filter((i) => i.mapping_status === "blocked").length);
       } catch {
         console.error("Erro ao carregar overview");
       }
       setLoading(false);
     }
     load();
-  }, []);
+  }, [projectId]);
+
+  // Reload charts whenever the user switches scenarios
+  useEffect(() => {
+    if (!activeScenarioId) {
+      setParetoData([]);
+      setScopeData([]);
+      return;
+    }
+    let cancelled = false;
+    getScenario(activeScenarioId)
+      .then((detail) => {
+        if (cancelled) return;
+        const scen = scenarios.find((s) => s.id === activeScenarioId);
+        if (detail.items) {
+          buildChartsFromItems(detail.items, scen?.result ?? null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setParetoData([]);
+          setScopeData([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeScenarioId, scenarios, buildChartsFromItems]);
 
   const handleCreateBase = async () => {
     setCreating(true);
     try {
-      const scenario = await createBaseScenario(projectId);
-      setBaseScenario(scenario);
-      // Refresh charts
-      try {
-        const detail = await getScenario(scenario.id);
-        if (detail.items) {
-          buildChartsFromItems(detail.items, scenario.result ?? null);
-        }
-      } catch { /* charts stay empty */ }
+      await createBaseScenario(projectId);
+      await reloadScenarios();
     } catch {
       alert("Erro ao criar cenário base. Verifique se há itens importados e mapeados.");
     }
     setCreating(false);
   };
 
-  const r = baseScenario?.result;
+  // KPIs/charts reflect the scenario the user is currently editing, not
+  // necessarily the base one. Falls back to base if no active scenario is
+  // selected yet.
+  const viewScenario = activeScenario ?? baseScenario;
+  const r = viewScenario?.result;
   const totalTco2e = r?.total_tco2e ?? 0;
   const intensityKg = r?.intensity_per_m2 ? r.intensity_per_m2 * 1000 : 0;
   const coveragePct = r?.coverage_pct ?? 0;
   const itemsMapped = r?.items_mapped ?? 0;
   const itemsTotal = r?.items_total ?? totalItems;
+  const itemsExcluded = r?.items_excluded ?? 0;
+  // Coverage is computed over the eligible base (total minus intentionally
+  // excluded items). Spell it out in the UI so 83 % doesn't read as
+  // "17 % missing" — it really means "9 of 53 eligible items still need a
+  // factor; the other 60 are out of scope by design".
+  const itemsEligible = itemsTotal - itemsExcluded;
+  const itemsStillMissing = itemsEligible - itemsMapped;
 
   const scope3Mat = r?.scope3_materials_kgco2e ?? 0;
   const scope3Log = r?.scope3_logistics_kgco2e ?? 0;
@@ -162,43 +196,29 @@ export default function OverviewPage() {
           </p>
           <h1 className="text-2xl font-bold text-[#030304]">Visão Geral</h1>
           <p className="text-sm text-[#808181] mt-0.5">
-            {baseScenario
-              ? `${itemsMapped} de ${itemsTotal} itens calculados · ${coveragePct.toFixed(1)}% cobertura`
+            {viewScenario
+              ? `Cenário: ${viewScenario.name} · ${itemsMapped} de ${itemsEligible} itens elegíveis calculados (${coveragePct.toFixed(0)}%) · ${itemsExcluded} desconsiderados fora da base`
               : `${totalItems} itens importados`}
           </p>
         </div>
         <div className="flex gap-2">
-          {!baseScenario && (
+          {!viewScenario && (
             <Button onClick={handleCreateBase} disabled={creating}>
               {creating ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
               {creating ? "Calculando..." : "Gerar Cenário Base"}
             </Button>
           )}
-          {baseScenario && (
-            <>
-              <Button variant="secondary" onClick={handleCreateBase} disabled={creating}>
-                {creating ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
-                Recalcular
-              </Button>
-              <Link href={`/projects/${projectId}/agent`}>
-                <Button variant="secondary">
-                  <Sparkles size={15} />
-                  Agente IA
-                </Button>
-              </Link>
-              <Link href={`/projects/${projectId}/scenarios`}>
-                <Button>
-                  <Plus size={15} />
-                  Novo Cenário
-                </Button>
-              </Link>
-            </>
+          {viewScenario && (
+            <Button onClick={() => setShowUploadDialog(true)}>
+              <Upload size={15} />
+              Importar novo cenário
+            </Button>
           )}
         </div>
       </div>
 
-      {/* No base scenario yet */}
-      {!baseScenario && (
+      {/* No scenarios yet */}
+      {!viewScenario && (
         <div className="space-y-4">
           <Alert variant="info">
             Nenhum Cenário Base calculado ainda. Importe uma Curva ABC, execute o Auto-Map e clique em <strong>"Gerar Cenário Base"</strong> para calcular as emissões.
@@ -211,21 +231,23 @@ export default function OverviewPage() {
         </div>
       )}
 
-      {/* With base scenario */}
-      {baseScenario && r && (
+      {/* With an active scenario */}
+      {viewScenario && r && (
         <>
           {/* Alerts */}
           <div className="space-y-2 mb-6">
-            {pendingCount > 0 && (
+            {(pendingCount + blockedCount) > 0 && (
               <Alert variant="warning">
-                <span className="font-semibold">{pendingCount} itens aguardam mapeamento</span> — revisar itens pendentes ou bloqueados em{" "}
-                <Link href={`/projects/${projectId}/items`} className="underline font-semibold">Itens →</Link>
+                <span className="font-semibold">{pendingCount + blockedCount} {pendingCount + blockedCount === 1 ? "item aguarda" : "itens aguardam"} mapeamento</span>
+                {" "}— sem fator em nenhum catálogo. Mapeie manualmente ou desconsidere com justificativa em{" "}
+                <Link href={`/projects/${projectId}/items?status=pending`} className="underline font-semibold">Itens →</Link>
               </Alert>
             )}
-            {coveragePct < 100 && (
+            {manualCount > 0 && (
               <Alert variant="info">
-                <span className="font-semibold">{coveragePct.toFixed(1)}% de cobertura</span> — {itemsTotal - itemsMapped} itens sem emissão calculada.{" "}
-                <Link href={`/projects/${projectId}/items`} className="underline font-semibold">Ver itens →</Link>
+                <span className="font-semibold">{manualCount} {manualCount === 1 ? "item sugerido" : "itens sugeridos"} para revisão</span>
+                {" "}— match com confiança média ou baixa. Confirme ou ajuste em{" "}
+                <Link href={`/projects/${projectId}/items?status=suggested`} className="underline font-semibold">Itens →</Link>
               </Alert>
             )}
           </div>
@@ -248,9 +270,9 @@ export default function OverviewPage() {
               icon={<TrendingDown size={20} />}
             />
             <KpiCard
-              label="Cobertura"
+              label="Cobertura do escopo"
               value={`${coveragePct.toFixed(0)}%`}
-              sub={`${itemsMapped} de ${itemsTotal} itens calculados`}
+              sub={`${itemsMapped} de ${itemsEligible} elegíveis · ${itemsStillMissing > 0 ? `${itemsStillMissing} ainda sem fator` : "tudo calculado"}`}
               icon={<BarChart2 size={20} />}
             />
             <KpiCard
@@ -258,6 +280,58 @@ export default function OverviewPage() {
               value={String(scenarioCount)}
               sub={scenarioCount <= 1 ? "apenas o Base" : `Base + ${scenarioCount - 1} alternativa${scenarioCount > 2 ? "s" : ""}`}
             />
+          </div>
+
+          {/* AI audit — transparency about what the auto-mapper decided */}
+          <div className="bg-white rounded-xl border border-[#E0E4E3] p-5 mb-6">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <h2 className="text-sm font-bold text-[#030304]">Auditoria da IA</h2>
+                <p className="text-xs text-[#808181] mt-0.5">
+                  O que o mapeamento automático fez com cada item da Curva ABC.
+                </p>
+              </div>
+              <Link
+                href={`/projects/${projectId}/items`}
+                className="text-xs font-semibold text-[#56B7A5] hover:text-[#1d7a6b]"
+              >
+                Ver detalhes →
+              </Link>
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              <Link
+                href={`/projects/${projectId}/items?status=auto`}
+                className="bg-[#E6F3EE] rounded-lg p-3 border border-[#A9D7CD] hover:border-[#56B7A5] transition-all"
+              >
+                <p className="text-[10px] font-bold text-[#1d7a6b] uppercase tracking-wider">Auto-mapeado</p>
+                <p className="text-2xl font-bold text-[#1d7a6b] mt-1">{autoCount}</p>
+                <p className="text-[10px] text-[#1d7a6b] mt-0.5">IA assumiu o fator (alta confiança)</p>
+              </Link>
+              <Link
+                href={`/projects/${projectId}/items?status=suggested`}
+                className="bg-[#DBEAFE] rounded-lg p-3 border border-[#93C5FD] hover:border-[#1e40af] transition-all"
+              >
+                <p className="text-[10px] font-bold text-[#1e40af] uppercase tracking-wider">Sugerido</p>
+                <p className="text-2xl font-bold text-[#1e40af] mt-1">{manualCount}</p>
+                <p className="text-[10px] text-[#1e40af] mt-0.5">Match incerto · revisar</p>
+              </Link>
+              <Link
+                href={`/projects/${projectId}/items?status=excluded`}
+                className="bg-[#F3F4F6] rounded-lg p-3 border border-[#D1D5DB] hover:border-[#6b7280] transition-all"
+              >
+                <p className="text-[10px] font-bold text-[#374151] uppercase tracking-wider">Desconsiderado</p>
+                <p className="text-2xl font-bold text-[#374151] mt-1">{excludedCount}</p>
+                <p className="text-[10px] text-[#374151] mt-0.5">Mão-de-obra, equipamento, serviços</p>
+              </Link>
+              <Link
+                href={`/projects/${projectId}/items?status=pending`}
+                className="bg-[#FEF3C7] rounded-lg p-3 border border-[#FCD34D] hover:border-[#b45309] transition-all"
+              >
+                <p className="text-[10px] font-bold text-[#92400e] uppercase tracking-wider">Pendente</p>
+                <p className="text-2xl font-bold text-[#92400e] mt-1">{pendingCount + blockedCount}</p>
+                <p className="text-[10px] text-[#92400e] mt-0.5">Sem match · mapear manual</p>
+              </Link>
+            </div>
           </div>
 
           {/* Scenarios comparison */}
@@ -356,6 +430,16 @@ export default function OverviewPage() {
           </div>
         </>
       )}
+
+      <NewScenarioFromUploadDialog
+        projectId={projectId}
+        open={showUploadDialog}
+        onClose={() => setShowUploadDialog(false)}
+        onCreated={() => {
+          setShowUploadDialog(false);
+          reloadScenarios();
+        }}
+      />
     </div>
   );
 }

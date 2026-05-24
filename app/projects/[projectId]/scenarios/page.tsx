@@ -6,15 +6,16 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
-  Plus, Lock, TrendingDown, Copy, Edit3,
+  Plus, Lock, TrendingDown, Copy, Edit3, Upload, Trash2,
   GitCompare, ChevronDown, Loader2,
   BarChart3, Zap, Leaf,
 } from "lucide-react";
 import {
-  listScenarios, createBaseScenario, createScenario, getScenario,
+  listScenarios, createBaseScenario, createScenario, getScenario, deleteScenario,
   type ScenarioResponse, type ScenarioDetailResponse, type ScenarioItemResponse,
 } from "@/lib/api/scenarios";
 import { getProject } from "@/lib/api/projects";
+import { NewScenarioFromUploadDialog } from "@/components/scenarios/new-scenario-from-upload-dialog";
 
 
 // ─── Scenario card ────────────────────────────────────────────────────────────
@@ -25,12 +26,14 @@ function ScenarioCard({
   selected,
   onSelect,
   onSetBase,
+  onDelete,
 }: {
   scen: ScenarioResponse;
   baseScen: ScenarioResponse | null;
   selected: boolean;
   onSelect: () => void;
   onSetBase?: () => void;
+  onDelete?: () => void;
 }) {
   const isBase = scen.is_base;
   const totalTco2e = scen.result?.total_tco2e ?? 0;
@@ -73,6 +76,20 @@ function ScenarioCard({
             <p className="text-[11px] text-[#808181] mt-0.5 leading-relaxed line-clamp-2">{scen.description}</p>
           )}
         </div>
+        {onDelete && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm(`Excluir cenário "${scen.name}"? Esta ação não pode ser desfeita.`)) {
+                onDelete();
+              }
+            }}
+            title="Excluir cenário"
+            className="text-[#BDBDBC] hover:text-[#DC2626] p-1 -m-1 rounded transition-colors shrink-0"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
       </div>
 
       <div className="text-2xl font-bold text-[#030304] mb-0.5">
@@ -636,6 +653,7 @@ export default function ScenariosPage() {
   const [loading, setLoading] = useState(true);
   const [creatingBase, setCreatingBase] = useState(false);
   const [projectName, setProjectName] = useState("");
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
 
   const loadScenarios = async () => {
     try {
@@ -658,7 +676,7 @@ export default function ScenariosPage() {
 
   const handleSetBase = async (scenarioId: string) => {
     try {
-      const res = await fetch(`/api/scenarios/${scenarioId}/set-base`, { method: "POST", headers: { Authorization: `Bearer ${localStorage.getItem("znit_token")}` } });
+      const res = await fetch(`/api/scenarios/${scenarioId}/set-base`, { method: "POST", credentials: "include" });
       if (!res.ok) throw new Error("Erro");
       await loadScenarios();
     } catch {
@@ -675,6 +693,22 @@ export default function ScenariosPage() {
       alert("Erro ao criar cenário base");
     }
     setCreatingBase(false);
+  };
+
+  const handleDelete = async (scenarioId: string) => {
+    try {
+      await deleteScenario(scenarioId);
+      if (selectedScenId === scenarioId) setSelectedScenId(null);
+      // Clear the active scenario pointer if we just deleted it
+      const key = `znit_active_scenario_${projectId}`;
+      if (typeof window !== "undefined" && localStorage.getItem(key) === scenarioId) {
+        localStorage.removeItem(key);
+        window.dispatchEvent(new CustomEvent("znit:active-scenario-changed", { detail: { id: null } }));
+      }
+      await loadScenarios();
+    } catch (e) {
+      alert("Erro ao excluir cenário: " + (e instanceof Error ? e.message : "erro"));
+    }
   };
 
   if (loading) {
@@ -741,19 +775,23 @@ export default function ScenariosPage() {
                   setSelectedScenId(selectedScenId === scen.id ? null : scen.id)
                 }
                 onSetBase={scen.is_base ? undefined : () => handleSetBase(scen.id)}
+                onDelete={() => handleDelete(scen.id)}
               />
             ))}
 
-            {/* Add new placeholder */}
-            <button className="border-2 border-dashed border-[#BDBDBC] rounded-xl p-5 text-center hover:border-[#56B7A5] hover:bg-[#E6F3EE] transition-all group">
+            {/* Add new — upload-based scenario */}
+            <button
+              onClick={() => setShowUploadDialog(true)}
+              className="border-2 border-dashed border-[#BDBDBC] rounded-xl p-5 text-center hover:border-[#56B7A5] hover:bg-[#E6F3EE] transition-all group"
+            >
               <div className="w-10 h-10 bg-[#F3F4F6] rounded-xl flex items-center justify-center mx-auto mb-3 group-hover:bg-[#C8E6DE] transition-all">
-                <Plus size={18} className="text-[#BDBDBC] group-hover:text-[#56B7A5]" />
+                <Upload size={18} className="text-[#BDBDBC] group-hover:text-[#56B7A5]" />
               </div>
               <p className="text-sm font-semibold text-[#808181] group-hover:text-[#56B7A5]">
-                Novo Cenário
+                Novo cenário a partir de arquivo
               </p>
               <p className="text-xs text-[#BDBDBC] mt-1 leading-relaxed">
-                Duplique o Base e substitua materiais
+                Suba uma nova Curva ABC (ou items + insumos)
               </p>
             </button>
           </div>
@@ -811,6 +849,16 @@ export default function ScenariosPage() {
           </div>
         </>
       )}
+
+      <NewScenarioFromUploadDialog
+        projectId={projectId}
+        open={showUploadDialog}
+        onClose={() => setShowUploadDialog(false)}
+        onCreated={() => {
+          setShowUploadDialog(false);
+          loadScenarios();
+        }}
+      />
     </div>
   );
 }

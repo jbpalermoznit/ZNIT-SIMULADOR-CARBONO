@@ -3,14 +3,16 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { itemTypeMeta, mappingStatusMeta, type ItemType, type AbcClass, type AbcItem } from "@/lib/mock/data";
 import { listAbcItems, getProject, type AbcItemResponse, type ProjectResponse } from "@/lib/api/projects";
-import { listScenarios, type ScenarioResponse } from "@/lib/api/scenarios";
 import { getMapping, type MappingResponse } from "@/lib/api/emission-factors";
+import { useActiveScenario } from "@/lib/hooks/use-active-scenario";
+import { SaveModeDialog, type SaveModeChoice } from "@/components/items/save-mode-dialog";
+import { ExcludeItemDialog, type ExcludeChoice } from "@/components/items/exclude-item-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   Search, Filter, Download, X, ChevronRight, AlertTriangle,
   CheckCircle, Edit3, ArrowLeft, ChevronDown, FileText, Database,
-  Globe, Pencil, ExternalLink, Loader2, Zap, BookOpen,
+  Globe, Pencil, ExternalLink, Loader2, Zap, BookOpen, Ban,
 } from "lucide-react";
 import {
   searchEmissionFactors, autoMatchItem, autoMapProject, confirmMapping,
@@ -150,11 +152,85 @@ function DrawerHeader({ item, onClose, back, backLabel }: {
 
 // ─── View: Detail ────────────────────────────────────────────────────────────
 
-function DetailView({ item, onEditEpd, onParametrize }: {
-  item: AbcItem; onEditEpd: () => void; onParametrize: () => void;
+function DetailView({ item, mapping, onEditEpd, onParametrize, onExclude }: {
+  item: AbcItem;
+  mapping: MappingResponse | null;
+  onEditEpd: () => void;
+  onParametrize: () => void;
+  onExclude?: () => void;
 }) {
   const statusMeta = mappingStatusMeta[item.mappingStatus];
   const conf = item.confidence ? CONFIDENCE_LABEL[item.confidence] : null;
+
+  // Decision-of-the-AI block: one of four buckets, each with its own colour
+  // and explanation. Falls back to a stable default when the mapping row is
+  // still loading.
+  const aiDecision = (() => {
+    const status = item.mappingStatus;
+    if (status === "excluded") {
+      return {
+        kind: "excluded" as const,
+        title: "IA desconsiderou este item",
+        body:
+          mapping?.exclusion_justification ??
+          "Excluído do inventário por premissa metodológica.",
+        bg: "#F3F4F6",
+        border: "#D1D5DB",
+        color: "#374151",
+      };
+    }
+    if (status === "auto") {
+      const tier = (mapping?.source_tier ?? "").toLowerCase();
+      const tierLabel =
+        tier === "epd" ? "EPD certificada" :
+        tier === "ghg_protocol" ? "GHG Protocol BR" :
+        tier === "cecarbon" ? "CECarbon" :
+        tier === "ecoinvent" ? "Ecoinvent" :
+        tier === "rule" ? "Regra da empresa" :
+        tier || "Fonte desconhecida";
+      const score = mapping?.similarity_score
+        ? Math.round(mapping.similarity_score * 100)
+        : null;
+      return {
+        kind: "auto" as const,
+        title: "IA mapeou automaticamente",
+        body: `Fator obtido de ${tierLabel}${score ? ` · score ${score}/100` : ""}${mapping?.notes ? ` · ${mapping.notes}` : ""}${mapping?.factor_source ? ` · ${mapping.factor_source}` : ""}.`,
+        bg: "#E6F3EE",
+        border: "#A9D7CD",
+        color: "#1d7a6b",
+      };
+    }
+    if (status === "manual") {
+      return {
+        kind: "manual" as const,
+        title: "IA sugeriu — revisar",
+        body: mapping?.mapped_by === "user_custom"
+          ? "Fator definido manualmente pelo analista."
+          : `Match de confiança ${item.confidence ?? "média"}. Revise antes de assumir como definitivo${mapping?.factor_source ? ` · Fonte: ${mapping.factor_source}` : ""}.`,
+        bg: "#DBEAFE",
+        border: "#93C5FD",
+        color: "#1e40af",
+      };
+    }
+    if (status === "blocked") {
+      return {
+        kind: "blocked" as const,
+        title: "Aguardando decomposição",
+        body: "Item agrupado — precisa ser quebrado em componentes antes do mapeamento.",
+        bg: "#EDE9FE",
+        border: "#C4B5FD",
+        color: "#5B21B6",
+      };
+    }
+    return {
+      kind: "pending" as const,
+      title: "IA não encontrou fator",
+      body: "Nenhuma fonte (EPD, GHG Protocol, CECarbon, Ecoinvent) trouxe candidato com fator > 0. Mapeie manualmente em \"Editar Fator de Emissão\" ou desconsidere com justificativa.",
+      bg: "#FEF3C7",
+      border: "#FCD34D",
+      color: "#92400e",
+    };
+  })();
 
   return (
     <>
@@ -169,6 +245,22 @@ function DetailView({ item, onEditEpd, onParametrize }: {
           } />
           <Row label="% do orçamento" value={`${item.costPct.toFixed(2)}%`} />
           <Row label="% acumulado" value={`${item.cumulativePct.toFixed(2)}%`} />
+        </Section>
+
+        <Section title="Decisão da IA">
+          <div
+            className="rounded-lg border px-3 py-2.5 flex items-start gap-2"
+            style={{
+              backgroundColor: aiDecision.bg,
+              borderColor: aiDecision.border,
+              color: aiDecision.color,
+            }}
+          >
+            <div className="text-xs leading-relaxed">
+              <p className="font-bold mb-0.5">{aiDecision.title}</p>
+              <p>{aiDecision.body}</p>
+            </div>
+          </div>
         </Section>
 
         <Section title="Fator de Emissão">
@@ -234,13 +326,24 @@ function DetailView({ item, onEditEpd, onParametrize }: {
         </Section>
       </div>
 
-      <div className="px-5 py-4 border-t border-[#E0E4E3] flex gap-2">
-        <Button variant="outline" size="sm" className="flex-1" onClick={onEditEpd}>
-          <Edit3 size={13} /> Editar Fator de Emissão
-        </Button>
-        <Button size="sm" className="flex-1" onClick={onParametrize}>
-          <ChevronRight size={13} /> Parametrizar item
-        </Button>
+      <div className="px-5 py-4 border-t border-[#E0E4E3] space-y-2">
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="flex-1" onClick={onEditEpd}>
+            <Edit3 size={13} /> Editar Fator de Emissão
+          </Button>
+          <Button size="sm" className="flex-1" onClick={onParametrize}>
+            <ChevronRight size={13} /> Parametrizar item
+          </Button>
+        </div>
+        {onExclude && item.mappingStatus !== "excluded" && (
+          <button
+            onClick={onExclude}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-[#E0E4E3] text-xs font-semibold text-[#6b7280] hover:border-[#9ca3af] hover:text-[#374151] hover:bg-[#F3F4F6] transition-all"
+          >
+            <Ban size={13} />
+            Desconsiderar este item do cálculo
+          </button>
+        )}
       </div>
     </>
   );
@@ -281,7 +384,19 @@ const TIER_COLOR: Record<string, string> = {
   rule: "bg-teal-100 text-teal-700",
 };
 
-function EditEpdView({ item, onBack, onSaved }: { item: AbcItem; onBack: () => void; onSaved?: () => void }) {
+function EditEpdView({
+  item,
+  onBack,
+  onSaved,
+  onFactorSaveRequest,
+  onClose,
+}: {
+  item: AbcItem;
+  onBack: () => void;
+  onSaved?: () => void;
+  onFactorSaveRequest?: (body: MappingConfirmRequest, factorLabel: string, onFinish: () => void) => void;
+  onClose?: () => void;
+}) {
   const [tab, setTab] = useState<EpdTab>("search");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -366,10 +481,10 @@ function EditEpdView({ item, onBack, onSaved }: { item: AbcItem; onBack: () => v
           epd_id: selected!.epd_id,
         };
       }
-      await confirmMapping(item.id, body);
 
-      // Save as rule for future imports
-      if (saveAsRule) {
+      // Save as rule for future imports (independent of the scenario flow)
+      const saveRule = async () => {
+        if (!saveAsRule) return;
         try {
           await createFactorRule({
             original_description: item.description,
@@ -384,8 +499,23 @@ function EditEpdView({ item, onBack, onSaved }: { item: AbcItem; onBack: () => v
         } catch {
           // Non-blocking — rule save failure shouldn't break the mapping
         }
+      };
+
+      if (onFactorSaveRequest) {
+        // Delegate to the page-level SaveModeDialog. The page handles
+        // confirmMapping with scenario_id + mode and decides what to refresh.
+        await saveRule();
+        onFactorSaveRequest(body, body.factor_name ?? "edição", () => {
+          onSaved?.();
+          onClose?.();
+        });
+        setSaving(false);
+        return;
       }
 
+      // Legacy path (no active scenario): plain confirmMapping
+      await confirmMapping(item.id, body);
+      await saveRule();
       onSaved?.();
       onBack();
     } catch (e) {
@@ -1118,8 +1248,29 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
 
 type DrawerView = "detail" | "edit-epd" | "parametrize";
 
-function ItemDrawer({ item, onClose, onSaved }: { item: AbcItem; onClose: () => void; onSaved?: () => void }) {
+function ItemDrawer({
+  item,
+  onClose,
+  onSaved,
+  onFactorSaveRequest,
+  onExcludeRequest,
+}: {
+  item: AbcItem;
+  onClose: () => void;
+  onSaved?: () => void;
+  /** When provided, EditEpdView delegates the save to the page-level
+   *  SaveModeDialog instead of calling confirmMapping itself. */
+  onFactorSaveRequest?: (body: MappingConfirmRequest, factorLabel: string, onFinish: () => void) => void;
+  /** When provided, the 'Desconsiderar' button opens the page-level
+   *  exclusion dialog. */
+  onExcludeRequest?: (item: AbcItem, onFinish: () => void) => void;
+}) {
   const [view, setView] = useState<DrawerView>("detail");
+  const [mapping, setMapping] = useState<MappingResponse | null>(null);
+
+  useEffect(() => {
+    getMapping(item.id).then(setMapping).catch(() => setMapping(null));
+  }, [item.id]);
 
   return (
     <>
@@ -1131,8 +1282,20 @@ function ItemDrawer({ item, onClose, onSaved }: { item: AbcItem; onClose: () => 
           back={view !== "detail" ? () => setView("detail") : undefined}
           backLabel="Voltar ao detalhe"
         />
-        {view === "detail"     && <DetailView item={item} onEditEpd={() => setView("edit-epd")} onParametrize={() => setView("parametrize")} />}
-        {view === "edit-epd"   && <EditEpdView item={item} onBack={() => setView("detail")} onSaved={onSaved} />}
+        {view === "detail"     && (
+          <DetailView
+            item={item}
+            mapping={mapping}
+            onEditEpd={() => setView("edit-epd")}
+            onParametrize={() => setView("parametrize")}
+            onExclude={
+              onExcludeRequest
+                ? () => onExcludeRequest(item, () => onClose())
+                : undefined
+            }
+          />
+        )}
+        {view === "edit-epd"   && <EditEpdView item={item} onBack={() => setView("detail")} onSaved={onSaved} onFactorSaveRequest={onFactorSaveRequest} onClose={onClose} />}
         {view === "parametrize"&& <ParametrizeView item={item} onBack={() => setView("detail")} onSaved={onSaved} />}
       </div>
     </>
@@ -1146,9 +1309,14 @@ export default function ItemsPage() {
   const searchParams = useSearchParams();
   const highlightItemId = searchParams.get("item");
   const curveIdParam = searchParams.get("curve_id");
+  const statusParam = searchParams.get("status");
+  const initialStatus =
+    statusParam === "auto" || statusParam === "suggested" || statusParam === "pending" || statusParam === "excluded"
+      ? statusParam
+      : "all";
   const [typeFilter, setTypeFilter] = useState<ItemType | "all">("all");
   const [classFilter, setClassFilter] = useState<AbcClass | "all">("all");
-  const [statusFilter, setStatusFilter] = useState<"all" | "auto" | "suggested" | "pending">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "auto" | "suggested" | "pending" | "excluded">(initialStatus);
   const [search, setSearch] = useState("");
   const [openItem, setOpenItem] = useState<AbcItem | null>(null);
   const [expandedComps, setExpandedComps] = useState<Set<string>>(new Set());
@@ -1157,31 +1325,37 @@ export default function ItemsPage() {
   const [items, setItems] = useState<AbcItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [projectName, setProjectName] = useState("");
-  const [scenarios, setScenarios] = useState<ScenarioResponse[]>([]);
+  const { scenarios, activeScenarioId, activeScenario, setActiveScenarioId, reload: reloadScenarios } =
+    useActiveScenario(projectId);
   const [selectedCurveId, setSelectedCurveId] = useState<string | null>(curveIdParam);
-  const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
+  const [pendingFactorSave, setPendingFactorSave] = useState<{
+    body: MappingConfirmRequest;
+    itemId: string;
+    factorLabel: string;
+    onFinish?: () => void;
+  } | null>(null);
+  const [saveModeBusy, setSaveModeBusy] = useState(false);
+  const [pendingExclude, setPendingExclude] = useState<{
+    item: AbcItem;
+    onFinish?: () => void;
+  } | null>(null);
+  const [excludeBusy, setExcludeBusy] = useState(false);
 
-  // Carregar cenários para o seletor
+  // Whenever the active scenario changes, resolve its abc_curve_id so the
+  // items list filters to the right curve (cenários can in theory point at
+  // different historical curves).
   useEffect(() => {
-    listScenarios(projectId).then((scens) => {
-      setScenarios(scens);
-      // Auto-select curve from first scenario if not set via query param
-      if (!selectedCurveId && scens.length > 0) {
-        // Fetch scenario detail to get abc_curve_id
-        const firstScen = scens.find((s) => s.is_base) ?? scens[0];
-        if (firstScen) {
-          setActiveScenarioId(firstScen.id);
-          const token = localStorage.getItem("znit_token");
-          fetch(`/api/scenarios/${firstScen.id}`, { headers: { Authorization: `Bearer ${token}` } })
-            .then((r) => r.json())
-            .then((data) => {
-              if (data.abc_curve_id) setSelectedCurveId(data.abc_curve_id);
-            })
-            .catch(() => {});
+    if (!activeScenarioId) return;
+    fetch(`/api/scenarios/${activeScenarioId}`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.abc_curve_id) {
+          setSelectedCurveId(data.abc_curve_id);
+          setExpandedComps(new Set());
         }
-      }
-    }).catch(() => {});
-  }, [projectId]);
+      })
+      .catch(() => {});
+  }, [activeScenarioId]);
 
   // Carregar itens da API
   const loadItems = useCallback(async () => {
@@ -1234,6 +1408,7 @@ export default function ItemsPage() {
     if (statusFilter === "auto" && item.mappingStatus !== "auto") return false;
     if (statusFilter === "suggested" && item.mappingStatus !== "manual") return false;
     if (statusFilter === "pending" && !["pending", "blocked"].includes(item.mappingStatus)) return false;
+    if (statusFilter === "excluded" && item.mappingStatus !== "excluded") return false;
     if (search && !item.description.toLowerCase().includes(search.toLowerCase()) && !item.costCode.includes(search))
       return false;
     return true;
@@ -1254,15 +1429,12 @@ export default function ItemsPage() {
           </Button>
           <Button variant="outline" onClick={async () => {
             try {
-              const token = localStorage.getItem("znit_token");
               const base = process.env.NEXT_PUBLIC_API_URL ?? "";
-              // Get project name for filename
-              const projResp = await fetch(`${base}/api/projects/${projectId}`, { headers: { Authorization: `Bearer ${token}` } });
+              const projResp = await fetch(`${base}/api/projects/${projectId}`, { credentials: "include" });
               const projData = await projResp.json();
               const projName = (projData.name || "Projeto").replace(/\s+/g, "_").replace(/\//g, "-");
               const date = new Date().toISOString().slice(0, 10);
-              // Download excel
-              const resp = await fetch(`${base}/api/projects/${projectId}/export-items`, { headers: { Authorization: `Bearer ${token}` } });
+              const resp = await fetch(`${base}/api/projects/${projectId}/export-items`, { credentials: "include" });
               const blob = await resp.blob();
               const a = document.createElement("a");
               a.href = URL.createObjectURL(blob);
@@ -1273,46 +1445,6 @@ export default function ItemsPage() {
           }}><Download size={15} /> Exportar Excel</Button>
         </div>
       </div>
-
-      {/* Scenario selector */}
-      {scenarios.length > 0 && (
-        <div className="bg-white rounded-lg border border-[#E0E4E3] p-3 mb-4 flex items-center gap-3">
-          <span className="text-xs font-semibold text-[#808181]">Cenário:</span>
-          <div className="flex gap-1.5 flex-wrap">
-            {scenarios.map((s) => {
-              const isActive = activeScenarioId === s.id;
-              return (
-                <button
-                  key={s.id}
-                  onClick={async () => {
-                    setActiveScenarioId(s.id);
-                    const token = localStorage.getItem("znit_token");
-                    try {
-                      const res = await fetch(`/api/scenarios/${s.id}`, { headers: { Authorization: `Bearer ${token}` } });
-                      const data = await res.json();
-                      if (data.abc_curve_id) {
-                        setSelectedCurveId(data.abc_curve_id);
-                        setExpandedComps(new Set());
-                      }
-                    } catch {}
-                  }}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border",
-                    isActive
-                      ? "border-[#56B7A5] bg-[#E6F3EE] text-[#1d7a6b]"
-                      : "border-[#E0E4E3] text-[#404040] hover:border-[#56B7A5] hover:bg-[#F8FAF9]"
-                  )}
-                >
-                  {s.name}
-                  <span className={cn("font-normal ml-1", isActive ? "text-[#56B7A5]" : "text-[#808181]")}>
-                    ({(s.result?.total_tco2e ?? 0).toFixed(0)} tCO₂e)
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {autoMapResult && (
         <div className="bg-[#E6F3EE] border border-[#56B7A5]/30 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
@@ -1368,6 +1500,7 @@ export default function ItemsPage() {
             { value: "all", label: "Todos", activeColor: "bg-[#030304]" },
             { value: "auto", label: "Mapeados", activeColor: "bg-[#56B7A5]" },
             { value: "suggested", label: "Sugeridos", activeColor: "bg-[#1e40af]" },
+            { value: "excluded", label: "Excluídos", activeColor: "bg-[#6b7280]" },
             { value: "pending", label: "Pendentes", activeColor: "bg-[#b45309]" },
           ] as const).map((s) => (
             <button key={s.value} onClick={() => setStatusFilter(s.value)}
@@ -1530,7 +1663,107 @@ export default function ItemsPage() {
         </div>
       </div>}
 
-      {openItem && <ItemDrawer item={openItem} onClose={() => setOpenItem(null)} onSaved={loadItems} />}
+      {openItem && (
+        <ItemDrawer
+          item={openItem}
+          onClose={() => setOpenItem(null)}
+          onSaved={loadItems}
+          onFactorSaveRequest={
+            activeScenarioId
+              ? (body, factorLabel, onFinish) =>
+                  setPendingFactorSave({ body, itemId: openItem.id, factorLabel, onFinish })
+              : undefined
+          }
+          onExcludeRequest={
+            activeScenarioId
+              ? (item, onFinish) => setPendingExclude({ item, onFinish })
+              : undefined
+          }
+        />
+      )}
+
+      <SaveModeDialog
+        key={pendingFactorSave?.itemId ?? "closed"}
+        open={!!pendingFactorSave}
+        saving={saveModeBusy}
+        activeScenarioName={activeScenario?.name ?? "cenário atual"}
+        changeLabel={pendingFactorSave?.factorLabel ?? "edição"}
+        onCancel={() => {
+          if (saveModeBusy) return;
+          pendingFactorSave?.onFinish?.();
+          setPendingFactorSave(null);
+        }}
+        onConfirm={async (choice: SaveModeChoice) => {
+          if (!pendingFactorSave || !activeScenarioId) return;
+          setSaveModeBusy(true);
+          try {
+            const body: MappingConfirmRequest = {
+              ...pendingFactorSave.body,
+              scenario_id: activeScenarioId,
+              mode: choice.mode,
+              ...(choice.mode === "fork" && choice.newScenarioName
+                ? { new_scenario_name: choice.newScenarioName }
+                : {}),
+            };
+            const res = await confirmMapping(pendingFactorSave.itemId, body);
+            if (res.new_scenario_id) {
+              await reloadScenarios();
+              setActiveScenarioId(res.new_scenario_id);
+            } else {
+              await reloadScenarios();
+            }
+            await loadItems();
+            pendingFactorSave.onFinish?.();
+            setPendingFactorSave(null);
+          } catch (e) {
+            alert("Erro ao salvar: " + (e instanceof Error ? e.message : "erro"));
+          } finally {
+            setSaveModeBusy(false);
+          }
+        }}
+      />
+
+      <ExcludeItemDialog
+        key={pendingExclude?.item.id ?? "closed-exclude"}
+        open={!!pendingExclude}
+        saving={excludeBusy}
+        itemDescription={pendingExclude?.item.description ?? ""}
+        activeScenarioName={activeScenario?.name ?? "cenário atual"}
+        onCancel={() => {
+          if (excludeBusy) return;
+          pendingExclude?.onFinish?.();
+          setPendingExclude(null);
+        }}
+        onConfirm={async (choice: ExcludeChoice) => {
+          if (!pendingExclude || !activeScenarioId) return;
+          setExcludeBusy(true);
+          try {
+            const body: MappingConfirmRequest = {
+              source_tier: "excluded",
+              exclusion_justification: choice.justification,
+              scenario_id: activeScenarioId,
+              mode: choice.mode,
+              ...(choice.mode === "fork" && choice.newScenarioName
+                ? { new_scenario_name: choice.newScenarioName }
+                : {}),
+            };
+            const res = await confirmMapping(pendingExclude.item.id, body);
+            if (res.new_scenario_id) {
+              await reloadScenarios();
+              setActiveScenarioId(res.new_scenario_id);
+            } else {
+              await reloadScenarios();
+            }
+            await loadItems();
+            pendingExclude.onFinish?.();
+            setPendingExclude(null);
+          } catch (e) {
+            alert("Erro ao excluir: " + (e instanceof Error ? e.message : "erro"));
+          } finally {
+            setExcludeBusy(false);
+          }
+        }}
+      />
     </div>
   );
 }

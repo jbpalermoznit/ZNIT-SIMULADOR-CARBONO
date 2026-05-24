@@ -108,6 +108,13 @@ export interface MappingConfirmRequest {
   distance_km?: number;
   transport_modal?: string;
   notes?: string;
+  // Scenario-aware save (optional). When provided, the server also propagates
+  // the change to scenario_items and recalculates the scenario. With
+  // mode="fork", the response includes `new_scenario_id`.
+  scenario_id?: string;
+  mode?: "update" | "fork";
+  new_scenario_name?: string;
+  new_scenario_description?: string;
 }
 
 export interface MappingResponse {
@@ -122,6 +129,11 @@ export interface MappingResponse {
   similarity_score?: number;
   mapped_by: string;
   notes?: string;
+  /** Justification text written by the auto-exclusion pass (B/D/E/F). */
+  exclusion_justification?: string | null;
+  /** Set when the server forked a new scenario (mode=fork). */
+  new_scenario_id?: string | null;
+  scenario_apply_error?: string | null;
 }
 
 export interface AutoMapResult {
