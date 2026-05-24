@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["gru1"],
+  "functions": {
+    "app/api/projects/[projectId]/upload-abc/route.ts": { "maxDuration": 300 },
+    "app/api/projects/[projectId]/upload-scenario/route.ts": { "maxDuration": 300 },
+    "app/api/emission-factors/auto-map/[projectId]/route.ts": { "maxDuration": 300 },
+    "app/api/scenarios/[scenarioId]/calculate/route.ts": { "maxDuration": 120 },
+    "app/api/emission-factors/mapping/[itemId]/route.ts": { "maxDuration": 60 }
+  }
+}
