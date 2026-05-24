@@ -38,7 +38,7 @@ O Supabase já tem as tabelas de fatores de emissão (schema `backend`). Agora p
 ### 2.1 Importar repositório
 
 1. Acesse [vercel.com/new](https://vercel.com/new)
-2. Importe o repositório **jbpalermoznit/znit-esg**
+2. Importe o repositório **jbpalermoznit/ZNIT-SIMULADOR-CARBONO**
 3. Framework: **Next.js** (detectado automaticamente)
 4. Root directory: `.` (raiz)
 
@@ -64,8 +64,8 @@ Na tela de deploy (ou Settings → Environment Variables), adicione:
 
 ### 2.4 Verificar
 
-- Acesse `https://znit-esg.vercel.app/api/health` — deve retornar `{"status":"ok","version":"1.0.0"}`
-- Acesse `https://znit-esg.vercel.app/login` — tela de login
+- Acesse `https://znit-simulador-carbono.vercel.app/api/health` — deve retornar `{"status":"ok","version":"1.0.0"}`
+- Acesse `https://znit-simulador-carbono.vercel.app/login` — tela de login
 - Login: `joao@znit.io` / `demo1234`
 
 ---
@@ -73,7 +73,7 @@ Na tela de deploy (ou Settings → Environment Variables), adicione:
 ## 3. Render — Desativar
 
 1. Acesse o dashboard do Render
-2. Pause ou delete o serviço `znit-esg` (não é mais necessário)
+2. Pause ou delete o serviço antigo (não é mais necessário)
 3. O Render vai continuar tentando build com Dockerfile que não existe mais
 
 ---

@@ -94,7 +94,7 @@ and won't work in production.
 ### One-time setup
 
 1. Sign in at https://vercel.com with the GitHub account that owns
-   [`jbpalermoznit/znit-esg`](https://github.com/jbpalermoznit/znit-esg).
+   [`jbpalermoznit/ZNIT-SIMULADOR-CARBONO`](https://github.com/jbpalermoznit/ZNIT-SIMULADOR-CARBONO).
 2. **Add New… → Project** → import the repo. Vercel auto-detects Next.js
    16, no overrides needed.
 3. Before the first deploy, add every **Environment Variable** below.
