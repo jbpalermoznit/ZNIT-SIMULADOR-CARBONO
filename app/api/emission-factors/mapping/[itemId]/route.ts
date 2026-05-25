@@ -15,6 +15,9 @@ import {
 import { applyFactorToScenarioItem } from "@/lib/server/calculator";
 import { assertScenarioOwnership, ForbiddenError, forbidden } from "@/lib/server/access";
 
+// PUT can fork a scenario + recalc, which adds latency on big scenarios.
+export const maxDuration = 60;
+
 // ---------------------------------------------------------------------------
 // GET — current mapping for an item
 // ---------------------------------------------------------------------------

@@ -48,8 +48,8 @@ docs/specs/
 Pré-requisitos: Node.js 20+ e acesso ao projeto Supabase.
 
 ```bash
-git clone https://github.com/jbpalermoznit/znit-esg.git
-cd znit-esg
+git clone https://github.com/jbpalermoznit/ZNIT-SIMULADOR-CARBONO.git
+cd ZNIT-SIMULADOR-CARBONO
 cp .env.local.example .env.local
 # preencher SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET (temporário até Clerk), e as keys do Clerk
 npm install

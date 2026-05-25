@@ -7,6 +7,10 @@ import { parseProofFile, type ProofAssembly } from "@/lib/server/parser-proof";
 import { runAutoMapForCurve, runEnrichedAutoMapForCurve } from "@/lib/server/auto-map";
 import { createBaseScenario } from "@/lib/server/calculator";
 
+// Real ABC uploads chain parse + auto-map + base scenario calc — can run
+// past Vercel's 10 s default. Cap at 5 minutes (max for Pro plan).
+export const maxDuration = 300;
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },

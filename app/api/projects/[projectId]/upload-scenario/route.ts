@@ -15,6 +15,8 @@ import { parseInsumoFile } from "@/lib/server/parser-insumos";
 import { autoMatchItem } from "@/lib/server/emission-mapper";
 import { createBaseScenario } from "@/lib/server/calculator";
 
+export const maxDuration = 300;
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> }
