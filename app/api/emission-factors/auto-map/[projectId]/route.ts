@@ -8,6 +8,8 @@ import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import { supabase } from "@/lib/server/supabase";
 import { runAutoMapForCurve } from "@/lib/server/auto-map";
 
+export const maxDuration = 300;
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> }

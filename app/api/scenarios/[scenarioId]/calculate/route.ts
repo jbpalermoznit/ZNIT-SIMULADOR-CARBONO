@@ -4,6 +4,8 @@ import { recalculateScenario } from "@/lib/server/calculator";
 import type { AuthUser } from "@/lib/server/auth";
 import { assertScenarioOwnership, ForbiddenError, forbidden } from "@/lib/server/access";
 
+export const maxDuration = 120;
+
 // ---------------------------------------------------------------------------
 // POST /api/scenarios/[scenarioId]/calculate — recalculate scenario
 // ---------------------------------------------------------------------------
