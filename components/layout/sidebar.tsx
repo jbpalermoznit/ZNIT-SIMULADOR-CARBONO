@@ -90,18 +90,14 @@ export function Sidebar() {
 
   return (
     <aside className="w-56 bg-white border-r border-[#E0E4E3] flex flex-col h-screen sticky top-0 shrink-0">
-      {/* Logo — crop do espaço em branco ao redor do logotipo */}
+      {/* Logo */}
       <div className="px-5 py-4 border-b border-[#E0E4E3]">
-        <div
-          style={{
-            width: 110,
-            height: 30,
-            backgroundImage: "url(/ZNIT_Logo.png)",
-            backgroundSize: "150px 150px",
-            backgroundPosition: "-20px -60px",
-            backgroundRepeat: "no-repeat",
-          }}
-          aria-label="ZNIT"
+        <img
+          src="/ZNIT_Logo.png"
+          alt="ZNIT"
+          width={110}
+          height={33}
+          className="block h-[33px] w-auto"
         />
       </div>
 
