@@ -90,6 +90,7 @@ function toAbcItem(r: AbcItemResponse): AbcItem {
     confidence: (r.confidence as "high" | "medium" | "low") ?? undefined,
     parentItemId: r.parent_item_id ?? null,
     classificationNote: r.classification_note ?? null,
+    autoExcluded: r.auto_excluded,
   };
 }
 
@@ -1520,10 +1521,12 @@ export default function ItemsPage() {
       </div>
 
       {statusFilter === "excluded" && (() => {
-        // Count auto-excluded subcontract items that should be re-evaluated:
-        // Tipo C lines that the legacy "45xx → F" rule silently dumped here.
+        // Items that the auto-classifier put here (not the user's manual
+        // Desconsiderar). These are the ones we can try to re-map using the
+        // assemblies from the Relatório Proof + canonical descriptions from
+        // the Cost Code catalog.
         const candidates = items.filter(
-          (i) => i.mappingStatus === "excluded" && i.itemType === "C"
+          (i) => i.mappingStatus === "excluded" && i.autoExcluded
         ).length;
         if (candidates === 0 && !reclassifyResult) return null;
         return (
@@ -1533,16 +1536,16 @@ export default function ItemsPage() {
               {reclassifyResult ? (
                 <>
                   <span className="font-semibold">Revisão concluída.</span>{" "}
-                  {reclassifyResult.reverted} subcontratos revisitados →{" "}
+                  {reclassifyResult.reverted} itens revisitados →{" "}
                   <span className="text-[#1d7a6b] font-semibold">{reclassifyResult.auto_mapped} mapeados</span>,{" "}
                   <span className="text-[#1e40af] font-semibold">{reclassifyResult.suggested} sugeridos para revisão</span>,{" "}
                   {reclassifyResult.still_blocked} ainda bloqueados (sem match — mapear manualmente).
                 </>
               ) : (
                 <>
-                  <span className="font-semibold">{candidates} subcontratos</span> aqui podem ter o material embutido.
-                  Tente re-mapear automaticamente usando assemblies do Relatório Proof + descrições canônicas do Cost Code.
-                  Itens já editados manualmente não são afetados.
+                  <span className="font-semibold">{candidates} itens</span> foram excluídos pela classificação automática e podem ter material embutido.
+                  Tente re-mapear usando assemblies do Relatório Proof e descrições canônicas do Cost Code.
+                  Exclusões feitas manualmente por você não são afetadas.
                 </>
               )}
             </div>
@@ -1558,7 +1561,7 @@ export default function ItemsPage() {
                     await loadItems();
                   } catch (e) {
                     console.error(e);
-                    alert("Erro ao revisitar subcontratos: " + (e instanceof Error ? e.message : "desconhecido"));
+                    alert("Erro ao revisitar exclusões: " + (e instanceof Error ? e.message : "desconhecido"));
                   } finally {
                     setReclassifying(false);
                   }
@@ -1570,7 +1573,7 @@ export default function ItemsPage() {
                   </>
                 ) : (
                   <>
-                    <Zap size={13} /> Revisar agrupados
+                    <Zap size={13} /> Revisar exclusões automáticas
                   </>
                 )}
               </Button>

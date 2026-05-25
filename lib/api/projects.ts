@@ -65,6 +65,10 @@ export interface AbcItemResponse {
   factor_unit: string | null;
   source_tier: string | null;
   confidence: string | null;
+  /** True when the exclusion was made automatically by the classifier
+   *  (mapped_by='auto_excluded' OR legacy auto-justification text).
+   *  Distinguishes from the user's manual "Desconsiderar" action. */
+  auto_excluded: boolean;
 }
 
 export function listProjects() {

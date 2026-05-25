@@ -238,7 +238,10 @@ export async function runEnrichedAutoMapForCurve(
           factor_value: 0,
           factor_unit: "kg CO2-Eq",
           factor_name: "Excluído",
-          mapped_by: "excluded",
+          // `auto_excluded` distinguishes algorithmic exclusions from the
+          // user's manual "Desconsiderar" action (which writes 'excluded').
+          // The reclassify-blocked backfill only reverts auto_excluded rows.
+          mapped_by: "auto_excluded",
           exclusion_justification: autoExclusionReason(excludeType),
         });
         update.mapping_status = "excluded";
@@ -259,7 +262,7 @@ export async function runEnrichedAutoMapForCurve(
           factor_value: 0,
           factor_unit: "kg CO2-Eq",
           factor_name: "Excluído",
-          mapped_by: "excluded",
+          mapped_by: "auto_excluded",
           exclusion_justification: laborOnlyExclusionReason(),
         });
         update.mapping_status = "excluded";
