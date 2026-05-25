@@ -1,0 +1,112 @@
+---
+title: "Cenários"
+description: "Criar, comparar e excluir cenários para análise comparativa de emissões."
+---
+
+Um **cenário** é uma fotografia das emissões do projeto sob um conjunto específico de fatores. Você usa cenários para:
+
+- Comparar **antes vs depois** de uma proposta de value engineering
+- Avaliar **alternativas de materiais** (concreto convencional vs reciclado, aço Gerdau vs ArcelorMittal, etc.)
+- Estimar o impacto de uma **nova versão da Curva ABC** sem perder a versão original
+
+## O cenário Base
+
+Todo projeto começa com um único cenário, o **Base**, criado automaticamente no momento da importação da Curva ABC. Ele representa o orçamento como foi importado, com os fatores que a IA selecionou.
+
+<Note>
+Você pode **renomear** o Base, mas não pode apagá-lo enquanto for o único do projeto. Apagar o último cenário deletaria todo o trabalho de cálculo.
+</Note>
+
+## Cenário ativo
+
+No topo da sidebar há um **chip de Cenário Ativo** mostrando o nome do cenário atualmente selecionado. Esse é o cenário cujos dados aparecem nos KPIs, nos gráficos e nos itens da tabela.
+
+Trocar de ativo:
+
+1. Clique no chip
+2. Selecione outro cenário na lista
+3. A página recarrega refletindo o novo
+
+## Três formas de criar cenários
+
+### A. Bifurcação ao editar fator
+
+A forma mais natural: quando você edita um fator de qualquer item (ver [Editar Fator](/fluxo/editar-fator)), o modal pergunta:
+
+- **Criar novo cenário com essa mudança** → cria um cenário derivado e troca o ativo automaticamente
+- **Atualizar cenário atual** → modifica o cenário ativo no lugar
+
+Use essa rota quando estiver explorando alternativas pontuais (1 ou 2 itens).
+
+### B. Upload de nova Curva ABC
+
+Para casos em que o orçamento mudou substancialmente (nova versão do iTwo, mudança de escopo do contrato):
+
+<Steps>
+  <Step title="Vá em Cenários">
+    Sidebar → **Cenários**.
+  </Step>
+  <Step title="Clique em 'Novo cenário a partir de arquivo'">
+    Card com ícone de upload no grid de cenários.
+  </Step>
+  <Step title="Escolha a aba">
+    - **ABC simples** — apenas um novo arquivo da Curva ABC
+    - **Cenário Completo** — Items + Insumos (decomposição via SECAGEM)
+  </Step>
+  <Step title="Suba os arquivos e nomeie">
+    Use um nome descritivo (ex: `R8 v2 — Concreto Reciclado nas Estacas`). Os arquivos opcionais Cost Code + Relatório Proof também podem ser anexados aqui.
+  </Step>
+  <Step title="Criar e calcular">
+    O sistema processa em poucos minutos. Ao terminar, o novo cenário vira ativo e você é redirecionado para Itens.
+  </Step>
+</Steps>
+
+<Tip>
+Use essa rota quando o orçamento todo mudou, não só itens isolados.
+</Tip>
+
+### C. Botão "Importar novo cenário" na Visão Geral
+
+Atalho rápido pra mesma funcionalidade do item B. Disponível no header da Visão Geral quando já existe um cenário Base.
+
+## Comparar cenários
+
+Na tela **Cenários**, cada cenário aparece como um card mostrando:
+
+- **Nome + tag BASE** (quando aplicável)
+- **Total tCO₂e**
+- **Intensidade kgCO₂e/m²**
+- **% Cobertura** (mapeados / elegíveis)
+- **Delta vs Base** — variação percentual (positiva = redução de emissão)
+
+Os cards são ordenados do **maior para o menor total**, mostrando o impacto relativo de cada alternativa.
+
+<Tip>
+Para uma comparação detalhada item-a-item, vá em **Cenários → aba Comparar**. Mostra os itens lado a lado nos dois cenários selecionados, com a diferença destacada.
+</Tip>
+
+## Definir cenário como Base
+
+Em alguns casos você quer que um cenário derivado vire o novo Base (referência) — por exemplo, quando uma proposta de value engineering é aprovada pelo cliente.
+
+1. Em **Cenários**, encontre o card desejado
+2. Clique no link **Definir como Base**
+3. O cenário anterior perde a tag BASE mas continua existindo
+
+## Excluir um cenário
+
+Cada card de cenário tem um ícone de **lixeira** no canto superior direito. Clique → confirme → cenário e todos os items+resultados associados são removidos.
+
+<Warning>
+Exclusão é permanente e não pode ser desfeita. Faça download dos relatórios antes se precisar guardar a evidência.
+</Warning>
+
+## Limites e boas práticas
+
+- **Sem limite de cenários por projeto.** Mas mantenha enxuto: 3-5 cenários bem nomeados são mais úteis que 20 cenários experimentais.
+- **Nomeie de forma descritiva.** `Base` é claro. `Cenário 3` não é. Prefira `Base + EPD Votorantim Concreto`, `R8 v2 com aço plantado`, `Otimização logística — fornecedor SP`.
+- **Documente a hipótese.** Use o campo Descrição do cenário para registrar **o que mudou e por quê**. Vai pro memorando final.
+
+## Próximo passo
+
+Veja o resultado consolidado em [Visão Geral](/analise/visao-geral).

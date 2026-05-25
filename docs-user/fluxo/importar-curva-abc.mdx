@@ -1,0 +1,120 @@
+---
+title: "Importar Curva ABC"
+description: "Suba o arquivo de orçamento do iTwo (XLSX/XLSM) — o sistema processa, mapeia fatores e calcula o cenário base automaticamente."
+---
+
+A importação é o ponto de entrada do simulador. Ao receber a Curva ABC, o sistema:
+
+1. **Parseia** os itens (código, descrição, quantidade, unidade, custo)
+2. **Classifica** cada item em uma família (Material, Mão-de-obra, Equipamento, etc.)
+3. **Mapeia** automaticamente os materiais a fatores de emissão
+4. **Cria** um Cenário Base com as emissões calculadas
+5. **Redireciona** você para a tela de Itens
+
+Tudo isso em alguns segundos a poucos minutos, dependendo do tamanho do orçamento.
+
+## Antes de começar
+
+Você precisa de pelo menos **um arquivo obrigatório**:
+
+- **Curva ABC** (`.xlsx` ou `.xlsm`) — exportada do iTwo. Deve conter as colunas: `CostCode`, `Descrição`, `Quantidade`, `Unidade`, `Custo Total`.
+
+Opcionalmente, dois arquivos **complementares** que aumentam significativamente a cobertura do mapeamento:
+
+- **Cost Code (catálogo iTwo)** — dicionário oficial dos códigos da sua empresa
+- **Relatório Proof** — decomposição de cada cost code em composições (RN → Assembly)
+
+<Tip>
+Sem os arquivos complementares, a cobertura típica é 50–70%. **Com os três arquivos**, sobe para 80–95% em projetos de construção civil.
+</Tip>
+
+## Passo a passo
+
+<Steps>
+  <Step title="Crie um projeto">
+    No Painel, clique em **Novo projeto**. Preencha:
+    - **Nome do projeto** (ex: `Raízen VRO R8`)
+    - **Cliente** (ex: `Raízen`)
+    - **Endereço** (opcional)
+    - **Área total** em m² (importante para o KPI de intensidade kgCO₂e/m²)
+    - **Tipo de obra** (Industrial, Residencial, Comercial, etc.)
+
+    Clique em **Criar**. Você cai na **Visão Geral** do projeto vazia.
+  </Step>
+
+  <Step title="Acesse Importar">
+    Na sidebar, clique em **Importar**.
+  </Step>
+
+  <Step title="Selecione o modo">
+    Escolha o modo na barra superior:
+    - **Cenário Completo** — para Itens + Insumos (decomposição via composições SECAGEM)
+    - **Curva ABC** — para um único arquivo da Curva ABC (mais comum)
+    - **Conexões API** — em breve (iTwo, AltoQI, Sienge, OrçaFascio, Vigha)
+  </Step>
+
+  <Step title="Suba o arquivo principal">
+    Arraste o `.xlsx`/`.xlsm` para a área de upload ou clique em **Selecionar arquivo**.
+  </Step>
+
+  <Step title="Adicione arquivos opcionais (recomendado)">
+    Após o upload do principal, clique em **+ Adicionar arquivos opcionais para aumentar cobertura** e suba:
+    - Catálogo Cost Code do iTwo
+    - Relatório Proof (decomposição de cost codes)
+
+    Esses arquivos **não substituem** a Curva ABC — eles enriquecem as descrições e ajudam a IA a mapear melhor.
+  </Step>
+
+  <Step title="Processar">
+    Clique em **Processar arquivo**. O processamento leva entre 30 segundos e 5 minutos dependendo do tamanho.
+
+    Você verá uma barra de progresso. Quando concluir, é **redirecionado automaticamente para Itens**.
+  </Step>
+</Steps>
+
+## O que acontece nos bastidores
+
+Durante o processamento, o sistema:
+
+| Etapa | O que faz |
+|---|---|
+| **Parse** | Extrai os itens da planilha, normaliza unidades (m², kg, h…), classifica em Pareto P1/P2/P3 por custo acumulado |
+| **Classificação** | Identifica o tipo de cada item (A: Material, B: Mão de obra, C: Item agrupado, D: Material embutido, E: Equipamento, F: Administrativo) |
+| **Auto-exclusão** | Marca como **excluídos** itens que não geram emissão direta de Scope 3 materiais (mão-de-obra, equipamento, subcontratos) — com justificativa registrada |
+| **Auto-mapeamento** | Busca fator de emissão para cada item Tipo A em: Factor Rules → GHG Protocol → CECarbon → EPD (com GWP) → Ecoinvent |
+| **Cenário Base** | Cria automaticamente o cenário inicial calculado a partir desses fatores |
+
+<Note>
+A regra de hierarquia (EPD → GHG → Ecoinvent) reflete o padrão de inventário de carbono em construção: priorizamos fatores certificados e brasileiros sempre que disponíveis.
+</Note>
+
+## Erros comuns na importação
+
+<AccordionGroup>
+  <Accordion title="'Cabeçalho não detectado'">
+    O parser procura colunas com nomes parecidos com `CostCode`, `Descrição`, `Quantidade`, `Unidade`, `Custo Total`. Se seu arquivo usa outros nomes:
+
+    - Renomeie a primeira linha de cabeçalho para combinar com o padrão iTwo
+    - Ou exporte novamente do iTwo (que já vem com os nomes corretos)
+  </Accordion>
+
+  <Accordion title="'Formato inválido. Use .xlsx ou .xlsm'">
+    O sistema aceita apenas planilhas Excel modernas. Converta arquivos `.xls` (formato 97/2003) para `.xlsx` antes de subir.
+  </Accordion>
+
+  <Accordion title="Itens importados mas todos pendentes">
+    Significa que o auto-mapeamento não conseguiu casar nenhum item com fatores. Verifique:
+
+    - O arquivo realmente é uma Curva ABC válida?
+    - As descrições estão em português e fazem sentido (não estão truncadas)?
+    - Você pode subir o Cost Code + Relatório Proof e reprocessar para melhorar a cobertura.
+  </Accordion>
+
+  <Accordion title="Processamento muito lento (> 5 min)">
+    Projetos com mais de 500 itens podem demorar. Se passar de 10 minutos, é provável que tenha dado timeout. Tente importar novamente. Se persistir, abra suporte.
+  </Accordion>
+</AccordionGroup>
+
+## Próximo passo
+
+Após a importação, você cai automaticamente na tela **Itens**. Veja [Entendendo Itens](/fluxo/entendendo-itens) para interpretar os resultados.

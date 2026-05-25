@@ -1,0 +1,127 @@
+---
+title: "Glossário"
+description: "Termos técnicos de inventário de carbono usados na ferramenta."
+---
+
+Definições compactas dos termos que aparecem ao longo do simulador e dos relatórios. Ordenados alfabeticamente.
+
+## A
+
+**ABC (Curva ABC)**
+Planilha do iTwo que lista todos os itens do orçamento ordenados por custo decrescente, com classificação de Pareto (P1 ≥ 80%, P2, P3) para priorização. É o arquivo principal que alimenta o simulador.
+
+**Auditoria da IA**
+Painel da Visão Geral que mostra o que o auto-mapeamento decidiu para cada item do orçamento — quantos foram mapeados automaticamente, quantos sugeridos para revisão, quantos desconsiderados e quantos ainda pendentes.
+
+## C
+
+**CECarbon**
+Base de fatores de emissão brasileiros mantida pelo Centro de Estudos em Construção e Carbono (CBCS). Cobre materiais de construção típicos: concreto, aço, cimento, argamassas, blocos cerâmicos, madeira, alumínio, vidro, etc. Tier 2 da hierarquia (depois de EPDs).
+
+**Cenário Base**
+Cenário inicial criado automaticamente no momento da importação. Funciona como referência (baseline) para comparar com cenários alternativos.
+
+**Cobertura do escopo**
+Percentual de itens **elegíveis** com fator aplicado. Itens desconsiderados (mão-de-obra, equipamento, subcontratos) saem da base de cálculo — não puxam a cobertura para baixo. Fórmula: `mapeados / (total − desconsiderados)`.
+
+**Cost code**
+Identificador único de cada item no orçamento iTwo (ex: `420301-ca50B`). O prefixo numérico indica a família do item: 40xx mão-de-obra, 42xx materiais, 45xx subcontratos, etc.
+
+## E
+
+**Ecoinvent**
+Base de fatores LCA (Life Cycle Assessment) processo-a-processo, de referência global. Origem europeia — usar com atenção aos limites de sistema. Tier 4 da hierarquia (fallback final).
+
+**EPD (Environmental Product Declaration)**
+Declaração ambiental de produto certificada por terceiros, segundo a norma EN 15804. É o fator de emissão mais confiável e específico — quando disponível, prevalece sobre fatores médios setoriais. Tier 1 da hierarquia.
+
+**Escopo (Scope)**
+Categorias do GHG Protocol para classificar emissões:
+- **Scope 1** — emissões diretas (combustão estacionária e móvel sob controle da empresa)
+- **Scope 2** — emissões indiretas de energia comprada (eletricidade, vapor)
+- **Scope 3** — emissões indiretas em outros pontos da cadeia de valor (materiais comprados, transporte, viagens, etc.)
+
+Na construção civil, Scope 3 — Materiais é tipicamente >90% do inventário.
+
+## F
+
+**Factor Rules**
+Regras curadas pela sua empresa que mapeiam padrões de descrição (ex: "concreto fck 30") a fatores específicos. Tier 0 da hierarquia (prioridade máxima). Aprende e reaproveita em projetos futuros.
+
+**Fator de emissão**
+Valor em kgCO₂e por unidade de material (kg, m³, m², un, etc.) que, multiplicado pela quantidade, dá a emissão total daquele item.
+
+## G
+
+**GHG Protocol BR**
+Adaptação brasileira do Greenhouse Gas Protocol mantida pelo CEBDS. Inclui fatores setoriais para combustíveis fósseis, transporte e algumas matérias-primas. Tier 2 da hierarquia.
+
+**GWP (Global Warming Potential)**
+Potencial de aquecimento global de um gás em relação ao CO₂, medido em uma janela de tempo (geralmente 100 anos). Usado para converter diferentes gases (metano, óxido nitroso, etc.) para uma unidade comum: **CO₂ equivalente**.
+
+## I
+
+**Intensidade**
+Emissão por unidade funcional. Para construção, geralmente **kgCO₂e / m²** de área construída. Permite comparar projetos de tamanhos diferentes. Benchmarks típicos:
+- Residencial: 300–500 kgCO₂e/m²
+- Comercial: 350–600 kgCO₂e/m²
+- Industrial leve: 400–700 kgCO₂e/m²
+- Industrial pesada (refinaria, etanol 2G): 500–1000+ kgCO₂e/m²
+
+**Insumos**
+Planilha SECAGEM do iTwo que decompõe cada composição (serviço/assembly) em seus materiais componentes (ex: alvenaria = bloco + argamassa + chapisco). Usada na importação do tipo Cenário Completo.
+
+## P
+
+**Pareto (P1, P2, P3)**
+Classificação dos itens por % de custo acumulado:
+- **P1** — primeiros itens que somam até 80% do orçamento (top emissores)
+- **P2** — 80–95%
+- **P3** — 95–100%
+
+A regra empírica: trabalhar bem o P1 já cobre a maior parte das emissões.
+
+## Q
+
+**Quantidade (Qtd)**
+Volume, massa, área, comprimento ou contagem do item no orçamento. Multiplicado pelo fator de emissão (com conversão de unidade quando aplicável) resulta na emissão do item.
+
+## R
+
+**Relatório Proof**
+Planilha de auditoria do iTwo que expande cada cost code nos serviços (RN — itens da EAP) e composições (Assembly) onde ele é consumido. Usado para enriquecer o auto-mapeamento — descrições de Assembly geralmente são mais específicas que a descrição do cost code original.
+
+## S
+
+**Similarity score**
+Pontuação de 0 a 100 que mede quanto a descrição do item da Curva ABC se parece com a descrição do fator de emissão escolhido pela IA. Valores: ≥80 alta confiança, 60-79 média, <60 baixa.
+
+**System boundary (Limite de sistema)**
+Definição de quais etapas do ciclo de vida do produto entram no fator de emissão:
+- **A1-A3** — produção: extração + transporte + manufatura (cradle-to-gate)
+- **A1-A5** — produção + transporte à obra + instalação (cradle-to-site)
+- **A-C** — ciclo de vida completo (cradle-to-grave)
+
+A maioria dos EPDs publicados é A1-A3.
+
+## T
+
+**tCO₂e (tonelada de CO₂ equivalente)**
+Unidade padrão para reportar emissões de gases de efeito estufa. 1 tCO₂e = 1000 kgCO₂e = quantidade de qualquer gás de efeito estufa que tem o mesmo efeito climático que 1 tonelada de CO₂ em 100 anos.
+
+**Tier**
+Nível na hierarquia de fontes de fator de emissão. Quanto menor o número, maior a prioridade:
+- Tier 0: Factor Rules (curadas pela empresa)
+- Tier 1: EPD certificada
+- Tier 2: GHG Protocol BR
+- Tier 3: CECarbon
+- Tier 4: Ecoinvent (fallback global)
+
+## V
+
+**Value engineering sustentável**
+Processo de propor alternativas de materiais ou métodos construtivos que reduzem o impacto de carbono mantendo (ou melhorando) custo, desempenho e prazo. Casos típicos: substituição de cimento Portland por CP III com escória; uso de concreto reciclado em peças não-estruturais; estrutura metálica vs concreto armado.
+
+---
+
+Não achou o termo? Sugestões em [contato@znit.ai](mailto:contato@znit.ai).
