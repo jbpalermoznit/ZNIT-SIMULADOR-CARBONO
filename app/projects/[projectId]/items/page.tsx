@@ -1323,10 +1323,6 @@ export default function ItemsPage() {
   const [expandedComps, setExpandedComps] = useState<Set<string>>(new Set());
   const [autoMapping, setAutoMapping] = useState(false);
   const [autoMapResult, setAutoMapResult] = useState<{ auto_mapped: number; suggested: number; pending: number; already_mapped: number } | null>(null);
-  const [reclassifying, setReclassifying] = useState(false);
-  const [reclassifyResult, setReclassifyResult] = useState<{
-    reverted: number; auto_mapped: number; suggested: number; still_blocked: number;
-  } | null>(null);
   const [items, setItems] = useState<AbcItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [projectName, setProjectName] = useState("");
@@ -1362,7 +1358,10 @@ export default function ItemsPage() {
       .catch(() => {});
   }, [activeScenarioId]);
 
-  // Carregar itens da API
+  // Carregar itens da API. Se o projeto ainda tem linhas vindas do
+  // classificador antigo (legacy_auto_excluded), dispara reclassify em
+  // background uma única vez por carregamento e refaz a busca. Roda
+  // silencioso — o usuário só vê os números corretos no fim.
   const loadItems = useCallback(async () => {
     try {
       const [data, proj] = await Promise.all([
@@ -1370,9 +1369,31 @@ export default function ItemsPage() {
         getProject(projectId),
       ]);
       setProjectName(proj.name);
+
+      const hasLegacyAutoExcluded = data.some((r) => r.legacy_auto_excluded);
+      if (hasLegacyAutoExcluded) {
+        try {
+          await reclassifyBlocked(projectId);
+          const refreshed = await listAbcItems(
+            projectId,
+            selectedCurveId ? { curve_id: selectedCurveId } : undefined,
+          );
+          const refreshedItems = refreshed.map(toAbcItem);
+          setItems(refreshedItems);
+          setOpenItem((prev) => {
+            if (!prev) return null;
+            return refreshedItems.find((i) => i.id === prev.id) ?? prev;
+          });
+          setLoading(false);
+          return;
+        } catch (e) {
+          console.warn("[items] reclassify auto-trigger failed", e);
+          // fall through and just render the unrescued data
+        }
+      }
+
       const newItems = data.map(toAbcItem);
       setItems(newItems);
-      // Atualizar o item aberto no drawer (se houver)
       setOpenItem((prev) => {
         if (!prev) return null;
         return newItems.find((i) => i.id === prev.id) ?? prev;
@@ -1381,7 +1402,7 @@ export default function ItemsPage() {
       console.error("Erro ao carregar itens");
     }
     setLoading(false);
-  }, [selectedCurveId]);
+  }, [selectedCurveId, projectId]);
 
   useEffect(() => { loadItems(); }, [loadItems]);
 
@@ -1519,68 +1540,6 @@ export default function ItemsPage() {
         </div>
         <span className="text-xs text-[#808181] ml-auto">{filtered.length} itens · duplo clique para detalhes</span>
       </div>
-
-      {statusFilter === "excluded" && (() => {
-        // Items that the auto-classifier put here (not the user's manual
-        // Desconsiderar). These are the ones we can try to re-map using the
-        // assemblies from the Relatório Proof + canonical descriptions from
-        // the Cost Code catalog.
-        const candidates = items.filter(
-          (i) => i.mappingStatus === "excluded" && i.autoExcluded
-        ).length;
-        if (candidates === 0 && !reclassifyResult) return null;
-        return (
-          <div className="mb-4 rounded-lg border border-[#bae6fd] bg-[#f0f9ff] p-3 flex items-start gap-3">
-            <Zap size={16} className="text-[#0369a1] shrink-0 mt-0.5" />
-            <div className="flex-1 text-xs leading-relaxed text-[#0c4a6e]">
-              {reclassifyResult ? (
-                <>
-                  <span className="font-semibold">Revisão concluída.</span>{" "}
-                  {reclassifyResult.reverted} itens revisitados →{" "}
-                  <span className="text-[#1d7a6b] font-semibold">{reclassifyResult.auto_mapped} mapeados</span>,{" "}
-                  <span className="text-[#1e40af] font-semibold">{reclassifyResult.suggested} sugeridos para revisão</span>,{" "}
-                  {reclassifyResult.still_blocked} ainda bloqueados (sem match — mapear manualmente).
-                </>
-              ) : (
-                <>
-                  <span className="font-semibold">{candidates} itens</span> foram excluídos pela classificação automática e podem ter material embutido.
-                  Tente re-mapear usando assemblies do Relatório Proof e descrições canônicas do Cost Code.
-                  Exclusões feitas manualmente por você não são afetadas.
-                </>
-              )}
-            </div>
-            {!reclassifyResult && (
-              <Button
-                size="sm"
-                disabled={reclassifying}
-                onClick={async () => {
-                  setReclassifying(true);
-                  try {
-                    const r = await reclassifyBlocked(projectId);
-                    setReclassifyResult(r);
-                    await loadItems();
-                  } catch (e) {
-                    console.error(e);
-                    alert("Erro ao revisitar exclusões: " + (e instanceof Error ? e.message : "desconhecido"));
-                  } finally {
-                    setReclassifying(false);
-                  }
-                }}
-              >
-                {reclassifying ? (
-                  <>
-                    <Loader2 size={13} className="animate-spin" /> Revisando…
-                  </>
-                ) : (
-                  <>
-                    <Zap size={13} /> Revisar exclusões automáticas
-                  </>
-                )}
-              </Button>
-            )}
-          </div>
-        );
-      })()}
 
       {loading && (
         <div className="bg-white rounded-xl border border-[#E0E4E3] p-12 text-center">
