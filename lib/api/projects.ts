@@ -168,6 +168,16 @@ export function listAbcItems(
   return api.get<AbcItemResponse[]>(`/api/projects/${projectId}/abc-items${qs ? `?${qs}` : ""}`);
 }
 
+/** Confirmation phrase that the user must type to confirm a project delete. */
+export const DELETE_PROJECT_PHRASE = "delete o projeto";
+
+export function deleteProject(projectId: string, confirmation: string) {
+  return api.delete<{ deleted: boolean; project_id: string; name: string }>(
+    `/api/projects/${projectId}`,
+    { confirmation },
+  );
+}
+
 export interface ReclassifyResult {
   reverted: number;
   auto_mapped: number;

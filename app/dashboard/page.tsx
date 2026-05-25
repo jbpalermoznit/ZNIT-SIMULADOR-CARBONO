@@ -2,9 +2,10 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { KpiCard } from "@/components/ui/kpi-card";
-import { listProjects, createProject, ProjectResponse } from "@/lib/api/projects";
-import { Plus, ArrowUpRight, Leaf, TrendingDown, X, Loader2, Pencil, Check } from "lucide-react";
+import { listProjects, createProject, deleteProject, ProjectResponse } from "@/lib/api/projects";
+import { Plus, ArrowUpRight, Leaf, TrendingDown, X, Loader2, Pencil, Check, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DeleteProjectDialog } from "@/components/projects/delete-project-dialog";
 
 const STORAGE_KEY = "znit_settings";
 
@@ -13,6 +14,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [showNewProject, setShowNewProject] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectResponse | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [portfolioTitle, setPortfolioTitle] = useState("Portfólio ZNIT");
   const [portfolioSubtitle, setPortfolioSubtitle] = useState(
     "Projetos ativos · Piloto 90 dias · ZNIT"
@@ -224,10 +227,24 @@ export default function DashboardPage() {
                         .join(" · ")}
                     </p>
                   </div>
-                  <ArrowUpRight
-                    size={18}
-                    className="text-[#BDBDBC] group-hover:text-[#56B7A5] transition-colors shrink-0 mt-0.5"
-                  />
+                  <div className="flex items-start gap-1 shrink-0">
+                    <button
+                      type="button"
+                      title="Apagar projeto"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDeleteTarget(project);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md text-[#BDBDBC] hover:text-[#DC2626] hover:bg-[#FEF2F2]"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                    <ArrowUpRight
+                      size={18}
+                      className="text-[#BDBDBC] group-hover:text-[#56B7A5] transition-colors mt-0.5"
+                    />
+                  </div>
                 </div>
 
                 <div className="flex gap-8 mt-5 pt-5 border-t border-[#F0F4F3]">
@@ -405,6 +422,31 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      <DeleteProjectDialog
+        open={deleteTarget !== null}
+        projectName={deleteTarget?.name ?? ""}
+        saving={deleting}
+        onCancel={() => {
+          if (!deleting) setDeleteTarget(null);
+        }}
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          setDeleting(true);
+          try {
+            await deleteProject(deleteTarget.id, "delete o projeto");
+            setDeleteTarget(null);
+            await loadProjects();
+          } catch (e) {
+            alert(
+              "Erro ao apagar projeto: " +
+                (e instanceof Error ? e.message : "desconhecido"),
+            );
+          } finally {
+            setDeleting(false);
+          }
+        }}
+      />
     </div>
   );
 }
