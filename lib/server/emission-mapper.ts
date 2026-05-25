@@ -1,8 +1,14 @@
 /**
  * Serviço de mapeamento automático de itens ABC → fatores de emissão.
- * Port of backend/app/services/emission_mapper.py
  *
- * Hierarquia: Factor Rules → GHG Protocol → CECarbon → EPD (com GWP) → Ecoinvent.
+ * Hierarquia de auto-match: Factor Rules → GHG Protocol → CECarbon → Ecoinvent.
+ *
+ * EPDs **não entram no auto-match**. EPDs são específicas de
+ * fornecedor/produto e devem ser escolhidas explicitamente pelo analista
+ * como **substituição** do fator genérico inicial — via busca manual no
+ * editor de fator (searchEmissionFactors) ou através de uma Factor Rule
+ * curada pela empresa.
+ *
  * Busca via Supabase externo. Usa fuzzball para ranking de similaridade.
  */
 
@@ -11,7 +17,6 @@ import {
   searchEcoinvent,
   searchGhg,
   searchCecarbon,
-  searchEpdWithGwp,
 } from "@/lib/server/supabase-emission";
 import { getConversionFactor } from "@/lib/server/calculator";
 
@@ -404,66 +409,6 @@ function buildCecarbonQueries(keywords: string[]): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// EPD queries
-// ---------------------------------------------------------------------------
-
-const EPD_QUERIES: Record<string, string[]> = {
-  concreto: ["concreto", "concrete", "hormigón"],
-  "fck=25": ["concrete 25", "concreto 25"],
-  "fck=30": ["concrete 30", "concreto 30"],
-  "fck=35": ["concrete 35", "concreto 35"],
-  "fck=40": ["concrete 40", "concreto 40"],
-  "aço": ["steel", "aço", "acero"],
-  "vergalhão": ["rebar", "reinforcing steel"],
-  ca50: ["reinforcing steel", "rebar"],
-  "tela soldada": ["welded mesh", "steel mesh"],
-  cimento: ["cement", "cimento", "cemento"],
-  "alumínio": ["aluminium", "aluminum"],
-  vidro: ["glass", "vidro"],
-  madeira: ["wood", "timber", "madeira"],
-  compensado: ["plywood"],
-  porcelanato: ["ceramic tile", "porcelain"],
-  "cerâmica": ["ceramic", "cerâmica"],
-  tijolo: ["brick"],
-  bloco: ["block", "bloco"],
-  telha: ["roof tile"],
-  eps: ["expanded polystyrene", "EPS"],
-  isopor: ["expanded polystyrene", "EPS"],
-  "lã": ["mineral wool", "rock wool", "glass wool"],
-  manta: ["bitumen", "waterproofing"],
-  pvc: ["PVC", "polyvinyl"],
-  tinta: ["paint", "coating"],
-  gesso: ["gypsum", "plasterboard"],
-  areia: ["sand"],
-  brita: ["gravel", "aggregate"],
-};
-
-function buildEpdQueries(keywords: string[]): string[] {
-  const queries: string[] = [];
-  for (const kw of keywords) {
-    if (kw in EPD_QUERIES) {
-      queries.push(...EPD_QUERIES[kw]);
-    }
-  }
-  const seen = new Set<string>();
-  const unique: string[] = [];
-  for (const q of queries) {
-    if (!seen.has(q)) {
-      seen.add(q);
-      unique.push(q);
-    }
-  }
-  if (unique.length === 0) {
-    unique.push(
-      ...keywords
-        .filter((kw) => kw.length > 3)
-        .slice(0, 3)
-    );
-  }
-  return unique;
-}
-
-// ---------------------------------------------------------------------------
 // Scoring functions
 // ---------------------------------------------------------------------------
 
@@ -566,40 +511,6 @@ function scoreCecarbon(
   return Math.min(best, 100);
 }
 
-function scoreEpd(
-  itemDesc: string,
-  row: Record<string, unknown>,
-  searchQueries?: string[]
-): number {
-  const titulo = ((row.titulo as string) ?? "").toLowerCase();
-  const infoProduto = (
-    (row.informacao_produto as string) ?? ""
-  ).toLowerCase();
-  const company = ((row.company_name as string) ?? "").toLowerCase();
-  const descLower = itemDesc.toLowerCase();
-
-  const candidates = [titulo, infoProduto, `${titulo} ${company}`];
-  let best = 0;
-  for (const c of candidates) {
-    if (!c) continue;
-    const s1 = fuzz.token_set_ratio(descLower, c);
-    const s2 = fuzz.partial_ratio(descLower, c);
-    best = Math.max(best, s1, s2);
-  }
-
-  if (searchQueries) {
-    for (const q of searchQueries) {
-      const qLower = q.toLowerCase();
-      if (titulo.includes(qLower) || infoProduto.includes(qLower)) {
-        best = Math.max(best, 80);
-        break;
-      }
-    }
-  }
-
-  return Math.min(best, 100);
-}
-
 // ---------------------------------------------------------------------------
 // Candidate interface
 // ---------------------------------------------------------------------------
@@ -690,7 +601,6 @@ export async function autoMatchItem(
   const { queries: ecoinventQueries, shouldGhg } =
     buildSearchQueries(keywords);
   const cecarbonQueries = buildCecarbonQueries(keywords);
-  const epdQueries = buildEpdQueries(keywords);
 
   const allCandidates: MatchCandidate[] = [];
 
@@ -760,51 +670,11 @@ export async function autoMatchItem(
   }
 
   // ---------------------------------------------------------------
-  // Tier 3: EPD Catalog (fornecedor-específico, com GWP extraído)
+  // Tier 3: Ecoinvent (global, EN — fallback)
   // ---------------------------------------------------------------
-  for (const q of epdQueries.slice(0, 6)) {
-    try {
-      const rows = await searchEpdWithGwp(q, 10);
-      for (const row of rows) {
-        const gwpRaw = row.gwp_a1a3;
-        if (gwpRaw == null) continue;
-        const gwp = parseFloat(String(gwpRaw));
-        if (gwp <= 0) continue;
-
-        const score = scoreEpd(description, row, epdQueries);
-        const declaredUnit = ((row.declared_unit as string) ?? "").trim();
-        const declaredValue = parseFloat(String(row.declared_value ?? 1));
-        const factorPerUnit =
-          declaredValue > 0 ? gwp / declaredValue : gwp;
-        const company = (row.company_name as string) ?? "";
-        const titulo = (row.titulo as string) ?? "";
-
-        allCandidates.push({
-          source_tier: "epd",
-          score,
-          factor_value: Math.round(factorPerUnit * 1000000) / 1000000,
-          factor_unit: declaredUnit
-            ? `kgCO₂e/${declaredUnit}`
-            : "kgCO₂e",
-          product_unit: declaredUnit,
-          factor_name: titulo,
-          factor_source: company ? `EPD — ${company}` : "EPD",
-          geography:
-            (row.country as string) ??
-            (row.geographical_scopes as string) ??
-            "",
-          epd_id: row.id as number,
-          epd_registration: row.registration_number as string,
-          company_name: company,
-        });
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  // ---------------------------------------------------------------
-  // Tier 4: Ecoinvent (global, EN — fallback)
+  // Note: EPDs are intentionally NOT auto-selected (see file header).
+  // The analyst picks an EPD via the manual factor editor to *substitute*
+  // the generic factor when a specific supplier is known.
   // ---------------------------------------------------------------
   for (const q of ecoinventQueries.slice(0, 6)) {
     try {
@@ -896,8 +766,11 @@ export async function autoMatchItem(
     }
   }
 
-  // Tier priority bonus
+  // Tier priority bonus — EPDs are not in the auto-match pool (see file
+  // header); a Factor Rule may still return source_tier='epd' when the
+  // analyst curated one, in which case we let it win.
   const TIER_BONUS: Record<string, number> = {
+    rule: 10,
     epd: 5,
     ghg_protocol: 3,
     cecarbon: 2,
