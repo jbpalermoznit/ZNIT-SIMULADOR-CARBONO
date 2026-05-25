@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
+import { ptBR } from "@clerk/localizations";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,6 +16,7 @@ export default function RootLayout({
 }) {
   return (
     <ClerkProvider
+      localization={ptBR}
       appearance={{
         variables: {
           colorPrimary: "#56B7A5",
