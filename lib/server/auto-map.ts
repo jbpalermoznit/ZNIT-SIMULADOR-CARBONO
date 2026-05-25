@@ -80,7 +80,16 @@ export async function runAutoMapForCurve(
       ? getConversionFactor(item.unit as string, best.factor_unit)
       : 0;
 
-    if (best && (best.factor_value ?? 0) > 0 && conversion > 0) {
+    const hasUsableMatch =
+      best != null && (best.factor_value ?? 0) > 0 && conversion > 0;
+    const hasAnyCandidate = best != null && (best.factor_value ?? 0) > 0;
+
+    if (hasAnyCandidate && best) {
+      const note = hasUsableMatch
+        ? null
+        : `unidade do fator (${best.factor_unit}) incompatível com a do item (${item.unit}) — verificar`;
+      const finalConfidence = hasUsableMatch ? confidence : "low";
+
       await supabase.from("item_mappings").insert({
         abc_item_id: item.id,
         source_tier: best.source_tier,
@@ -92,18 +101,19 @@ export async function runAutoMapForCurve(
         product_unit: best.product_unit ?? "",
         factor_name: best.factor_name,
         factor_source: best.factor_source ?? null,
-        confidence,
+        confidence: finalConfidence,
         similarity_score: best.score / 100.0,
         mapped_by: best.source_tier === "rule" ? "rule" : "auto",
+        notes: note,
       });
 
-      const newStatus = confidence === "high" ? "auto" : "manual";
+      const newStatus = hasUsableMatch && confidence === "high" ? "auto" : "manual";
       await supabase
         .from("abc_items")
         .update({ mapping_status: newStatus })
         .eq("id", item.id);
 
-      if (confidence === "high") mapped++;
+      if (newStatus === "auto") mapped++;
       else suggested++;
     } else {
       pending++;
@@ -354,7 +364,25 @@ export async function runEnrichedAutoMapForCurve(
       (itemRow.item_type as string) === "C" &&
       (itemRow.mapping_status as string) === "blocked";
 
-    if (best && (best.factor_value ?? 0) > 0 && conversion > 0) {
+    // Policy: for Tipo A items we ALWAYS commit the best candidate the
+    // matcher found (even with low confidence or incompatible units), so
+    // the analyst sees a starting suggestion instead of an empty pending
+    // row. Confidence + notes telegraph the quality.
+    //   - high score + compatible unit → `auto` (mapped)
+    //   - anything else                → `manual` (sugerido)
+    //   - no candidate at all          → stays pending (nothing to suggest)
+    // For C-blocked items we still need a *usable* match (real factor +
+    // compatible unit) before promoting to A.
+    const itemTypeStr = itemRow.item_type as string;
+    const hasUsableMatch =
+      best != null && (best.factor_value ?? 0) > 0 && conversion > 0;
+    const hasAnyCandidate = best != null && (best.factor_value ?? 0) > 0;
+
+    const shouldCommit = wasBlockedC ? hasUsableMatch
+      : itemTypeStr === "A" ? hasAnyCandidate
+      : hasUsableMatch;
+
+    if (shouldCommit && best) {
       const notesParts: string[] = [];
       if (match.matched_via === "canonical") notesParts.push("via catálogo");
       if (match.matched_via === "assembly" && match.matched_assembly_index != null) {
@@ -362,6 +390,15 @@ export async function runEnrichedAutoMapForCurve(
         notesParts.push(`via composição (${a.slice(0, 60)})`);
       }
       if (wasBlockedC) notesParts.push("subcontrato — material embutido");
+      if (!hasUsableMatch) {
+        notesParts.push(
+          `unidade do fator (${best.factor_unit}) incompatível com a do item (${itemRow.unit}) — verificar`,
+        );
+      }
+
+      // Force "low" confidence when the unit is incompatible regardless of
+      // the matcher's score, so the drawer correctly flags it for review.
+      const finalConfidence = hasUsableMatch ? confidence : "low";
 
       await supabase.from("item_mappings").insert({
         abc_item_id: itemId,
@@ -374,24 +411,23 @@ export async function runEnrichedAutoMapForCurve(
         product_unit: best.product_unit ?? "",
         factor_name: best.factor_name,
         factor_source: best.factor_source ?? null,
-        confidence,
+        confidence: finalConfidence,
         similarity_score: best.score / 100.0,
         mapped_by: best.source_tier === "rule" ? "rule" : "auto",
         notes: notesParts.length > 0 ? notesParts.join(" · ") : null,
       });
 
-      const newStatus = confidence === "high" ? "auto" : "manual";
+      const newStatus = hasUsableMatch && confidence === "high" ? "auto" : "manual";
       const updates: Record<string, unknown> = { mapping_status: newStatus };
       // Promote rescued C subcontracts to A so the calculator counts them
       // (calculator skips item_type === "C" alongside blocked status).
       if (wasBlockedC) updates.item_type = "A";
       await supabase.from("abc_items").update(updates).eq("id", itemId);
 
-      if (confidence === "high") mapped++;
+      if (newStatus === "auto") mapped++;
       else suggested++;
     } else {
-      // No usable match — leave C items as `blocked` (they were already so)
-      // and A items as `pending`.
+      // No candidate found — C items stay `blocked`, A items stay `pending`.
       pending++;
     }
   }

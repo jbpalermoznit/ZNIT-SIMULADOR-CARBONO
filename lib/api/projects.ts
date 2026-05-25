@@ -69,6 +69,10 @@ export interface AbcItemResponse {
    *  (mapped_by='auto_excluded' OR legacy auto-justification text).
    *  Distinguishes from the user's manual "Desconsiderar" action. */
   auto_excluded: boolean;
+  /** True for rows written by the *old* classifier (pre-rescue-fix).
+   *  The Items page silently fires reclassify-blocked once on load
+   *  whenever any item carries this, so legacy projects self-heal. */
+  legacy_auto_excluded: boolean;
 }
 
 export function listProjects() {
