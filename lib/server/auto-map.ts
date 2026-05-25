@@ -21,6 +21,8 @@ import {
   inferTypeFromCostCode,
   shouldAutoExcludeType,
   autoExclusionReason,
+  assembliesLookLaborOnly,
+  laborOnlyExclusionReason,
   type ItemType,
 } from "./cost-code-classifier";
 
@@ -172,10 +174,17 @@ export async function runEnrichedAutoMapForCurve(
   // item_type OR cost-code prefix) flagged it as a non-material category.
   // This catches cases like "Bombeamento de Concreto" where the parser
   // labels it D (embedded) but the cost-code prefix 42xx says A.
+  //
+  // Exception: parser-C ("item agrupado / subcontrato com possível
+  // material embutido") is *not* overridden by a prefix-based F.
+  // C items keep their `blocked` status and flow into the main match loop
+  // below, where we try to match them via assemblies / canonical / desc.
+  // If a Proof shows the assemblies are labor-only, we exclude there.
   function deriveExcludeType(
     parserType: ItemType | null,
     prefixType: ItemType | null
   ): ItemType | null {
+    if (parserType === "C") return null;
     if (parserType && shouldAutoExcludeType(parserType)) return parserType;
     if (prefixType && shouldAutoExcludeType(prefixType)) return prefixType;
     return null;
@@ -229,8 +238,32 @@ export async function runEnrichedAutoMapForCurve(
           factor_value: 0,
           factor_unit: "kg CO2-Eq",
           factor_name: "Excluído",
-          mapped_by: "excluded",
+          // `auto_excluded` distinguishes algorithmic exclusions from the
+          // user's manual "Desconsiderar" action (which writes 'excluded').
+          // The reclassify-blocked backfill only reverts auto_excluded rows.
+          mapped_by: "auto_excluded",
           exclusion_justification: autoExclusionReason(excludeType),
+        });
+        update.mapping_status = "excluded";
+        autoExcluded++;
+      } else if (
+        parserType === "C" &&
+        assemblies.length > 0 &&
+        assembliesLookLaborOnly(assemblies.map((a) => a.description)) &&
+        item.mapping_status !== "excluded"
+      ) {
+        // C item whose Proof assemblies show pure labor on already-counted
+        // material (corte+dobra, sem armação, etc.) — exclude with the
+        // informed justification so the auditor sees *why* (material is
+        // counted in another line) instead of a generic prefix reason.
+        await supabase.from("item_mappings").insert({
+          abc_item_id: item.id,
+          source_tier: "excluded",
+          factor_value: 0,
+          factor_unit: "kg CO2-Eq",
+          factor_name: "Excluído",
+          mapped_by: "auto_excluded",
+          exclusion_justification: laborOnlyExclusionReason(),
         });
         update.mapping_status = "excluded";
         autoExcluded++;
@@ -242,9 +275,13 @@ export async function runEnrichedAutoMapForCurve(
     }
   }
 
-  // 2. Main pass: still focus on Type A items (post-exclusions). Read either
-  //    the v5 enriched columns or fall back to the in-memory map populated
-  //    above.
+  // 2. Main pass: process Type A pending items AND Type C blocked items
+  //    that survived the labor-only exclusion above. The C items get
+  //    matched against their assemblies / canonical / description — if a
+  //    strong candidate is found we reclassify them to A so the calculator
+  //    counts the emission. Items with no match stay `blocked` for review.
+  //    Read either the v5 enriched columns or fall back to the in-memory
+  //    map populated above.
   const { count: alreadyMapped } = await supabase
     .from("abc_items")
     .select("id", { count: "exact", head: true })
@@ -253,14 +290,16 @@ export async function runEnrichedAutoMapForCurve(
     .in("mapping_status", ["auto", "manual"]);
 
   const selectCols = enrichedColumnsAvailable
-    ? "id, cost_code, description, unit, item_order, supplier, canonical_description, assemblies"
-    : "id, cost_code, description, unit, item_order, supplier";
+    ? "id, cost_code, description, unit, item_order, supplier, canonical_description, assemblies, item_type, mapping_status"
+    : "id, cost_code, description, unit, item_order, supplier, item_type, mapping_status";
   const { data: items } = await supabase
     .from("abc_items")
     .select(selectCols)
     .eq("abc_curve_id", curveId)
-    .eq("item_type", "A")
-    .eq("mapping_status", "pending")
+    .or(
+      "and(item_type.eq.A,mapping_status.eq.pending)," +
+      "and(item_type.eq.C,mapping_status.eq.blocked)"
+    )
     .order("item_order");
 
   if (!items || items.length === 0) {
@@ -311,6 +350,10 @@ export async function runEnrichedAutoMapForCurve(
     const conversion = best
       ? getConversionFactor(itemRow.unit as string, best.factor_unit)
       : 0;
+    const wasBlockedC =
+      (itemRow.item_type as string) === "C" &&
+      (itemRow.mapping_status as string) === "blocked";
+
     if (best && (best.factor_value ?? 0) > 0 && conversion > 0) {
       const notesParts: string[] = [];
       if (match.matched_via === "canonical") notesParts.push("via catálogo");
@@ -318,6 +361,7 @@ export async function runEnrichedAutoMapForCurve(
         const a = assemblyDescriptions[match.matched_assembly_index];
         notesParts.push(`via composição (${a.slice(0, 60)})`);
       }
+      if (wasBlockedC) notesParts.push("subcontrato — material embutido");
 
       await supabase.from("item_mappings").insert({
         abc_item_id: itemId,
@@ -337,14 +381,17 @@ export async function runEnrichedAutoMapForCurve(
       });
 
       const newStatus = confidence === "high" ? "auto" : "manual";
-      await supabase
-        .from("abc_items")
-        .update({ mapping_status: newStatus })
-        .eq("id", itemId);
+      const updates: Record<string, unknown> = { mapping_status: newStatus };
+      // Promote rescued C subcontracts to A so the calculator counts them
+      // (calculator skips item_type === "C" alongside blocked status).
+      if (wasBlockedC) updates.item_type = "A";
+      await supabase.from("abc_items").update(updates).eq("id", itemId);
 
       if (confidence === "high") mapped++;
       else suggested++;
     } else {
+      // No usable match — leave C items as `blocked` (they were already so)
+      // and A items as `pending`.
       pending++;
     }
   }

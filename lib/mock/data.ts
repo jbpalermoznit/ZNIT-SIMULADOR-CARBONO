@@ -24,6 +24,8 @@ export interface AbcItem {
   confidence?: "high" | "medium" | "low";
   parentItemId?: string | null;
   classificationNote?: string | null;
+  /** True when the exclusion came from the auto-classifier (not user). */
+  autoExcluded?: boolean;
 }
 
 export interface Project {

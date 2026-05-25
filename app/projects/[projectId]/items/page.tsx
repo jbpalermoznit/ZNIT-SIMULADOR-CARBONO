@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { itemTypeMeta, mappingStatusMeta, type ItemType, type AbcClass, type AbcItem } from "@/lib/mock/data";
-import { listAbcItems, getProject, type AbcItemResponse, type ProjectResponse } from "@/lib/api/projects";
+import { listAbcItems, getProject, reclassifyBlocked, type AbcItemResponse, type ProjectResponse } from "@/lib/api/projects";
 import { getMapping, type MappingResponse } from "@/lib/api/emission-factors";
 import { useActiveScenario } from "@/lib/hooks/use-active-scenario";
 import { SaveModeDialog, type SaveModeChoice } from "@/components/items/save-mode-dialog";
@@ -90,6 +90,7 @@ function toAbcItem(r: AbcItemResponse): AbcItem {
     confidence: (r.confidence as "high" | "medium" | "low") ?? undefined,
     parentItemId: r.parent_item_id ?? null,
     classificationNote: r.classification_note ?? null,
+    autoExcluded: r.auto_excluded,
   };
 }
 
@@ -1322,6 +1323,10 @@ export default function ItemsPage() {
   const [expandedComps, setExpandedComps] = useState<Set<string>>(new Set());
   const [autoMapping, setAutoMapping] = useState(false);
   const [autoMapResult, setAutoMapResult] = useState<{ auto_mapped: number; suggested: number; pending: number; already_mapped: number } | null>(null);
+  const [reclassifying, setReclassifying] = useState(false);
+  const [reclassifyResult, setReclassifyResult] = useState<{
+    reverted: number; auto_mapped: number; suggested: number; still_blocked: number;
+  } | null>(null);
   const [items, setItems] = useState<AbcItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [projectName, setProjectName] = useState("");
@@ -1514,6 +1519,68 @@ export default function ItemsPage() {
         </div>
         <span className="text-xs text-[#808181] ml-auto">{filtered.length} itens · duplo clique para detalhes</span>
       </div>
+
+      {statusFilter === "excluded" && (() => {
+        // Items that the auto-classifier put here (not the user's manual
+        // Desconsiderar). These are the ones we can try to re-map using the
+        // assemblies from the Relatório Proof + canonical descriptions from
+        // the Cost Code catalog.
+        const candidates = items.filter(
+          (i) => i.mappingStatus === "excluded" && i.autoExcluded
+        ).length;
+        if (candidates === 0 && !reclassifyResult) return null;
+        return (
+          <div className="mb-4 rounded-lg border border-[#bae6fd] bg-[#f0f9ff] p-3 flex items-start gap-3">
+            <Zap size={16} className="text-[#0369a1] shrink-0 mt-0.5" />
+            <div className="flex-1 text-xs leading-relaxed text-[#0c4a6e]">
+              {reclassifyResult ? (
+                <>
+                  <span className="font-semibold">Revisão concluída.</span>{" "}
+                  {reclassifyResult.reverted} itens revisitados →{" "}
+                  <span className="text-[#1d7a6b] font-semibold">{reclassifyResult.auto_mapped} mapeados</span>,{" "}
+                  <span className="text-[#1e40af] font-semibold">{reclassifyResult.suggested} sugeridos para revisão</span>,{" "}
+                  {reclassifyResult.still_blocked} ainda bloqueados (sem match — mapear manualmente).
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold">{candidates} itens</span> foram excluídos pela classificação automática e podem ter material embutido.
+                  Tente re-mapear usando assemblies do Relatório Proof e descrições canônicas do Cost Code.
+                  Exclusões feitas manualmente por você não são afetadas.
+                </>
+              )}
+            </div>
+            {!reclassifyResult && (
+              <Button
+                size="sm"
+                disabled={reclassifying}
+                onClick={async () => {
+                  setReclassifying(true);
+                  try {
+                    const r = await reclassifyBlocked(projectId);
+                    setReclassifyResult(r);
+                    await loadItems();
+                  } catch (e) {
+                    console.error(e);
+                    alert("Erro ao revisitar exclusões: " + (e instanceof Error ? e.message : "desconhecido"));
+                  } finally {
+                    setReclassifying(false);
+                  }
+                }}
+              >
+                {reclassifying ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" /> Revisando…
+                  </>
+                ) : (
+                  <>
+                    <Zap size={13} /> Revisar exclusões automáticas
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        );
+      })()}
 
       {loading && (
         <div className="bg-white rounded-xl border border-[#E0E4E3] p-12 text-center">

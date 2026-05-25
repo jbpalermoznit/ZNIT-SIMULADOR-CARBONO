@@ -65,6 +65,10 @@ export interface AbcItemResponse {
   factor_unit: string | null;
   source_tier: string | null;
   confidence: string | null;
+  /** True when the exclusion was made automatically by the classifier
+   *  (mapped_by='auto_excluded' OR legacy auto-justification text).
+   *  Distinguishes from the user's manual "Desconsiderar" action. */
+  auto_excluded: boolean;
 }
 
 export function listProjects() {
@@ -158,4 +162,25 @@ export function listAbcItems(
   if (filters?.curve_id) params.set("curve_id", filters.curve_id);
   const qs = params.toString();
   return api.get<AbcItemResponse[]>(`/api/projects/${projectId}/abc-items${qs ? `?${qs}` : ""}`);
+}
+
+export interface ReclassifyResult {
+  reverted: number;
+  auto_mapped: number;
+  suggested: number;
+  still_blocked: number;
+  scenarios_recalculated: number;
+}
+
+/**
+ * Revisita itens Tipo C que foram silenciosamente auto-excluídos pela
+ * regra antiga "prefixo 45xx → F". Reverte para `blocked`, tenta um
+ * auto-match enriquecido (assemblies + canonical do upload) e
+ * recalcula todos os cenários do projeto.
+ */
+export function reclassifyBlocked(projectId: string) {
+  return api.post<ReclassifyResult>(
+    `/api/projects/${projectId}/reclassify-blocked`,
+    {}
+  );
 }
