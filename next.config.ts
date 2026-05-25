@@ -2,6 +2,13 @@ import type { NextConfig } from "next";
 
 const isDev = process.env.NODE_ENV !== "production";
 
+// In Production, Clerk serves its JS bundle and APIs from a CNAME under
+// the application's own domain (e.g. clerk.simulador.znit.ai). We pull
+// the suffix from NEXT_PUBLIC_CLERK_DOMAIN when set; otherwise default
+// to the live host so a fresh clone still passes through CSP.
+const clerkProdDomain = process.env.NEXT_PUBLIC_CLERK_DOMAIN
+  || "clerk.simulador.znit.ai";
+
 // Allowed origins for connect-src. Clerk + Supabase are added here.
 const connectSrc = [
   "'self'",
@@ -10,6 +17,8 @@ const connectSrc = [
   "https://*.clerk.accounts.dev",
   "https://*.clerk.com",
   "https://clerk-telemetry.com",
+  `https://${clerkProdDomain}`,
+  `https://accounts.${clerkProdDomain.replace(/^clerk\./, "")}`,
   isDev ? "ws://localhost:*" : "",
 ]
   .filter(Boolean)
@@ -21,6 +30,7 @@ const scriptSrc = [
   isDev ? "'unsafe-eval'" : "",
   "https://*.clerk.accounts.dev",
   "https://*.clerk.com",
+  `https://${clerkProdDomain}`,
   "https://challenges.cloudflare.com",
 ]
   .filter(Boolean)
@@ -30,10 +40,10 @@ const cspDirectives = [
   `default-src 'self'`,
   `script-src ${scriptSrc}`,
   `style-src 'self' 'unsafe-inline'`,
-  `img-src 'self' data: blob: https://*.clerk.com https://img.clerk.com`,
+  `img-src 'self' data: blob: https://*.clerk.com https://img.clerk.com https://${clerkProdDomain}`,
   `font-src 'self' data:`,
   `connect-src ${connectSrc}`,
-  `frame-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com`,
+  `frame-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://${clerkProdDomain} https://challenges.cloudflare.com`,
   `worker-src 'self' blob:`,
   `frame-ancestors 'none'`,
   `base-uri 'self'`,
