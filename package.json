@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "screenshots": "node scripts/capture-screenshots.mjs",
+    "screenshots:reauth": "node scripts/capture-screenshots.mjs --reauth"
   },
   "dependencies": {
     "@clerk/localizations": "^4.6.8",
