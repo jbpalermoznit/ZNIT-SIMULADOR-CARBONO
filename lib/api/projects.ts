@@ -159,3 +159,24 @@ export function listAbcItems(
   const qs = params.toString();
   return api.get<AbcItemResponse[]>(`/api/projects/${projectId}/abc-items${qs ? `?${qs}` : ""}`);
 }
+
+export interface ReclassifyResult {
+  reverted: number;
+  auto_mapped: number;
+  suggested: number;
+  still_blocked: number;
+  scenarios_recalculated: number;
+}
+
+/**
+ * Revisita itens Tipo C que foram silenciosamente auto-excluídos pela
+ * regra antiga "prefixo 45xx → F". Reverte para `blocked`, tenta um
+ * auto-match enriquecido (assemblies + canonical do upload) e
+ * recalcula todos os cenários do projeto.
+ */
+export function reclassifyBlocked(projectId: string) {
+  return api.post<ReclassifyResult>(
+    `/api/projects/${projectId}/reclassify-blocked`,
+    {}
+  );
+}

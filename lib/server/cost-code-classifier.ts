@@ -62,3 +62,43 @@ export function autoExclusionReason(type: ItemType): string {
   if (type === "F") return "Serviço/Administrativo — sem emissão direta de Scope 3 materiais (classificação automática por código de custo).";
   return "";
 }
+
+/**
+ * Heuristic: looks at the assembly descriptions from the iTwo Proof report
+ * to decide whether a Tipo C subcontract is *labor-only* (material already
+ * counted in another item line) or *material-bearing* (the material is
+ * embedded in the subcontract price and emission should be calculated).
+ *
+ * Returns `true` only when EVERY assembly description matches a labor
+ * pattern — a single material-looking assembly is enough to keep the item
+ * eligible for enriched auto-matching.
+ *
+ * Examples that trigger labor-only:
+ *   - "Armação CA-50 - corte, dobra e montagem" (labor on existing steel)
+ *   - "Estacas tipo hélice contínua - Ø 40cm (sem armação e concreto)"
+ *   - "M.O. de corte e dobra"
+ *   - "Instalação de equipamento"
+ */
+export function assembliesLookLaborOnly(descriptions: string[]): boolean {
+  if (descriptions.length === 0) return false;
+  const laborPatterns: RegExp[] = [
+    /sem\s+arma[çc][ãa]o/i,
+    /sem\s+concreto/i,
+    /sem\s+material/i,
+    /corte\s*,?\s*dobra/i,
+    /\bm\.?\s*o\.?\b/i,             // "M.O." — labor abbrev
+    /^\s*instala[çc][ãa]o\s+de\b/i, // "Instalação de ..."
+    /^\s*montagem\s+de\b/i,
+    /^\s*aplica[çc][ãa]o\s+de\b/i,
+  ];
+  return descriptions.every((d) => laborPatterns.some((re) => re.test(d)));
+}
+
+/**
+ * Labor-only exclusion has a different justification than a blanket
+ * prefix-based one — it tells the auditor the material is counted in
+ * another line, not that the whole category was discarded.
+ */
+export function laborOnlyExclusionReason(): string {
+  return "Subcontrato de mão-de-obra — material já contabilizado em outro item (decomposto pelo Relatório Proof: corte e dobra / sem armação / sem concreto).";
+}
