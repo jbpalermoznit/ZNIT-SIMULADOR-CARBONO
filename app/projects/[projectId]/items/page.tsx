@@ -1325,7 +1325,10 @@ export default function ItemsPage() {
   const initialType: ItemType | "all" | "compositions" =
     typeParam === "compositions" ? "compositions" : "all";
   const [typeFilter, setTypeFilter] = useState<ItemType | "all" | "compositions">(initialType);
-  const [classFilter, setClassFilter] = useState<AbcClass | "all">("all");
+  const classParam = searchParams.get("class");
+  const initialClass: AbcClass | "all" =
+    classParam === "P1" || classParam === "P2" || classParam === "P3" ? classParam : "all";
+  const [classFilter, setClassFilter] = useState<AbcClass | "all">(initialClass);
   const [statusFilter, setStatusFilter] = useState<"all" | "auto" | "suggested" | "pending" | "excluded">(initialStatus);
   const [search, setSearch] = useState(factorParam ?? "");
   const [openItem, setOpenItem] = useState<AbcItem | null>(null);
@@ -1378,9 +1381,16 @@ export default function ItemsPage() {
   // background uma única vez por carregamento e refaz a busca. Roda
   // silencioso — o usuário só vê os números corretos no fim.
   const loadItems = useCallback(async () => {
+    // Overlay the active scenario so the Items page reflects scenario
+    // substitutions (Pareto reads from scenario_items too, so this keeps
+    // the two views in sync — clicking a Pareto bar finds its items).
+    const filters = {
+      ...(selectedCurveId ? { curve_id: selectedCurveId } : {}),
+      ...(activeScenarioId ? { scenario_id: activeScenarioId } : {}),
+    };
     try {
       const [data, proj] = await Promise.all([
-        listAbcItems(projectId, selectedCurveId ? { curve_id: selectedCurveId } : undefined),
+        listAbcItems(projectId, filters),
         getProject(projectId),
       ]);
       setProjectName(proj.name);
@@ -1391,10 +1401,7 @@ export default function ItemsPage() {
       if (needsLegacyHeal) {
         try {
           await reclassifyBlocked(projectId);
-          const refreshed = await listAbcItems(
-            projectId,
-            selectedCurveId ? { curve_id: selectedCurveId } : undefined,
-          );
+          const refreshed = await listAbcItems(projectId, filters);
           const refreshedItems = refreshed.map(toAbcItem);
           setItems(refreshedItems);
           setOpenItem((prev) => {
@@ -1419,9 +1426,16 @@ export default function ItemsPage() {
       console.error("Erro ao carregar itens");
     }
     setLoading(false);
-  }, [selectedCurveId, projectId]);
+  }, [selectedCurveId, projectId, activeScenarioId]);
 
   useEffect(() => { loadItems(); }, [loadItems]);
+
+  // Keep the search input in sync with ?factor= so coming back from
+  // Visão Geral (Pareto click) with a different factor refreshes the
+  // filter instead of keeping the previous one. Setting null clears.
+  useEffect(() => {
+    if (factorParam != null) setSearch(factorParam);
+  }, [factorParam]);
 
   // Auto-open item from query param ?item=ID (linked from scenarios page)
   useEffect(() => {
@@ -1592,6 +1606,28 @@ export default function ItemsPage() {
         <div className="bg-white rounded-xl border border-[#E0E4E3] p-12 text-center">
           <Loader2 size={24} className="text-[#56B7A5] animate-spin mx-auto mb-3" />
           <p className="text-sm text-[#808181]">Carregando itens...</p>
+        </div>
+      )}
+
+      {!loading && filtered.length === 0 && search && (
+        <div className="bg-[#F0F9FF] rounded-xl border border-[#bae6fd] p-5 mb-4 flex items-start gap-3">
+          <Search size={16} className="text-[#0369a1] mt-0.5 shrink-0" />
+          <div className="flex-1 text-xs leading-relaxed text-[#0c4a6e]">
+            <p>
+              Nenhum item bate com <span className="font-mono font-semibold">{search.slice(0, 80)}</span>.
+            </p>
+            <p className="text-[#0c4a6e]/70 mt-1">
+              O item pode estar em outro cenário (a busca olha o mapeamento atual do projeto, não a versão por cenário).
+              Limpe a busca pra ver a lista completa.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSearch("")}
+            className="text-xs font-semibold text-[#0369a1] hover:text-[#0c4a6e]"
+          >
+            Limpar busca
+          </button>
         </div>
       )}
 

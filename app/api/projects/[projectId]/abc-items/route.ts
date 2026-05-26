@@ -110,7 +110,11 @@ export async function GET(
     return Response.json([]);
   }
 
-  // Load mappings for enrichment
+  // Load mappings for enrichment. By default we read the project-level
+  // item_mappings (the "live" mapping). When ?scenario_id= is passed, we
+  // additionally overlay the scenario_items row for that scenario — so the
+  // Items page can reflect per-scenario factor substitutions instead of
+  // always showing the project default.
   const itemIds = allItems.map((i) => i.id);
   const { data: mappings } = await supabase
     .from("item_mappings")
@@ -120,6 +124,30 @@ export async function GET(
   const mappingByItem: Record<string, Record<string, unknown>> = {};
   for (const m of mappings ?? []) {
     mappingByItem[m.abc_item_id] = m;
+  }
+
+  const scenarioIdParam = searchParams.get("scenario_id");
+  if (scenarioIdParam) {
+    const { data: sItems } = await supabase
+      .from("scenario_items")
+      .select("abc_item_id, factor_value, factor_unit, factor_name, source_tier, is_excluded, exclusion_reason")
+      .eq("scenario_id", scenarioIdParam)
+      .in("abc_item_id", itemIds);
+    for (const si of sItems ?? []) {
+      const itemId = si.abc_item_id as string;
+      const existing = mappingByItem[itemId] ?? {};
+      mappingByItem[itemId] = {
+        ...existing,
+        factor_value: si.factor_value,
+        factor_unit: si.factor_unit,
+        factor_name: si.factor_name,
+        source_tier: si.source_tier,
+        // Preserve exclusion-related fields from the scenario when present.
+        ...(si.is_excluded
+          ? { exclusion_justification: si.exclusion_reason ?? existing.exclusion_justification }
+          : {}),
+      };
+    }
   }
 
   // Two related signals:

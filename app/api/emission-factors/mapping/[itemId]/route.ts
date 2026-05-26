@@ -237,6 +237,24 @@ export async function PUT(
     try {
       await assertScenarioOwnership(body.scenario_id, user);
 
+      // Probe whether migration-v8-unit-cost-override.sql is applied.
+      // If not, we silently skip the new column on inserts/updates so a
+      // partially-deployed env still forks scenarios correctly (the
+      // cost-change UI was hard-disabling user input until the column
+      // is present anyway). When the migration is applied this branch
+      // becomes a no-op.
+      const probe = await supabase
+        .from("scenario_items")
+        .select("unit_cost_override")
+        .limit(1);
+      const unitCostColumnExists = !probe.error;
+      if (!unitCostColumnExists) {
+        console.warn(
+          "[mapping PUT] migration-v8-unit-cost-override.sql not applied; " +
+          "unit_cost_override will be ignored on this request",
+        );
+      }
+
       const factorPatch: import("@/lib/server/calculator").ScenarioItemFactorPatch = {
         factor_value: body.source_tier === "excluded" ? 0 : (body.factor_value ?? 0),
         factor_unit: body.source_tier === "excluded" ? "kg CO2-Eq" : (body.factor_unit ?? "kgCO2e"),
@@ -245,10 +263,13 @@ export async function PUT(
         is_excluded: body.source_tier === "excluded",
         exclusion_reason: body.source_tier === "excluded" ? body.exclusion_justification ?? null : null,
       };
-      // Propagate the analyst-declared new unit cost when present. Only
-      // forward the field if the request actually carries it, so omitted
-      // payloads don't wipe a previous override.
-      if (Object.prototype.hasOwnProperty.call(body, "unit_cost_override")) {
+      // Propagate the analyst-declared new unit cost when present AND the
+      // schema can hold it. Only forward the field if the request actually
+      // carries it, so omitted payloads don't wipe a previous override.
+      if (
+        unitCostColumnExists &&
+        Object.prototype.hasOwnProperty.call(body, "unit_cost_override")
+      ) {
         factorPatch.unit_cost_override = body.unit_cost_override ?? null;
       }
 
@@ -283,21 +304,36 @@ export async function PUT(
           .eq("scenario_id", body.scenario_id);
 
         if (sourceItems && sourceItems.length > 0) {
-          const cloned = sourceItems.map((si) => ({
-            scenario_id: newScenario.id,
-            abc_item_id: si.abc_item_id,
-            factor_value: si.factor_value,
-            factor_unit: si.factor_unit,
-            factor_name: si.factor_name,
-            source_tier: si.source_tier,
-            quantity_override: si.quantity_override,
-            unit_cost_override: si.unit_cost_override ?? null,
-            emission_kgco2e: si.emission_kgco2e,
-            emission_scope3_logistics_kgco2e: si.emission_scope3_logistics_kgco2e,
-            is_excluded: si.is_excluded,
-            exclusion_reason: si.exclusion_reason,
-          }));
-          await supabase.from("scenario_items").insert(cloned);
+          const cloned = sourceItems.map((si) => {
+            const row: Record<string, unknown> = {
+              scenario_id: newScenario.id,
+              abc_item_id: si.abc_item_id,
+              factor_value: si.factor_value,
+              factor_unit: si.factor_unit,
+              factor_name: si.factor_name,
+              source_tier: si.source_tier,
+              quantity_override: si.quantity_override,
+              emission_kgco2e: si.emission_kgco2e,
+              emission_scope3_logistics_kgco2e: si.emission_scope3_logistics_kgco2e,
+              is_excluded: si.is_excluded,
+              exclusion_reason: si.exclusion_reason,
+            };
+            if (unitCostColumnExists) {
+              row.unit_cost_override = si.unit_cost_override ?? null;
+            }
+            return row;
+          });
+          const { error: cloneErr } = await supabase
+            .from("scenario_items")
+            .insert(cloned);
+          // Surface clone failures — silent failure is what zeroed the
+          // forked scenario emissions and made items show 'pendente' in
+          // the tCO₂e column.
+          if (cloneErr) {
+            throw new Error(
+              `Erro ao clonar itens do cenário: ${cloneErr.message}`,
+            );
+          }
         }
 
         targetScenarioId = newScenario.id;
