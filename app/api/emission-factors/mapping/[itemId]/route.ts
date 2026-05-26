@@ -87,6 +87,10 @@ interface MappingConfirmBody {
   mode?: "update" | "fork";
   new_scenario_name?: string;
   new_scenario_description?: string;
+  /** Analyst-declared new unit cost when substituting a factor (typically
+   *  EPD). `null` clears any existing override; `undefined` leaves it
+   *  alone. Persisted to scenario_items.unit_cost_override. */
+  unit_cost_override?: number | null;
 }
 
 export async function PUT(
@@ -233,7 +237,7 @@ export async function PUT(
     try {
       await assertScenarioOwnership(body.scenario_id, user);
 
-      const factorPatch = {
+      const factorPatch: import("@/lib/server/calculator").ScenarioItemFactorPatch = {
         factor_value: body.source_tier === "excluded" ? 0 : (body.factor_value ?? 0),
         factor_unit: body.source_tier === "excluded" ? "kg CO2-Eq" : (body.factor_unit ?? "kgCO2e"),
         factor_name: body.source_tier === "excluded" ? "Excluído" : (body.factor_name ?? ""),
@@ -241,6 +245,12 @@ export async function PUT(
         is_excluded: body.source_tier === "excluded",
         exclusion_reason: body.source_tier === "excluded" ? body.exclusion_justification ?? null : null,
       };
+      // Propagate the analyst-declared new unit cost when present. Only
+      // forward the field if the request actually carries it, so omitted
+      // payloads don't wipe a previous override.
+      if (Object.prototype.hasOwnProperty.call(body, "unit_cost_override")) {
+        factorPatch.unit_cost_override = body.unit_cost_override ?? null;
+      }
 
       let targetScenarioId = body.scenario_id;
 
@@ -281,6 +291,7 @@ export async function PUT(
             factor_name: si.factor_name,
             source_tier: si.source_tier,
             quantity_override: si.quantity_override,
+            unit_cost_override: si.unit_cost_override ?? null,
             emission_kgco2e: si.emission_kgco2e,
             emission_scope3_logistics_kgco2e: si.emission_scope3_logistics_kgco2e,
             is_excluded: si.is_excluded,

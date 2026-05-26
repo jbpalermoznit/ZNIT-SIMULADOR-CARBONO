@@ -460,6 +460,10 @@ export interface ScenarioItemFactorPatch {
   source_tier: string | null;
   is_excluded?: boolean;
   exclusion_reason?: string | null;
+  /** Optional new unit cost for this item in the scenario. null → no
+   *  override (use abc_items.unit_cost); undefined → don't touch existing
+   *  override. Persisted on scenario_items.unit_cost_override. */
+  unit_cost_override?: number | null;
 }
 
 /**
@@ -480,6 +484,11 @@ export async function applyFactorToScenarioItem(
   };
   if (patch.is_excluded !== undefined) update.is_excluded = patch.is_excluded;
   if (patch.exclusion_reason !== undefined) update.exclusion_reason = patch.exclusion_reason;
+  // Only touch unit_cost_override when the patch explicitly carries it,
+  // so unrelated updates don't clobber an existing override.
+  if (patch.unit_cost_override !== undefined) {
+    update.unit_cost_override = patch.unit_cost_override;
+  }
 
   const { error } = await supabase
     .from("scenario_items")

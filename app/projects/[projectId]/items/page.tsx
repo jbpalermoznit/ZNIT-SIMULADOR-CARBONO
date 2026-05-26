@@ -1342,6 +1342,12 @@ export default function ItemsPage() {
     body: MappingConfirmRequest;
     itemId: string;
     factorLabel: string;
+    /** Set when the source_tier is "epd" — controls the cost-change UI in
+     *  the SaveModeDialog. */
+    askCostChange?: boolean;
+    currentUnitCost?: number;
+    itemUnit?: string;
+    itemQuantity?: number;
     onFinish?: () => void;
   } | null>(null);
   const [saveModeBusy, setSaveModeBusy] = useState(false);
@@ -1849,8 +1855,25 @@ export default function ItemsPage() {
           onSaved={loadItems}
           onFactorSaveRequest={
             activeScenarioId
-              ? (body, factorLabel, onFinish) =>
-                  setPendingFactorSave({ body, itemId: openItem.id, factorLabel, onFinish })
+              ? (body, factorLabel, onFinish) => {
+                  // Any factor substitution can come with a real price
+                  // change — EPD products typically cost more or less than
+                  // the generic baseline, manual factors come from quoted
+                  // proposals, etc. We show the cost-change section as
+                  // opt-in (checkbox default off) for every non-exclusion
+                  // edit so the analyst can declare the ΔR$ when it matters.
+                  const askCostChange = body.source_tier !== "excluded";
+                  setPendingFactorSave({
+                    body,
+                    itemId: openItem.id,
+                    factorLabel,
+                    onFinish,
+                    askCostChange,
+                    currentUnitCost: askCostChange ? openItem.unitCost : undefined,
+                    itemUnit: askCostChange ? openItem.unit : undefined,
+                    itemQuantity: askCostChange ? openItem.quantity : undefined,
+                  });
+                }
               : undefined
           }
           onExcludeRequest={
@@ -1867,6 +1890,10 @@ export default function ItemsPage() {
         saving={saveModeBusy}
         activeScenarioName={activeScenario?.name ?? "cenário atual"}
         changeLabel={pendingFactorSave?.factorLabel ?? "edição"}
+        askCostChange={pendingFactorSave?.askCostChange}
+        currentUnitCost={pendingFactorSave?.currentUnitCost}
+        itemUnit={pendingFactorSave?.itemUnit}
+        itemQuantity={pendingFactorSave?.itemQuantity}
         onCancel={() => {
           if (saveModeBusy) return;
           pendingFactorSave?.onFinish?.();
@@ -1882,6 +1909,11 @@ export default function ItemsPage() {
               mode: choice.mode,
               ...(choice.mode === "fork" && choice.newScenarioName
                 ? { new_scenario_name: choice.newScenarioName }
+                : {}),
+              // Forward the analyst-declared cost change (null = no override).
+              // We only attach it when the dialog actually asked.
+              ...(pendingFactorSave.askCostChange
+                ? { unit_cost_override: choice.unitCostOverride ?? null }
                 : {}),
             };
             const res = await confirmMapping(pendingFactorSave.itemId, body);

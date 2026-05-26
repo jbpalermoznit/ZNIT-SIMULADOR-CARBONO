@@ -115,6 +115,10 @@ export interface MappingConfirmRequest {
   mode?: "update" | "fork";
   new_scenario_name?: string;
   new_scenario_description?: string;
+  /** When substituting a factor (typically EPD), the analyst may declare a
+   *  new unit cost for the product. Persisted on scenario_items.unit_cost_override.
+   *  Null/undefined → keep the original abc_items.unit_cost. */
+  unit_cost_override?: number | null;
 }
 
 export interface MappingResponse {
