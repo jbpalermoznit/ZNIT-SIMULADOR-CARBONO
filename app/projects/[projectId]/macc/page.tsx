@@ -84,6 +84,9 @@ export default function MaccPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hoveredBar, setHoveredBar] = useState<string | null>(null);
+  // Tooltip position in the chart-container's coordinate system, set by the
+  // bar's onMouseMove so it tracks the cursor without an artificial delay.
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
   const [countryFilter, setCountryFilter] = useState<CountryFilter>("all");
   const [stateLoaded, setStateLoaded] = useState(false);
   type RecSort = "emission" | "cost" | "volume";
@@ -451,6 +454,7 @@ export default function MaccPage() {
               )}
             </div>
 
+            <div className="relative">
             <svg
               viewBox={`0 0 ${chartW} ${chartH}`}
               className="w-full"
@@ -524,25 +528,27 @@ export default function MaccPage() {
                 const y = yValue >= 0 ? zeroY - barH : zeroY;
                 const isHovered = hoveredBar === bar.id;
                 const color = barColor(bar.category);
-                const reduction = bar.baseline_factor > 0
-                  ? ((bar.baseline_factor - bar.alternative_factor) / bar.baseline_factor * 100).toFixed(0)
-                  : "0";
-                const costLabel = hasCostData
-                  ? `${bar.cost_per_tco2e >= 0 ? "+" : "−"}R$ ${Math.abs(bar.cost_per_tco2e).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}/tCO₂e`
-                  : `−${reduction}% CO₂`;
-                const tooltip =
-                  `${idx + 1}. ${bar.item_description}\n` +
-                  `Alternativa: ${bar.alternative_name}\n` +
-                  `Fornecedor: ${bar.supplier ?? "—"}\n` +
-                  `Abatimento: ${bar.abatement_tco2e.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} tCO₂e (−${reduction}%)\n` +
-                  `Custo: ${costLabel}`;
 
                 return (
                   <g key={bar.id}
-                    onMouseEnter={() => setHoveredBar(bar.id)}
-                    onMouseLeave={() => setHoveredBar(null)}
+                    onMouseEnter={(e) => {
+                      setHoveredBar(bar.id);
+                      const rect = e.currentTarget.ownerSVGElement?.parentElement?.getBoundingClientRect();
+                      if (rect) {
+                        setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+                      }
+                    }}
+                    onMouseMove={(e) => {
+                      const rect = e.currentTarget.ownerSVGElement?.parentElement?.getBoundingClientRect();
+                      if (rect) {
+                        setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+                      }
+                    }}
+                    onMouseLeave={() => {
+                      setHoveredBar(null);
+                      setTooltipPos(null);
+                    }}
                     className="cursor-pointer">
-                    <title>{tooltip}</title>
                     <rect x={x} y={y} width={barW} height={barH} rx={3}
                       fill={color} opacity={isHovered ? 1 : 0.85}
                       stroke={isHovered ? "#030304" : "none"} strokeWidth={1.5} />
@@ -555,6 +561,54 @@ export default function MaccPage() {
                 );
               })}
             </svg>
+            {hoveredBar && tooltipPos && (() => {
+              const bar = visible.find((b) => b.id === hoveredBar);
+              if (!bar) return null;
+              const idx = visible.indexOf(bar);
+              const reduction = bar.baseline_factor > 0
+                ? ((bar.baseline_factor - bar.alternative_factor) / bar.baseline_factor * 100).toFixed(0)
+                : "0";
+              const costLabel = hasCostData
+                ? `${bar.cost_per_tco2e >= 0 ? "+" : "−"}R$ ${Math.abs(bar.cost_per_tco2e).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}/tCO₂e`
+                : `−${reduction}% CO₂`;
+              return (
+                <div
+                  className="pointer-events-none absolute z-10 rounded-lg border border-[#E0E4E3] bg-white shadow-[0_4px_16px_rgba(3,3,4,0.12)] px-3 py-2.5 text-xs max-w-[280px]"
+                  style={{
+                    left: Math.min(tooltipPos.x + 12, 800),
+                    top: Math.max(tooltipPos.y - 12, 0),
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                      style={{ backgroundColor: barColor(bar.category) }}>
+                      {idx + 1}
+                    </span>
+                    <p className="font-semibold text-[#030304] truncate">{bar.item_description}</p>
+                  </div>
+                  <p className="text-[11px] text-[#404040] leading-snug mb-0.5">
+                    <span className="text-[#808181]">Alternativa:</span> {bar.alternative_name}
+                  </p>
+                  {bar.supplier && (
+                    <p className="text-[11px] text-[#404040] leading-snug mb-0.5">
+                      <span className="text-[#808181]">Fornecedor:</span> {bar.supplier}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-[#404040] leading-snug mb-0.5">
+                    <span className="text-[#808181]">Abatimento:</span>{" "}
+                    {bar.abatement_tco2e.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} tCO₂e
+                    {" "}(<span className="text-[#16A34A] font-semibold">−{reduction}%</span>)
+                  </p>
+                  <p className="text-[11px] text-[#404040] leading-snug">
+                    <span className="text-[#808181]">Custo:</span>{" "}
+                    <span className={bar.cost_per_tco2e < 0 ? "text-[#16A34A] font-semibold" : "text-[#030304]"}>
+                      {costLabel}
+                    </span>
+                  </p>
+                </div>
+              );
+            })()}
+            </div>
             {sorted.length > VISIBLE_LIMIT && (
               <div className="flex justify-center mt-3">
                 <button
