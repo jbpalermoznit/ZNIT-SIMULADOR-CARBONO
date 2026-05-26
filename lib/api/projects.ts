@@ -165,13 +165,23 @@ export function uploadScenario(
 
 export function listAbcItems(
   projectId: string,
-  filters?: { item_type?: string; abc_class?: string; mapping_status?: string; curve_id?: string }
+  filters?: {
+    item_type?: string;
+    abc_class?: string;
+    mapping_status?: string;
+    curve_id?: string;
+    /** When set, the API overlays scenario_items for that scenario on top of
+     *  the project-level item_mappings. Useful so the Items page reflects
+     *  per-scenario factor substitutions. */
+    scenario_id?: string;
+  }
 ) {
   const params = new URLSearchParams();
   if (filters?.item_type) params.set("item_type", filters.item_type);
   if (filters?.abc_class) params.set("abc_class", filters.abc_class);
   if (filters?.mapping_status) params.set("mapping_status", filters.mapping_status);
   if (filters?.curve_id) params.set("curve_id", filters.curve_id);
+  if (filters?.scenario_id) params.set("scenario_id", filters.scenario_id);
   const qs = params.toString();
   return api.get<AbcItemResponse[]>(`/api/projects/${projectId}/abc-items${qs ? `?${qs}` : ""}`);
 }

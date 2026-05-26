@@ -1378,9 +1378,16 @@ export default function ItemsPage() {
   // background uma única vez por carregamento e refaz a busca. Roda
   // silencioso — o usuário só vê os números corretos no fim.
   const loadItems = useCallback(async () => {
+    // Overlay the active scenario so the Items page reflects scenario
+    // substitutions (Pareto reads from scenario_items too, so this keeps
+    // the two views in sync — clicking a Pareto bar finds its items).
+    const filters = {
+      ...(selectedCurveId ? { curve_id: selectedCurveId } : {}),
+      ...(activeScenarioId ? { scenario_id: activeScenarioId } : {}),
+    };
     try {
       const [data, proj] = await Promise.all([
-        listAbcItems(projectId, selectedCurveId ? { curve_id: selectedCurveId } : undefined),
+        listAbcItems(projectId, filters),
         getProject(projectId),
       ]);
       setProjectName(proj.name);
@@ -1391,10 +1398,7 @@ export default function ItemsPage() {
       if (needsLegacyHeal) {
         try {
           await reclassifyBlocked(projectId);
-          const refreshed = await listAbcItems(
-            projectId,
-            selectedCurveId ? { curve_id: selectedCurveId } : undefined,
-          );
+          const refreshed = await listAbcItems(projectId, filters);
           const refreshedItems = refreshed.map(toAbcItem);
           setItems(refreshedItems);
           setOpenItem((prev) => {
@@ -1419,7 +1423,7 @@ export default function ItemsPage() {
       console.error("Erro ao carregar itens");
     }
     setLoading(false);
-  }, [selectedCurveId, projectId]);
+  }, [selectedCurveId, projectId, activeScenarioId]);
 
   useEffect(() => { loadItems(); }, [loadItems]);
 
