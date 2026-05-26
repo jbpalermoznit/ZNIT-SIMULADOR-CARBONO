@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { X, Loader2, GitBranch, Pencil } from "lucide-react";
+import { X, Loader2, GitBranch, Pencil, DollarSign } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type SaveMode = "fork" | "update";
@@ -10,6 +10,9 @@ export type SaveMode = "fork" | "update";
 export interface SaveModeChoice {
   mode: SaveMode;
   newScenarioName?: string;
+  /** New unit cost for the substituted product. `null` means "no change
+   *  from the original ABC cost"; a number sets scenario_items.unit_cost_override. */
+  unitCostOverride?: number | null;
 }
 
 interface SaveModeDialogProps {
@@ -19,6 +22,15 @@ interface SaveModeDialogProps {
   /** Short summary of the change, e.g. the new factor's name. */
   changeLabel: string;
   saving?: boolean;
+  /** When true, the dialog renders the cost-change section. Pass `true`
+   *  for EPD substitutions where the product price typically differs. */
+  askCostChange?: boolean;
+  /** Original unit cost from abc_items.unit_cost (R$ per unit). */
+  currentUnitCost?: number;
+  /** Item unit for display next to the cost field (e.g. "m³", "kg"). */
+  itemUnit?: string;
+  /** Quantity for the live delta computation (`(new − old) × qty`). */
+  itemQuantity?: number;
   onCancel: () => void;
   onConfirm: (choice: SaveModeChoice) => void;
 }
@@ -28,6 +40,10 @@ export function SaveModeDialog({
   activeScenarioName,
   changeLabel,
   saving,
+  askCostChange,
+  currentUnitCost,
+  itemUnit,
+  itemQuantity,
   onCancel,
   onConfirm,
 }: SaveModeDialogProps) {
@@ -36,8 +52,21 @@ export function SaveModeDialog({
   // pending, so initialising state lazily here is enough — no effect needed.
   const [mode, setMode] = useState<SaveMode>("fork");
   const [name, setName] = useState(defaultName);
+  const [costChanged, setCostChanged] = useState(false);
+  const [newCostStr, setNewCostStr] = useState<string>(
+    currentUnitCost != null ? String(currentUnitCost) : "",
+  );
 
   if (!open) return null;
+
+  const newCostNum = costChanged ? parseFloat(newCostStr.replace(",", ".")) : NaN;
+  const newCostValid = costChanged && Number.isFinite(newCostNum) && newCostNum >= 0;
+  const deltaPerUnit = newCostValid && currentUnitCost != null
+    ? newCostNum - currentUnitCost
+    : null;
+  const deltaTotal = deltaPerUnit != null && itemQuantity != null
+    ? deltaPerUnit * itemQuantity
+    : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -109,6 +138,78 @@ export function SaveModeDialog({
               />
             </div>
           )}
+
+          {askCostChange && currentUnitCost != null && (
+            <div className="pt-2 border-t border-[#F0F4F3]">
+              <div className="flex items-start gap-2 mb-2">
+                <DollarSign size={14} className="text-[#56B7A5] mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-xs font-bold text-[#030304]">Custo do produto substituído</p>
+                  <p className="text-[11px] text-[#808181] mt-0.5">
+                    A nova EPD tem preço diferente do orçamento? Declare aqui pro cenário refletir o ΔR$.
+                  </p>
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-[11px] text-[#404040]">
+                <input
+                  type="checkbox"
+                  className="accent-[#56B7A5]"
+                  checked={costChanged}
+                  onChange={(e) => setCostChanged(e.target.checked)}
+                  disabled={saving}
+                />
+                Mudar o custo unitário (atual:{" "}
+                <span className="font-semibold text-[#030304]">
+                  {currentUnitCost.toLocaleString("pt-BR", {
+                    style: "currency",
+                    currency: "BRL",
+                    maximumFractionDigits: 2,
+                  })}
+                </span>
+                {itemUnit ? <> / {itemUnit}</> : null})
+              </label>
+              {costChanged && (
+                <div className="mt-2 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-[#808181]">Novo custo unitário</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={newCostStr}
+                      onChange={(e) => setNewCostStr(e.target.value)}
+                      disabled={saving}
+                      className="flex-1 h-8 px-2.5 rounded-lg border border-[#E0E4E3] text-xs text-[#030304] bg-white focus:outline-none focus:border-[#56B7A5]"
+                      placeholder={String(currentUnitCost)}
+                    />
+                    {itemUnit && <span className="text-[11px] text-[#808181]">R$ / {itemUnit}</span>}
+                  </div>
+                  {newCostValid && deltaTotal != null && (
+                    <p className="text-[11px] leading-snug">
+                      <span className="text-[#808181]">Variação total: </span>
+                      <span className={cn("font-semibold",
+                        deltaTotal > 0 ? "text-[#DC2626]" : deltaTotal < 0 ? "text-[#16A34A]" : "text-[#404040]"
+                      )}>
+                        {deltaTotal > 0 ? "+" : ""}
+                        {deltaTotal.toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                          maximumFractionDigits: 0,
+                        })}
+                      </span>
+                      {itemQuantity != null && (
+                        <span className="text-[10px] text-[#808181] ml-1">
+                          ({(deltaPerUnit ?? 0) >= 0 ? "+" : ""}
+                          {(deltaPerUnit ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}{" "}
+                          R$ × {itemQuantity.toLocaleString("pt-BR")} {itemUnit ?? ""})
+                        </span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-[#E0E4E3] bg-[#F8FAF9] rounded-b-xl">
@@ -117,8 +218,18 @@ export function SaveModeDialog({
           </Button>
           <Button
             size="sm"
-            disabled={saving || (mode === "fork" && !name.trim())}
-            onClick={() => onConfirm({ mode, newScenarioName: mode === "fork" ? name.trim() : undefined })}
+            disabled={
+              saving ||
+              (mode === "fork" && !name.trim()) ||
+              (costChanged && !newCostValid)
+            }
+            onClick={() =>
+              onConfirm({
+                mode,
+                newScenarioName: mode === "fork" ? name.trim() : undefined,
+                unitCostOverride: costChanged && newCostValid ? newCostNum : null,
+              })
+            }
           >
             {saving ? (
               <>
