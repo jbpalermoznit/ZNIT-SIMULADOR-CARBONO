@@ -121,6 +121,12 @@ export async function GET(
       m?.source_tier === "excluded" &&
       m?.mapped_by === "excluded" &&
       hasAutoMarker;
+    // EPDs auto-picked by an old version of the matcher (before EPDs were
+    // removed from auto-map). Items the user manually confirmed (mapped_by
+    // is a user id) or curated via Factor Rules (mapped_by='rule') are
+    // never touched. The Items page silently reverts these on load.
+    const isLegacyEpdAutoMapped =
+      m?.source_tier === "epd" && m?.mapped_by === "auto";
     return {
       id: item.id,
       abc_curve_id: item.abc_curve_id,
@@ -147,6 +153,7 @@ export async function GET(
       confidence: m?.confidence ?? null,
       auto_excluded: isAutoExcluded,
       legacy_auto_excluded: isLegacyAutoExcluded,
+      legacy_epd_auto_mapped: isLegacyEpdAutoMapped,
     };
   });
 

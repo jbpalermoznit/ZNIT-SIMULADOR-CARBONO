@@ -73,6 +73,10 @@ export interface AbcItemResponse {
    *  The Items page silently fires reclassify-blocked once on load
    *  whenever any item carries this, so legacy projects self-heal. */
   legacy_auto_excluded: boolean;
+  /** True when the mapping is an EPD that was auto-selected by an old
+   *  version of the matcher (before EPDs were removed from auto-map).
+   *  Items the user manually confirmed are not flagged. */
+  legacy_epd_auto_mapped: boolean;
 }
 
 export function listProjects() {

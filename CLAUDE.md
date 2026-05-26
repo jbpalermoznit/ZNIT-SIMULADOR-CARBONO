@@ -33,9 +33,9 @@ Always consult these docs before implementing features or making architectural d
 
 ### API / Server
 - API routes in `app/api/` (Next.js route handlers)
-- Auth: JWT via `getCurrentUser()` from `lib/server/auth.ts`
+- Auth: Clerk via `getCurrentUser()` from `lib/server/auth.ts` (Organizations as tenant unit)
 - Supabase client: `lib/server/supabase.ts` (service_role key, server-side only)
-- Emission factors hierarchy: Factor Rules → GHG Protocol → CECarbon → EPD (with GWP) → Ecoinvent
+- Auto-map hierarchy: Factor Rules → GHG Protocol → CECarbon → Ecoinvent. EPDs are intentionally NOT auto-selected — they're reserved for explicit substitution via the factor editor (searchEmissionFactors) or curated Factor Rules.
 - Unit conversion: always use `getConversionFactor()` from `lib/server/calculator.ts`
 - Emission factor data: `backend` schema in Supabase via `lib/server/supabase-emission.ts`
 

@@ -55,84 +55,111 @@ export async function POST(
   }
 
   let revertedTotal = 0;
+  let revertedEpdTotal = 0;
   let mappedTotal = 0;
   let suggestedTotal = 0;
   let stillBlockedTotal = 0;
 
   for (const curve of curves) {
-    // 1. Get every excluded item in this curve
+    // === Pass A: legacy auto-excluded items =============================
+    // Items currently in `excluded` whose mapping was written by the *old*
+    // classifier (mapped_by='excluded' with a canonical auto-justification
+    // text). Newer rows (mapped_by='auto_excluded') reflect the current
+    // policy and must not be reverted — otherwise this endpoint would
+    // oscillate on every page load.
     const { data: excludedItems } = await supabase
       .from("abc_items")
       .select("id, item_type")
       .eq("abc_curve_id", curve.id)
       .eq("mapping_status", "excluded");
 
-    if (!excludedItems || excludedItems.length === 0) continue;
-
-    const excludedIds = excludedItems.map((i) => i.id as string);
+    const excludedIds = (excludedItems ?? []).map((i) => i.id as string);
     const typeById = new Map<string, string>(
-      excludedItems.map((i) => [i.id as string, i.item_type as string]),
+      (excludedItems ?? []).map((i) => [i.id as string, i.item_type as string]),
     );
 
-    // 2. Of those, keep only the LEGACY auto-classifications — rows
-    //    written by the old code (mapped_by='excluded' with a canonical
-    //    auto-justification text). Newer rows (mapped_by='auto_excluded')
-    //    are produced by the *current* auto-map and reflect the desired
-    //    state, so we must not revert them — otherwise an auto-trigger
-    //    on Items page load would oscillate forever.
-    const { data: mappings } = await supabase
-      .from("item_mappings")
-      .select("abc_item_id, mapped_by, exclusion_justification")
-      .in("abc_item_id", excludedIds);
-
-    const autoMarkers = [
-      "classificação automática por código de custo",
-      "decomposto pelo Relatório Proof",
-    ];
-    const autoExcludedIds = (mappings ?? [])
-      .filter((m) => {
-        if (m.mapped_by !== "excluded") return false;
-        const j = String(m.exclusion_justification ?? "");
-        return autoMarkers.some((marker) => j.includes(marker));
-      })
-      .map((m) => m.abc_item_id as string);
-
-    if (autoExcludedIds.length === 0) continue;
-
-    // 3. Restore parser-C items to `blocked`. Items the parser classified
-    //    otherwise (A/B/D/E/F) but that the prefix override forced into
-    //    excluded go to `pending` so they re-enter the main match loop.
-    const cIds: string[] = [];
-    const pendingIds: string[] = [];
-    for (const id of autoExcludedIds) {
-      if (typeById.get(id) === "C") cIds.push(id);
-      else pendingIds.push(id);
+    let autoExcludedIds: string[] = [];
+    if (excludedIds.length > 0) {
+      const { data: excludedMappings } = await supabase
+        .from("item_mappings")
+        .select("abc_item_id, mapped_by, exclusion_justification")
+        .in("abc_item_id", excludedIds);
+      const autoMarkers = [
+        "classificação automática por código de custo",
+        "decomposto pelo Relatório Proof",
+      ];
+      autoExcludedIds = (excludedMappings ?? [])
+        .filter((m) => {
+          if (m.mapped_by !== "excluded") return false;
+          const j = String(m.exclusion_justification ?? "");
+          return autoMarkers.some((marker) => j.includes(marker));
+        })
+        .map((m) => m.abc_item_id as string);
     }
 
-    // 4. Delete the auto-exclusion mappings (never touches user rows).
-    await supabase
+    // === Pass B: legacy EPD auto-mappings ================================
+    // Items mapped to an EPD by the *old* auto-matcher (mapped_by='auto'
+    // AND source_tier='epd'). EPDs are no longer auto-selected — they're
+    // only for explicit substitution. Items the user manually confirmed
+    // (mapped_by=<user_id>) or curated via Factor Rules (mapped_by='rule')
+    // are not touched.
+    const { data: epdAutoMappings } = await supabase
       .from("item_mappings")
-      .delete()
-      .in("abc_item_id", autoExcludedIds);
+      .select("abc_item_id, abc_items!inner(abc_curve_id)")
+      .eq("mapped_by", "auto")
+      .eq("source_tier", "epd")
+      .eq("abc_items.abc_curve_id", curve.id);
+    const epdAutoIds = (epdAutoMappings ?? []).map((m) => m.abc_item_id as string);
 
-    if (cIds.length > 0) {
+    if (autoExcludedIds.length === 0 && epdAutoIds.length === 0) continue;
+
+    // Revert Pass A: delete mappings, restore parser-C to `blocked` and
+    // everything else to `pending` for the main match loop.
+    if (autoExcludedIds.length > 0) {
+      const cIds: string[] = [];
+      const pendingIds: string[] = [];
+      for (const id of autoExcludedIds) {
+        if (typeById.get(id) === "C") cIds.push(id);
+        else pendingIds.push(id);
+      }
       await supabase
-        .from("abc_items")
-        .update({ mapping_status: "blocked" })
-        .in("id", cIds);
+        .from("item_mappings")
+        .delete()
+        .in("abc_item_id", autoExcludedIds);
+      if (cIds.length > 0) {
+        await supabase
+          .from("abc_items")
+          .update({ mapping_status: "blocked" })
+          .in("id", cIds);
+      }
+      if (pendingIds.length > 0) {
+        await supabase
+          .from("abc_items")
+          .update({ mapping_status: "pending" })
+          .in("id", pendingIds);
+      }
+      revertedTotal += autoExcludedIds.length;
     }
-    if (pendingIds.length > 0) {
+
+    // Revert Pass B: drop EPD auto-mapping rows, mark items pending.
+    if (epdAutoIds.length > 0) {
+      await supabase
+        .from("item_mappings")
+        .delete()
+        .in("abc_item_id", epdAutoIds)
+        .eq("mapped_by", "auto")
+        .eq("source_tier", "epd");
       await supabase
         .from("abc_items")
         .update({ mapping_status: "pending" })
-        .in("id", pendingIds);
+        .in("id", epdAutoIds);
+      revertedEpdTotal += epdAutoIds.length;
     }
 
-    revertedTotal += autoExcludedIds.length;
-
-    // 4. Re-run enriched auto-map on this curve. Pass empty enrichment
-    //    inputs — the v5 persisted columns (canonical_description,
-    //    assemblies) already provide the hints for the main loop.
+    // Re-run enriched auto-map on this curve. Empty enrichment inputs —
+    // the v5 persisted columns (canonical_description, assemblies) feed
+    // the main loop directly. EPDs are no longer in the candidate pool,
+    // so the rescued items get GHG / CECarbon / Ecoinvent factors.
     const result = await runEnrichedAutoMapForCurve(
       curve.id as string,
       user.company_id,
@@ -143,11 +170,11 @@ export async function POST(
     stillBlockedTotal += result.pending;
   }
 
-  // 5. Recalculate every scenario in the project so emission totals
-  //    reflect the rescued items. Skip entirely when nothing changed —
-  //    keeps the endpoint cheap when called as a no-op on page load.
+  // Recalculate every scenario so totals reflect the rescued items. Skip
+  // entirely when nothing changed — keeps the endpoint cheap when called
+  // as a no-op on page load.
   let scenariosRecalculated = 0;
-  if (revertedTotal > 0) {
+  if (revertedTotal + revertedEpdTotal > 0) {
     const { data: scenarios } = await supabase
       .from("scenarios")
       .select("id")
@@ -165,6 +192,7 @@ export async function POST(
 
   return Response.json({
     reverted: revertedTotal,
+    reverted_epd_auto: revertedEpdTotal,
     auto_mapped: mappedTotal,
     suggested: suggestedTotal,
     still_blocked: stillBlockedTotal,
