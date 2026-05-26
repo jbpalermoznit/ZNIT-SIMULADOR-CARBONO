@@ -1317,6 +1317,7 @@ export default function ItemsPage() {
   const curveIdParam = searchParams.get("curve_id");
   const statusParam = searchParams.get("status");
   const typeParam = searchParams.get("type");
+  const factorParam = searchParams.get("factor");
   const initialStatus =
     statusParam === "auto" || statusParam === "suggested" || statusParam === "pending" || statusParam === "excluded"
       ? statusParam
@@ -1326,7 +1327,7 @@ export default function ItemsPage() {
   const [typeFilter, setTypeFilter] = useState<ItemType | "all" | "compositions">(initialType);
   const [classFilter, setClassFilter] = useState<AbcClass | "all">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "auto" | "suggested" | "pending" | "excluded">(initialStatus);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(factorParam ?? "");
   const [openItem, setOpenItem] = useState<AbcItem | null>(null);
   const [expandedComps, setExpandedComps] = useState<Set<string>>(new Set());
   const [autoMapping, setAutoMapping] = useState(false);
@@ -1468,8 +1469,13 @@ export default function ItemsPage() {
     // poluir o bucket de pendentes.
     if (statusFilter === "pending" && item.mappingStatus !== "pending") return false;
     if (statusFilter === "excluded" && item.mappingStatus !== "excluded") return false;
-    if (search && !item.description.toLowerCase().includes(search.toLowerCase()) && !item.costCode.includes(search))
-      return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const inDesc = item.description.toLowerCase().includes(q);
+      const inCost = item.costCode.toLowerCase().includes(q);
+      const inFactor = (item.epd ?? "").toLowerCase().includes(q);
+      if (!inDesc && !inCost && !inFactor) return false;
+    }
     return true;
   });
 

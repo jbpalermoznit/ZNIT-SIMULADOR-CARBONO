@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import type { ScopeDataPoint } from "@/components/charts/scope-donut";
 
 export default function OverviewPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const router = useRouter();
   const { scenarios, activeScenarioId, activeScenario, reload: reloadScenarios } =
     useActiveScenario(projectId);
   const allScenarios = scenarios.filter((s) => s.result);
@@ -46,7 +47,13 @@ export default function OverviewPage() {
       grouped[key] = (grouped[key] || 0) + item.emission_tco2e;
     }
     const sorted = Object.entries(grouped)
-      .map(([name, tco2e]) => ({ name: name.length > 25 ? name.slice(0, 22) + "…" : name, tco2e: Math.round(tco2e * 100) / 100 }))
+      .map(([name, tco2e]) => ({
+        // Keep the full name so the click handler / tooltip can use it,
+        // and a short label for the X axis tick.
+        fullName: name,
+        name: name.length > 25 ? name.slice(0, 22) + "…" : name,
+        tco2e: Math.round(tco2e * 100) / 100,
+      }))
       .sort((a, b) => b.tco2e - a.tco2e)
       .slice(0, 10);
     const totalPareto = sorted.reduce((s, d) => s + d.tco2e, 0);
@@ -417,7 +424,15 @@ export default function OverviewPage() {
                 </div>
               </CardHeader>
               <CardBody>
-                <ParetoChart data={paretoData} />
+                <ParetoChart
+                  data={paretoData}
+                  onBarClick={(point) => {
+                    const factor = point.fullName ?? point.name;
+                    router.push(
+                      `/projects/${projectId}/items?factor=${encodeURIComponent(factor)}`,
+                    );
+                  }}
+                />
               </CardBody>
             </Card>
 
