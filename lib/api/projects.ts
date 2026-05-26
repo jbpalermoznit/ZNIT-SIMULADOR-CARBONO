@@ -77,6 +77,10 @@ export interface AbcItemResponse {
    *  version of the matcher (before EPDs were removed from auto-map).
    *  Items the user manually confirmed are not flagged. */
   legacy_epd_auto_mapped: boolean;
+  /** Composições do Relatório Proof — descrições das assemblies que
+   *  este cost code consome na EAP do iTwo. Informativo (sem quantidade
+   *  ou fator), usado para mostrar o que compõe um item agrupado. */
+  assemblies: Array<{ code?: string; description?: string; uom?: string | null }>;
 }
 
 export function listProjects() {
