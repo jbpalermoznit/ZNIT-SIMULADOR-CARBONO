@@ -1370,8 +1370,10 @@ export default function ItemsPage() {
       ]);
       setProjectName(proj.name);
 
-      const hasLegacyAutoExcluded = data.some((r) => r.legacy_auto_excluded);
-      if (hasLegacyAutoExcluded) {
+      const needsLegacyHeal = data.some(
+        (r) => r.legacy_auto_excluded || r.legacy_epd_auto_mapped,
+      );
+      if (needsLegacyHeal) {
         try {
           await reclassifyBlocked(projectId);
           const refreshed = await listAbcItems(
