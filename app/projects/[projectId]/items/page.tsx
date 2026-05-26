@@ -1613,12 +1613,23 @@ export default function ItemsPage() {
                   | { kind: "asm"; parentId: string; asm: Asm; index: number };
                 const renderRows: Row[] = [];
 
-                // Compositions first: anything Tipo C blocked at top level.
-                // The rest of the top-level items follow in their original
-                // order — but if they have assemblies, they also become
-                // expandable.
-                const composições = topLevel.filter(
-                  (i) => i.mappingStatus === "blocked",
+                // Ordering rule:
+                //   1. Compositions WITH content (DB children from Insumos
+                //      or Proof assemblies) — useful, expand to something.
+                //   2. The rest of the top-level items in their natural order.
+                //   3. Empty compositions (no children, no assemblies) at
+                //      the bottom — they exist because the parser saw "Sub"
+                //      but the Proof/Insumos files don't cover them, so they
+                //      clutter the top of the table without informing the
+                //      analyst.
+                const hasContent = (i: AbcItem) =>
+                  (childrenByParent.get(i.id)?.length ?? 0) > 0 ||
+                  (i.assemblies?.length ?? 0) > 0;
+                const composiçõesComConteudo = topLevel.filter(
+                  (i) => i.mappingStatus === "blocked" && hasContent(i),
+                );
+                const composiçõesVazias = topLevel.filter(
+                  (i) => i.mappingStatus === "blocked" && !hasContent(i),
                 );
                 const others = topLevel.filter(
                   (i) => i.mappingStatus !== "blocked",
@@ -1661,8 +1672,9 @@ export default function ItemsPage() {
                   }
                 };
 
-                for (const c of composições) pushItem(c, true);
+                for (const c of composiçõesComConteudo) pushItem(c, true);
                 for (const o of others) pushItem(o, false);
+                for (const c of composiçõesVazias) pushItem(c, true);
 
                 return renderRows.map((row) => {
                   if (row.kind === "asm") {
