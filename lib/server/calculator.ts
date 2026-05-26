@@ -484,10 +484,17 @@ export async function applyFactorToScenarioItem(
   };
   if (patch.is_excluded !== undefined) update.is_excluded = patch.is_excluded;
   if (patch.exclusion_reason !== undefined) update.exclusion_reason = patch.exclusion_reason;
-  // Only touch unit_cost_override when the patch explicitly carries it,
-  // so unrelated updates don't clobber an existing override.
+  // Only touch unit_cost_override when the patch carries it AND the column
+  // exists (migration v8). On unpatched DBs we skip silently — the caller
+  // already warned in its own probe.
   if (patch.unit_cost_override !== undefined) {
-    update.unit_cost_override = patch.unit_cost_override;
+    const probe = await supabase
+      .from("scenario_items")
+      .select("unit_cost_override")
+      .limit(1);
+    if (!probe.error) {
+      update.unit_cost_override = patch.unit_cost_override;
+    }
   }
 
   const { error } = await supabase

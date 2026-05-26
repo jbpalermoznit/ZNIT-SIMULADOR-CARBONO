@@ -1325,7 +1325,10 @@ export default function ItemsPage() {
   const initialType: ItemType | "all" | "compositions" =
     typeParam === "compositions" ? "compositions" : "all";
   const [typeFilter, setTypeFilter] = useState<ItemType | "all" | "compositions">(initialType);
-  const [classFilter, setClassFilter] = useState<AbcClass | "all">("all");
+  const classParam = searchParams.get("class");
+  const initialClass: AbcClass | "all" =
+    classParam === "P1" || classParam === "P2" || classParam === "P3" ? classParam : "all";
+  const [classFilter, setClassFilter] = useState<AbcClass | "all">(initialClass);
   const [statusFilter, setStatusFilter] = useState<"all" | "auto" | "suggested" | "pending" | "excluded">(initialStatus);
   const [search, setSearch] = useState(factorParam ?? "");
   const [openItem, setOpenItem] = useState<AbcItem | null>(null);

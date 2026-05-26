@@ -31,6 +31,16 @@ export default function OverviewPage() {
   const [excludedCount, setExcludedCount] = useState(0);
   const [blockedCount, setBlockedCount] = useState(0);
   const [totalItems, setTotalItems] = useState(0);
+  // Cobertura por classe Pareto. Para cada classe, conta itens elegíveis
+  // (todos exceto Desconsiderados) e quantos têm fator aplicado
+  // (auto + manual). Bloqueado e Pendente contam como não cobertos.
+  const [coverageByClass, setCoverageByClass] = useState<
+    Record<"P1" | "P2" | "P3", { total: number; mapped: number }>
+  >({
+    P1: { total: 0, mapped: 0 },
+    P2: { total: 0, mapped: 0 },
+    P3: { total: 0, mapped: 0 },
+  });
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [paretoData, setParetoData] = useState<ParetoDataPoint[]>([]);
@@ -101,6 +111,22 @@ export default function OverviewPage() {
         setManualCount(items.filter((i) => i.mapping_status === "manual").length);
         setExcludedCount(items.filter((i) => i.mapping_status === "excluded").length);
         setBlockedCount(items.filter((i) => i.mapping_status === "blocked").length);
+
+        const cov: Record<"P1" | "P2" | "P3", { total: number; mapped: number }> = {
+          P1: { total: 0, mapped: 0 },
+          P2: { total: 0, mapped: 0 },
+          P3: { total: 0, mapped: 0 },
+        };
+        for (const i of items) {
+          if (i.mapping_status === "excluded") continue; // fora do escopo de cobertura
+          const cls = i.abc_class as "P1" | "P2" | "P3" | undefined;
+          if (cls !== "P1" && cls !== "P2" && cls !== "P3") continue;
+          cov[cls].total += 1;
+          if (i.mapping_status === "auto" || i.mapping_status === "manual") {
+            cov[cls].mapped += 1;
+          }
+        }
+        setCoverageByClass(cov);
       } catch {
         console.error("Erro ao carregar overview");
       }
@@ -353,6 +379,57 @@ export default function OverviewPage() {
                 <p className="text-2xl font-bold text-[#7E22CE] mt-1">{blockedCount}</p>
                 <p className="text-[10px] text-[#7E22CE] mt-0.5">Aguardam decomposição</p>
               </Link>
+            </div>
+          </div>
+
+          {/* Coverage by Pareto class — quick read on whether the high-impact
+              items (P1 = top 80% custo) already have factors applied. */}
+          <div className="bg-white rounded-xl border border-[#E0E4E3] p-5 mb-6">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <h2 className="text-sm font-bold text-[#030304]">Cobertura por classe Pareto</h2>
+                <p className="text-xs text-[#808181] mt-0.5">
+                  % de itens elegíveis com fator aplicado em cada classe ABC.
+                  Trabalhar bem a P1 dá o maior retorno.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-2.5">
+              {(["P1", "P2", "P3"] as const).map((cls) => {
+                const meta = coverageByClass[cls];
+                const pct = meta.total > 0 ? (meta.mapped / meta.total) * 100 : 0;
+                const color = cls === "P1" ? "#56B7A5" : cls === "P2" ? "#F59E0B" : "#BDBDBC";
+                const label = cls === "P1" ? "P1 — top 80% custo" : cls === "P2" ? "P2 — 80–95%" : "P3 — 95–100%";
+                return (
+                  <Link
+                    key={cls}
+                    href={`/projects/${projectId}/items?class=${cls}`}
+                    className="block group"
+                  >
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-semibold text-[#030304] group-hover:text-[#56B7A5] transition-colors">
+                        <span className="font-bold" style={{ color }}>{cls}</span>
+                        <span className="text-[#808181] font-normal ml-2">{label.slice(label.indexOf("—"))}</span>
+                      </span>
+                      <span className="text-[#808181]">
+                        <span className="font-semibold text-[#030304]">
+                          {meta.mapped}
+                        </span>
+                        <span className="text-[#BDBDBC]"> / {meta.total}</span>
+                        <span className="ml-2 font-bold" style={{ color }}>
+                          {meta.total > 0 ? pct.toFixed(0) : "—"}%
+                        </span>
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-[#F0F4F3] overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${pct}%`, backgroundColor: color }}
+                      />
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           </div>
 
