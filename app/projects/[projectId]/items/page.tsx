@@ -1856,11 +1856,13 @@ export default function ItemsPage() {
           onFactorSaveRequest={
             activeScenarioId
               ? (body, factorLabel, onFinish) => {
-                  // For EPD substitutions, also ask whether the substituted
-                  // product's price differs from the ABC unit cost. The
-                  // dialog uses these to render the cost-change UI and the
-                  // live ΔR$ math.
-                  const askCostChange = body.source_tier === "epd";
+                  // Any factor substitution can come with a real price
+                  // change — EPD products typically cost more or less than
+                  // the generic baseline, manual factors come from quoted
+                  // proposals, etc. We show the cost-change section as
+                  // opt-in (checkbox default off) for every non-exclusion
+                  // edit so the analyst can declare the ΔR$ when it matters.
+                  const askCostChange = body.source_tier !== "excluded";
                   setPendingFactorSave({
                     body,
                     itemId: openItem.id,

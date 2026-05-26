@@ -146,7 +146,7 @@ export function SaveModeDialog({
                 <div className="flex-1">
                   <p className="text-xs font-bold text-[#030304]">Custo do produto substituído</p>
                   <p className="text-[11px] text-[#808181] mt-0.5">
-                    A nova EPD tem preço diferente do orçamento? Declare aqui pro cenário refletir o ΔR$.
+                    O novo fator vem com preço diferente do orçamento? Declare aqui pro cenário refletir o ΔR$.
                   </p>
                 </div>
               </div>
