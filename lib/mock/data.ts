@@ -26,6 +26,8 @@ export interface AbcItem {
   classificationNote?: string | null;
   /** True when the exclusion came from the auto-classifier (not user). */
   autoExcluded?: boolean;
+  /** Composições do Relatório Proof (descrições, sem quantidade/fator). */
+  assemblies?: Array<{ code?: string; description?: string; uom?: string | null }>;
 }
 
 export interface Project {

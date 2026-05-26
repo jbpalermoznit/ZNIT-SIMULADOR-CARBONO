@@ -91,6 +91,7 @@ function toAbcItem(r: AbcItemResponse): AbcItem {
     parentItemId: r.parent_item_id ?? null,
     classificationNote: r.classification_note ?? null,
     autoExcluded: r.auto_excluded,
+    assemblies: r.assemblies ?? [],
   };
 }
 
@@ -1562,58 +1563,140 @@ export default function ItemsPage() {
             </thead>
             <tbody>
               {(() => {
-                // Separate parents (blocked compositions) from children and direct items
-                const parents = filtered.filter((i) => i.mappingStatus === "blocked" && !i.parentItemId);
+                // Group children rows under their parent_item_id (Insumos
+                // decomposition). Items without parent_item_id are top-level.
                 const childrenByParent = new Map<string, AbcItem[]>();
-                const directItems: AbcItem[] = [];
-
+                const topLevel: AbcItem[] = [];
                 for (const item of filtered) {
                   if (item.parentItemId) {
                     const list = childrenByParent.get(item.parentItemId) ?? [];
                     list.push(item);
                     childrenByParent.set(item.parentItemId, list);
-                  } else if (item.mappingStatus !== "blocked") {
-                    directItems.push(item);
+                  } else {
+                    topLevel.push(item);
                   }
                 }
 
-                // Build render list: compositions with children first, then direct items
-                const renderRows: Array<{ item: AbcItem; isParent: boolean; isChild: boolean; childCount: number }> = [];
+                // An item is "expandable" when it has either real DB children
+                // (Insumos) OR Proof assemblies as reference. The classic
+                // bold-green "Comp" row style is reserved for Tipo C blocked
+                // parents — other expandable items just get a chevron.
+                type Asm = NonNullable<AbcItem["assemblies"]>[number];
+                type Row =
+                  | { kind: "item"; item: AbcItem; isParent: boolean; isChild: boolean; childCount: number; expandable: boolean }
+                  | { kind: "asm"; parentId: string; asm: Asm; index: number };
+                const renderRows: Row[] = [];
 
-                for (const parent of parents) {
-                  const children = childrenByParent.get(parent.id) ?? [];
-                  const childEmission = children.reduce((s, c) => s + (c.emissionTco2e ?? 0), 0);
-                  // Override parent emission with sum of children
-                  const parentWithEmission = { ...parent, emissionTco2e: childEmission > 0 ? childEmission : undefined };
-                  renderRows.push({ item: parentWithEmission, isParent: true, isChild: false, childCount: children.length });
-                  if (expandedComps.has(parent.id)) {
+                // Compositions first: anything Tipo C blocked at top level.
+                // The rest of the top-level items follow in their original
+                // order — but if they have assemblies, they also become
+                // expandable.
+                const composições = topLevel.filter(
+                  (i) => i.mappingStatus === "blocked",
+                );
+                const others = topLevel.filter(
+                  (i) => i.mappingStatus !== "blocked",
+                );
+
+                const pushItem = (item: AbcItem, isParent: boolean) => {
+                  const children = childrenByParent.get(item.id) ?? [];
+                  const assemblies = item.assemblies ?? [];
+                  const expandable = children.length > 0 || assemblies.length > 0;
+                  let display = item;
+                  if (isParent && children.length > 0) {
+                    const sum = children.reduce(
+                      (s, c) => s + (c.emissionTco2e ?? 0),
+                      0,
+                    );
+                    display = { ...item, emissionTco2e: sum > 0 ? sum : undefined };
+                  }
+                  renderRows.push({
+                    kind: "item",
+                    item: display,
+                    isParent,
+                    isChild: false,
+                    childCount: children.length + assemblies.length,
+                    expandable,
+                  });
+                  if (expandable && expandedComps.has(item.id)) {
                     for (const child of children) {
-                      renderRows.push({ item: child, isParent: false, isChild: true, childCount: 0 });
+                      renderRows.push({
+                        kind: "item",
+                        item: child,
+                        isParent: false,
+                        isChild: true,
+                        childCount: 0,
+                        expandable: false,
+                      });
                     }
+                    assemblies.forEach((asm, index) => {
+                      renderRows.push({ kind: "asm", parentId: item.id, asm, index });
+                    });
                   }
-                }
+                };
 
-                for (const item of directItems) {
-                  renderRows.push({ item, isParent: false, isChild: false, childCount: 0 });
-                }
+                for (const c of composições) pushItem(c, true);
+                for (const o of others) pushItem(o, false);
 
-                return renderRows.map(({ item, isParent, isChild, childCount }) => {
+                return renderRows.map((row) => {
+                  if (row.kind === "asm") {
+                    return (
+                      <tr
+                        key={`${row.parentId}-asm-${row.index}`}
+                        className="border-b border-[#F0F4F3] bg-white"
+                      >
+                        <td className="px-4 py-2 font-mono text-[10px] text-[#BDBDBC] whitespace-nowrap pl-8">
+                          <span className="text-[#BDBDBC] mr-1">└</span>
+                          {row.asm.code ?? "—"}
+                        </td>
+                        <td
+                          colSpan={6}
+                          className="px-4 py-2 text-xs italic text-[#808181]"
+                        >
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wide text-[#9333EA] bg-[#F3E8FF] px-1.5 py-0.5 rounded">
+                              Proof
+                            </span>
+                            {row.asm.description ?? "Composição"}
+                            {row.asm.uom && (
+                              <span className="text-[10px] text-[#BDBDBC]">
+                                · {row.asm.uom}
+                              </span>
+                            )}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 text-[10px] text-[#BDBDBC] text-right whitespace-nowrap">
+                          ref
+                        </td>
+                        <td className="px-4 py-2 text-[10px] text-[#BDBDBC] text-right whitespace-nowrap">
+                          —
+                        </td>
+                      </tr>
+                    );
+                  }
+                  const { item, isParent, isChild, childCount, expandable } = row;
                   const typeMeta = itemTypeMeta[item.itemType];
                   const statusMeta = mappingStatusMeta[item.mappingStatus];
                   const isOpen = openItem?.id === item.id;
                   const isExpanded = expandedComps.has(item.id);
 
+                  const toggleExpand = () => {
+                    setExpandedComps((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(item.id)) next.delete(item.id);
+                      else next.add(item.id);
+                      return next;
+                    });
+                  };
+
                   return (
                     <tr key={item.id}
                       onClick={() => {
-                        if (isParent) {
-                          setExpandedComps((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(item.id)) next.delete(item.id);
-                            else next.add(item.id);
-                            return next;
-                          });
-                        }
+                        // Compositions (parent / Tipo C blocked) toggle on
+                        // single-click — same as before. Regular items with
+                        // assemblies require the chevron to avoid stealing
+                        // the row's natural click target.
+                        if (isParent) toggleExpand();
                       }}
                       onDoubleClick={() => { if (!isParent) setOpenItem(isOpen ? null : item); }}
                       className={cn("border-b border-[#F0F4F3] text-sm transition-all select-none",
@@ -1629,12 +1712,30 @@ export default function ItemsPage() {
                           {isParent && (
                             <ChevronDown size={14} className={cn("text-[#808181] shrink-0 transition-transform", isExpanded && "rotate-180")} />
                           )}
+                          {!isParent && expandable && (
+                            <button
+                              type="button"
+                              title={isExpanded ? "Recolher composição" : "Ver composição (Relatório Proof)"}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleExpand();
+                              }}
+                              className="shrink-0 text-[#9333EA] hover:text-[#7E22CE]"
+                            >
+                              <ChevronDown size={14} className={cn("transition-transform", isExpanded && "rotate-180")} />
+                            </button>
+                          )}
                           <div className="min-w-0">
                             <div className={cn("truncate", isParent ? "font-bold text-[#1d7a6b]" : "text-[#030304]")}>
                               {item.description}
                             </div>
                             {isParent && (
                               <div className="text-[10px] text-[#808181] mt-0.5">{childCount} insumo{childCount !== 1 ? "s" : ""}</div>
+                            )}
+                            {!isParent && expandable && !item.epd && (
+                              <div className="text-[10px] text-[#9333EA] mt-0.5">
+                                {childCount} composição{childCount !== 1 ? "es" : ""} no Relatório Proof
+                              </div>
                             )}
                             {!isParent && item.epd && <div className="text-[10px] text-[#808181] truncate mt-0.5">{item.epd}</div>}
                           </div>

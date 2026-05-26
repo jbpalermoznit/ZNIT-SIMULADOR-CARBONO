@@ -3,6 +3,34 @@ import { supabase } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import type { AuthUser } from "@/lib/server/auth";
 
+interface AssemblyRow {
+  code?: string;
+  description?: string;
+  uom?: string | null;
+}
+
+/**
+ * Proof assemblies are persisted raw and can carry many duplicates
+ * (the same composition repeats for every RN it appears in). We dedupe
+ * by code+description and cap the list so the API payload stays bounded.
+ */
+function dedupeAssemblies(raw: unknown): AssemblyRow[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const seen = new Set<string>();
+  const out: AssemblyRow[] = [];
+  for (const r of raw as AssemblyRow[]) {
+    const code = String(r?.code ?? "").trim();
+    const desc = String(r?.description ?? "").trim();
+    if (!code && !desc) continue;
+    const key = `${code}|${desc.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ code, description: desc, uom: r?.uom ?? null });
+    if (out.length >= 25) break;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/projects/[projectId]/abc-items
 // ---------------------------------------------------------------------------
@@ -154,6 +182,9 @@ export async function GET(
       auto_excluded: isAutoExcluded,
       legacy_auto_excluded: isLegacyAutoExcluded,
       legacy_epd_auto_mapped: isLegacyEpdAutoMapped,
+      // Composições do Relatório Proof: array deduplicado para o front
+      // renderizar como sub-linhas informativas ao expandir.
+      assemblies: dedupeAssemblies(item.assemblies),
     };
   });
 
