@@ -98,9 +98,16 @@ export function ParetoChart({
           radius={[3, 3, 0, 0]}
           maxBarSize={48}
           cursor={onBarClick ? "pointer" : "default"}
-          onClick={(payload) => {
+          onClick={(data) => {
             if (!onBarClick) return;
-            const point = (payload as unknown as { payload?: ParetoDataPoint })?.payload;
+            // Recharts gives Bar onClick the full data row directly. The
+            // ParetoDataPoint fields (name, fullName, tco2e, ...) live on
+            // the top-level object — `payload` is also present but as a
+            // wrapped variant. We accept either shape so a Recharts upgrade
+            // can't silently break this.
+            const top = data as unknown as ParetoDataPoint;
+            const inner = (data as unknown as { payload?: ParetoDataPoint })?.payload;
+            const point = top?.tco2e != null ? top : inner;
             if (point) onBarClick(point);
           }}
         />
