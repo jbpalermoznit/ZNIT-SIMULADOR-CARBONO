@@ -54,7 +54,7 @@ export default function ReportsPage() {
   const handleCsvDownload = async () => {
     setGenerating("csv");
     try {
-      const resp = await fetch(`/api/projects/${projectId}/export-items`, {
+      const resp = await fetch(`/api/projects/${projectId}/export-items?format=csv`, {
         credentials: "include",
       });
       const blob = await resp.blob();

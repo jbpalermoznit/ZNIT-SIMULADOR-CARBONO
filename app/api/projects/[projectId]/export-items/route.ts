@@ -38,6 +38,67 @@ export async function GET(
     .from("item_mappings").select("*").in("abc_item_id", itemIds);
   const mappingByItem = new Map((mappings ?? []).map((m) => [m.abc_item_id, m]));
 
+  // CSV branch — plain text, semicolon-separated, UTF-8 with BOM so
+  // Excel opens it with the right encoding/locale on PT-BR machines.
+  const format = req.nextUrl.searchParams.get("format");
+  if (format === "csv") {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const projectName = (project.name ?? "Projeto").replace(/\s/g, "_").replace(/\//g, "-");
+    const filename = `ZNIT_${projectName}_itens_${dateStr}.csv`;
+
+    const headers = [
+      "Descrição", "CostCode", "Tipo", "Classe", "Unidade",
+      "Quantidade", "Custo Total (R$)",
+      "Fator de Emissão", "Unidade Fator", "Fonte", "Confiança",
+      "Status", "Emissões (tCO₂e)",
+    ];
+
+    const escape = (v: unknown): string => {
+      if (v === null || v === undefined) return "";
+      const s = typeof v === "number"
+        ? v.toLocaleString("pt-BR", { maximumFractionDigits: 6 }).replace(/\./g, "").replace(",", ",")
+        : String(v);
+      // Quote when the value contains the separator, quotes, or line breaks.
+      if (/[;"\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+
+    const lines: string[] = [];
+    lines.push(headers.map(escape).join(";"));
+
+    for (const item of items) {
+      const m = mappingByItem.get(item.id);
+      const factor = m?.factor_value as number | null | undefined;
+      const emissionT = factor && item.quantity
+        ? Math.round(((item.quantity * factor) / 1000) * 10000) / 10000
+        : "";
+      lines.push([
+        item.description,
+        item.cost_code,
+        item.item_type,
+        item.abc_class,
+        item.unit,
+        item.quantity,
+        item.total_cost,
+        factor ?? "",
+        m?.factor_unit ?? "",
+        m?.source_tier ?? "",
+        m?.confidence ?? "",
+        item.mapping_status,
+        emissionT,
+      ].map(escape).join(";"));
+    }
+
+    const body = "﻿" + lines.join("\r\n") + "\r\n";
+    return new Response(body, {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        "Access-Control-Expose-Headers": "Content-Disposition",
+      },
+    });
+  }
+
   // Separate parents and children
   const parents = items.filter((i) => i.mapping_status === "blocked" && !i.parent_item_id);
   const childrenByParent = new Map<string, typeof items>();
