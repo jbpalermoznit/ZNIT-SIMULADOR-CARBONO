@@ -11,17 +11,22 @@ import {
 } from "recharts";
 
 export interface ParetoDataPoint {
+  /** Display label (may be truncated for the X axis). */
   name: string;
+  /** Full factor name — used in the tooltip and to navigate on click. */
+  fullName?: string;
   tco2e: number;
   pct: number;
   cumPct: number;
 }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
+    const point = payload[0]?.payload as ParetoDataPoint | undefined;
+    const displayName = point?.fullName ?? payload[0]?.payload?.name ?? "";
     return (
-      <div className="bg-white border border-[#E0E4E3] rounded-lg shadow-lg p-3 text-xs">
-        <p className="font-semibold text-[#030304] mb-1">{label}</p>
+      <div className="bg-white border border-[#E0E4E3] rounded-lg shadow-lg p-3 text-xs max-w-[320px]">
+        <p className="font-semibold text-[#030304] mb-1">{displayName}</p>
         {payload[0]?.value > 0 && (
           <p className="text-[#56B7A5]">
             <span className="text-[#808181]">tCO₂e: </span>
@@ -34,13 +39,20 @@ const CustomTooltip = ({ active, payload, label }: any) => {
             <span className="font-semibold">{payload[1].value.toFixed(1)}%</span>
           </p>
         )}
+        <p className="text-[10px] text-[#808181] mt-1.5 italic">Clique pra ver os itens com esse fator</p>
       </div>
     );
   }
   return null;
 };
 
-export function ParetoChart({ data }: { data?: ParetoDataPoint[] }) {
+export function ParetoChart({
+  data,
+  onBarClick,
+}: {
+  data?: ParetoDataPoint[];
+  onBarClick?: (point: ParetoDataPoint) => void;
+}) {
   if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-[260px] text-xs text-[#808181]">
@@ -85,6 +97,12 @@ export function ParetoChart({ data }: { data?: ParetoDataPoint[] }) {
           fill="#56B7A5"
           radius={[3, 3, 0, 0]}
           maxBarSize={48}
+          cursor={onBarClick ? "pointer" : "default"}
+          onClick={(payload) => {
+            if (!onBarClick) return;
+            const point = (payload as unknown as { payload?: ParetoDataPoint })?.payload;
+            if (point) onBarClick(point);
+          }}
         />
         <Line
           yAxisId="right"

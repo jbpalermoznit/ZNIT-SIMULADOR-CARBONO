@@ -1316,14 +1316,18 @@ export default function ItemsPage() {
   const highlightItemId = searchParams.get("item");
   const curveIdParam = searchParams.get("curve_id");
   const statusParam = searchParams.get("status");
+  const typeParam = searchParams.get("type");
+  const factorParam = searchParams.get("factor");
   const initialStatus =
     statusParam === "auto" || statusParam === "suggested" || statusParam === "pending" || statusParam === "excluded"
       ? statusParam
       : "all";
-  const [typeFilter, setTypeFilter] = useState<ItemType | "all" | "compositions">("all");
+  const initialType: ItemType | "all" | "compositions" =
+    typeParam === "compositions" ? "compositions" : "all";
+  const [typeFilter, setTypeFilter] = useState<ItemType | "all" | "compositions">(initialType);
   const [classFilter, setClassFilter] = useState<AbcClass | "all">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "auto" | "suggested" | "pending" | "excluded">(initialStatus);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(factorParam ?? "");
   const [openItem, setOpenItem] = useState<AbcItem | null>(null);
   const [expandedComps, setExpandedComps] = useState<Set<string>>(new Set());
   const [autoMapping, setAutoMapping] = useState(false);
@@ -1460,10 +1464,18 @@ export default function ItemsPage() {
     if (classFilter !== "all" && item.abcClass !== classFilter) return false;
     if (statusFilter === "auto" && item.mappingStatus !== "auto") return false;
     if (statusFilter === "suggested" && item.mappingStatus !== "manual") return false;
-    if (statusFilter === "pending" && !["pending", "blocked"].includes(item.mappingStatus)) return false;
+    // Pending = só itens cujo auto-map não achou fator (Tipo A pending).
+    // Composições (status 'blocked') vivem na aba própria — não devem
+    // poluir o bucket de pendentes.
+    if (statusFilter === "pending" && item.mappingStatus !== "pending") return false;
     if (statusFilter === "excluded" && item.mappingStatus !== "excluded") return false;
-    if (search && !item.description.toLowerCase().includes(search.toLowerCase()) && !item.costCode.includes(search))
-      return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const inDesc = item.description.toLowerCase().includes(q);
+      const inCost = item.costCode.toLowerCase().includes(q);
+      const inFactor = (item.epd ?? "").toLowerCase().includes(q);
+      if (!inDesc && !inCost && !inFactor) return false;
+    }
     return true;
   });
 

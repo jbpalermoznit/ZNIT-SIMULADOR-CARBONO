@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import type { ScopeDataPoint } from "@/components/charts/scope-donut";
 
 export default function OverviewPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const router = useRouter();
   const { scenarios, activeScenarioId, activeScenario, reload: reloadScenarios } =
     useActiveScenario(projectId);
   const allScenarios = scenarios.filter((s) => s.result);
@@ -46,7 +47,13 @@ export default function OverviewPage() {
       grouped[key] = (grouped[key] || 0) + item.emission_tco2e;
     }
     const sorted = Object.entries(grouped)
-      .map(([name, tco2e]) => ({ name: name.length > 25 ? name.slice(0, 22) + "…" : name, tco2e: Math.round(tco2e * 100) / 100 }))
+      .map(([name, tco2e]) => ({
+        // Keep the full name so the click handler / tooltip can use it,
+        // and a short label for the X axis tick.
+        fullName: name,
+        name: name.length > 25 ? name.slice(0, 22) + "…" : name,
+        tco2e: Math.round(tco2e * 100) / 100,
+      }))
       .sort((a, b) => b.tco2e - a.tco2e)
       .slice(0, 10);
     const totalPareto = sorted.reduce((s, d) => s + d.tco2e, 0);
@@ -236,11 +243,18 @@ export default function OverviewPage() {
         <>
           {/* Alerts */}
           <div className="space-y-2 mb-6">
-            {(pendingCount + blockedCount) > 0 && (
+            {pendingCount > 0 && (
               <Alert variant="warning">
-                <span className="font-semibold">{pendingCount + blockedCount} {pendingCount + blockedCount === 1 ? "item aguarda" : "itens aguardam"} mapeamento</span>
+                <span className="font-semibold">{pendingCount} {pendingCount === 1 ? "item aguarda" : "itens aguardam"} mapeamento</span>
                 {" "}— sem fator em nenhum catálogo. Mapeie manualmente ou desconsidere com justificativa em{" "}
                 <Link href={`/projects/${projectId}/items?status=pending`} className="underline font-semibold">Itens →</Link>
+              </Alert>
+            )}
+            {blockedCount > 0 && (
+              <Alert variant="info">
+                <span className="font-semibold">{blockedCount} {blockedCount === 1 ? "composição aguarda" : "composições aguardam"} decomposição</span>
+                {" "}— item agrupado sem insumos no Relatório Proof ou Planilha de Insumos. Veja em{" "}
+                <Link href={`/projects/${projectId}/items?type=compositions`} className="underline font-semibold">Composições →</Link>
               </Alert>
             )}
             {manualCount > 0 && (
@@ -298,7 +312,7 @@ export default function OverviewPage() {
                 Ver detalhes →
               </Link>
             </div>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-5 gap-3">
               <Link
                 href={`/projects/${projectId}/items?status=auto`}
                 className="bg-[#E6F3EE] rounded-lg p-3 border border-[#A9D7CD] hover:border-[#56B7A5] transition-all"
@@ -328,8 +342,16 @@ export default function OverviewPage() {
                 className="bg-[#FEF3C7] rounded-lg p-3 border border-[#FCD34D] hover:border-[#b45309] transition-all"
               >
                 <p className="text-[10px] font-bold text-[#92400e] uppercase tracking-wider">Pendente</p>
-                <p className="text-2xl font-bold text-[#92400e] mt-1">{pendingCount + blockedCount}</p>
+                <p className="text-2xl font-bold text-[#92400e] mt-1">{pendingCount}</p>
                 <p className="text-[10px] text-[#92400e] mt-0.5">Sem match · mapear manual</p>
+              </Link>
+              <Link
+                href={`/projects/${projectId}/items?type=compositions`}
+                className="bg-[#F3E8FF] rounded-lg p-3 border border-[#D8B4FE] hover:border-[#9333EA] transition-all"
+              >
+                <p className="text-[10px] font-bold text-[#7E22CE] uppercase tracking-wider">Composições</p>
+                <p className="text-2xl font-bold text-[#7E22CE] mt-1">{blockedCount}</p>
+                <p className="text-[10px] text-[#7E22CE] mt-0.5">Aguardam decomposição</p>
               </Link>
             </div>
           </div>
@@ -402,7 +424,15 @@ export default function OverviewPage() {
                 </div>
               </CardHeader>
               <CardBody>
-                <ParetoChart data={paretoData} />
+                <ParetoChart
+                  data={paretoData}
+                  onBarClick={(point) => {
+                    const factor = point.fullName ?? point.name;
+                    router.push(
+                      `/projects/${projectId}/items?factor=${encodeURIComponent(factor)}`,
+                    );
+                  }}
+                />
               </CardBody>
             </Card>
 
