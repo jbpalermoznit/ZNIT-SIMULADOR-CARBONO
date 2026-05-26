@@ -21,7 +21,11 @@ import {
 } from "@/lib/api/emission-factors";
 import { createFactorRule } from "@/lib/api/factor-rules";
 
-const allTypes: (ItemType | "all")[] = ["all", "A", "B", "C", "D", "E", "F"];
+/** "compositions" é um pseudo-filtro: mostra itens com sub-composições do
+ *  Relatório Proof OU itens-pai com filhos vindos de uma Planilha de Insumos. */
+const allTypes: (ItemType | "all" | "compositions")[] = [
+  "all", "A", "B", "C", "D", "E", "F", "compositions",
+];
 const allClasses: (AbcClass | "all")[] = ["all", "P1", "P2", "P3"];
 
 const TYPE_NAMES: Record<string, string> = {
@@ -1316,7 +1320,7 @@ export default function ItemsPage() {
     statusParam === "auto" || statusParam === "suggested" || statusParam === "pending" || statusParam === "excluded"
       ? statusParam
       : "all";
-  const [typeFilter, setTypeFilter] = useState<ItemType | "all">("all");
+  const [typeFilter, setTypeFilter] = useState<ItemType | "all" | "compositions">("all");
   const [classFilter, setClassFilter] = useState<AbcClass | "all">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "auto" | "suggested" | "pending" | "excluded">(initialStatus);
   const [search, setSearch] = useState("");
@@ -1431,8 +1435,28 @@ export default function ItemsPage() {
     setAutoMapping(false);
   };
 
+  // Helper for the "Composições" filter — keep items that either have
+  // sub-composições from the Relatório Proof OR are a Tipo C blocked
+  // parent with real DB children from a Planilha de Insumos. Children
+  // (parent_item_id set) are also kept so the parent expands naturally.
+  const compositionParentIds = new Set<string>();
+  if (typeFilter === "compositions") {
+    for (const it of items) {
+      if (it.parentItemId == null) {
+        const hasAssemblies = (it.assemblies?.length ?? 0) > 0;
+        const isBlockedC = it.mappingStatus === "blocked" && it.itemType === "C";
+        if (hasAssemblies || isBlockedC) compositionParentIds.add(it.id);
+      }
+    }
+  }
+
   const filtered = items.filter((item) => {
-    if (typeFilter !== "all" && item.itemType !== typeFilter) return false;
+    if (typeFilter === "compositions") {
+      const isComp = compositionParentIds.has(item.id);
+      const isChildOfComp =
+        item.parentItemId != null && compositionParentIds.has(item.parentItemId);
+      if (!isComp && !isChildOfComp) return false;
+    } else if (typeFilter !== "all" && item.itemType !== typeFilter) return false;
     if (classFilter !== "all" && item.abcClass !== classFilter) return false;
     if (statusFilter === "auto" && item.mappingStatus !== "auto") return false;
     if (statusFilter === "suggested" && item.mappingStatus !== "manual") return false;
@@ -1456,7 +1480,7 @@ export default function ItemsPage() {
             {autoMapping ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
             {autoMapping ? "Mapeando..." : "Auto-Map Tipo A"}
           </Button>
-          <Button variant="outline" onClick={async () => {
+          <Button variant="outline" size="sm" onClick={async () => {
             try {
               const base = process.env.NEXT_PUBLIC_API_URL ?? "";
               const projResp = await fetch(`${base}/api/projects/${projectId}`, { credentials: "include" });
@@ -1471,7 +1495,7 @@ export default function ItemsPage() {
               a.click();
               URL.revokeObjectURL(a.href);
             } catch {}
-          }}><Download size={15} /> Exportar Excel</Button>
+          }}><Download size={14} /> Exportar Excel</Button>
         </div>
       </div>
 
@@ -1508,8 +1532,10 @@ export default function ItemsPage() {
           {allTypes.map((t) => (
             <button key={t} onClick={() => setTypeFilter(t)}
               className={cn("px-2.5 py-1 rounded text-xs font-semibold transition-all",
-                typeFilter === t ? "bg-[#56B7A5] text-white" : "bg-[#F3F4F6] text-[#808181] hover:bg-[#E0E4E3]")}>
-              {t === "all" ? "Todos" : `Tipo ${t}`}
+                typeFilter === t
+                  ? (t === "compositions" ? "bg-[#9333EA] text-white" : "bg-[#56B7A5] text-white")
+                  : "bg-[#F3F4F6] text-[#808181] hover:bg-[#E0E4E3]")}>
+              {t === "all" ? "Todos" : t === "compositions" ? "Composições" : `Tipo ${t}`}
             </button>
           ))}
         </div>

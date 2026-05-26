@@ -239,6 +239,16 @@ export default function MaccPage() {
     [barsWithCost]
   );
 
+  // The chart starts compact — only the top 5 cheapest abatements show
+  // by default, so analysts focus on the high-impact wedges first.
+  // Toggle below the chart reveals the rest.
+  const [showAllBars, setShowAllBars] = useState(false);
+  const VISIBLE_LIMIT = 5;
+  const visible = useMemo(
+    () => (showAllBars ? sorted : sorted.slice(0, VISIBLE_LIMIT)),
+    [showAllBars, sorted]
+  );
+
   // KPIs computed from sorted bars with multipliers
   const kpis = useMemo(() => {
     if (sorted.length === 0) return null;
@@ -270,14 +280,14 @@ export default function MaccPage() {
 
   // Y-axis: cost or reduction %
   const reductionPcts = useMemo(
-    () => sorted.map((d) =>
+    () => visible.map((d) =>
       d.baseline_factor > 0 ? ((d.baseline_factor - d.alternative_factor) / d.baseline_factor) * 100 : 0
     ),
-    [sorted]
+    [visible]
   );
   const maxReduction = Math.max(...(reductionPcts.length ? reductionPcts : [10]), 10);
   const maxCost = hasCostData
-    ? Math.max(...sorted.map((d) => Math.abs(d.cost_per_tco2e)), 20)
+    ? Math.max(...visible.map((d) => Math.abs(d.cost_per_tco2e)), 20)
     : maxReduction;
 
   const yScale = useCallback(
@@ -286,9 +296,9 @@ export default function MaccPage() {
   );
   const zeroY = yScale(0);
 
-  const totalAbatement = sorted.reduce((s, d) => s + d.abatement_tco2e, 0);
+  const totalAbatement = visible.reduce((s, d) => s + d.abatement_tco2e, 0);
   const barGap = 6;
-  const totalGaps = Math.max(0, sorted.length - 1) * barGap;
+  const totalGaps = Math.max(0, visible.length - 1) * barGap;
   const xScale = useCallback(
     (abatement: number) =>
       totalAbatement > 0 ? (abatement / totalAbatement) * (innerW - totalGaps) : 0,
@@ -298,12 +308,12 @@ export default function MaccPage() {
   const barPositions = useMemo(() => {
     const positions: number[] = [];
     let acc = padL;
-    for (const bar of sorted) {
+    for (const bar of visible) {
       positions.push(acc);
       acc += Math.max(xScale(bar.abatement_tco2e), 20) + barGap;
     }
     return positions;
-  }, [sorted, padL, barGap, xScale]);
+  }, [visible, padL, barGap, xScale]);
 
   // Grid — dynamic steps based on maxCost
   const gridSteps = hasCostData
@@ -470,7 +480,7 @@ export default function MaccPage() {
               </text>
 
               {/* X-axis: abatement value below each bar */}
-              {sorted.map((bar, idx) => {
+              {visible.map((bar, idx) => {
                 const barW = Math.max(xScale(bar.abatement_tco2e), 20);
                 const xMid = (barPositions[idx] ?? padL) + barW / 2;
                 const label = bar.abatement_tco2e >= 1000
@@ -504,7 +514,7 @@ export default function MaccPage() {
               )}
 
               {/* Bars */}
-              {sorted.map((bar, idx) => {
+              {visible.map((bar, idx) => {
                 const barW = Math.max(xScale(bar.abatement_tco2e), 20);
                 const x = barPositions[idx];
                 const yValue = hasCostData
@@ -514,12 +524,25 @@ export default function MaccPage() {
                 const y = yValue >= 0 ? zeroY - barH : zeroY;
                 const isHovered = hoveredBar === bar.id;
                 const color = barColor(bar.category);
+                const reduction = bar.baseline_factor > 0
+                  ? ((bar.baseline_factor - bar.alternative_factor) / bar.baseline_factor * 100).toFixed(0)
+                  : "0";
+                const costLabel = hasCostData
+                  ? `${bar.cost_per_tco2e >= 0 ? "+" : "−"}R$ ${Math.abs(bar.cost_per_tco2e).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}/tCO₂e`
+                  : `−${reduction}% CO₂`;
+                const tooltip =
+                  `${idx + 1}. ${bar.item_description}\n` +
+                  `Alternativa: ${bar.alternative_name}\n` +
+                  `Fornecedor: ${bar.supplier ?? "—"}\n` +
+                  `Abatimento: ${bar.abatement_tco2e.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} tCO₂e (−${reduction}%)\n` +
+                  `Custo: ${costLabel}`;
 
                 return (
                   <g key={bar.id}
                     onMouseEnter={() => setHoveredBar(bar.id)}
                     onMouseLeave={() => setHoveredBar(null)}
                     className="cursor-pointer">
+                    <title>{tooltip}</title>
                     <rect x={x} y={y} width={barW} height={barH} rx={3}
                       fill={color} opacity={isHovered ? 1 : 0.85}
                       stroke={isHovered ? "#030304" : "none"} strokeWidth={1.5} />
@@ -532,10 +555,23 @@ export default function MaccPage() {
                 );
               })}
             </svg>
+            {sorted.length > VISIBLE_LIMIT && (
+              <div className="flex justify-center mt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAllBars((v) => !v)}
+                  className="text-xs font-semibold text-[#56B7A5] hover:text-[#1d7a6b] transition-colors"
+                >
+                  {showAllBars
+                    ? `Mostrar apenas os ${VISIBLE_LIMIT} principais`
+                    : `Ver todos os ${sorted.length} materiais`}
+                </button>
+              </div>
+            )}
 
             {/* Legend below chart */}
             <div className="flex flex-wrap gap-x-6 gap-y-2 mt-4 px-2">
-              {sorted.map((bar, idx) => {
+              {visible.map((bar, idx) => {
                 const reduction = bar.baseline_factor > 0
                   ? ((bar.baseline_factor - bar.alternative_factor) / bar.baseline_factor * 100).toFixed(0)
                   : "0";
