@@ -259,6 +259,10 @@ function stemPt(word: string): string {
 
 export function extractKeywords(description: string): string[] {
   let text = description.toLowerCase().trim();
+  // Normalizar resistência: "40MPA" / "40 mpa" → fck=40, para que o concreto
+  // caia na query específica ("concreto 40") e ache o fator CECarbon BR certo
+  // em vez de um Ecoinvent genérico.
+  text = text.replace(/(\d+)\s*mpa\b/g, "fck=$1");
   // Normalizar fck
   text = text.replace(/fck\s*=?\s*(\d+)/g, "fck=$1");
   text = text.replace(/mrtf\s*=?\s*[\d,]+/g, "mrtf");
@@ -700,7 +704,7 @@ export async function autoMatchItem(
   // ---------------------------------------------------------------
   for (const q of cecarbonQueries.slice(0, 6)) {
     try {
-      const rows = await searchCecarbon(q, 10);
+      const rows = await searchCecarbon(q, 25);
       for (const row of rows) {
         const score = scoreCecarbon(description, row, cecarbonQueries);
         let factorValue = row["fator de emissão (kgCO2)"];
@@ -742,12 +746,21 @@ export async function autoMatchItem(
       for (const row of rows) {
         const score = scoreEcoinvent(description, row, ecoinventQueries);
         const impact = row.impact_score ?? "0";
+        // O impact_score do Ecoinvent é por `product_unit` (kg/m³/unit/m²),
+        // mas impact_unit é só "kg CO2-Eq". Sem o denominador, o
+        // getConversionFactor removia o prefixo e devolvia 1.0 — aplicando,
+        // p.ex., um fator de aço por kg a um item em "m" ou "un". Codificamos
+        // o denominador real para a conversão (e a penalidade de unidade)
+        // funcionarem e rejeitarem incompatíveis.
+        const prodUnit = ((row.product_unit as string) ?? "").trim();
         allCandidates.push({
           source_tier: "ecoinvent",
           score,
           factor_value: impact ? parseFloat(String(impact)) : 0.0,
-          factor_unit: (row.impact_unit as string) ?? "kg CO2-Eq",
-          product_unit: (row.product_unit as string) ?? "",
+          factor_unit: prodUnit
+            ? `kgCO2e/${prodUnit}`
+            : ((row.impact_unit as string) ?? "kg CO2-Eq"),
+          product_unit: prodUnit,
           factor_name: (row.product_name as string) ?? "",
           factor_source: `Ecoinvent — ${(row.activity_name as string) ?? ""}`,
           geography: (row.geography as string) ?? "",
@@ -784,12 +797,17 @@ export async function autoMatchItem(
   // Filter out zero-value factors
   unique = unique.filter((c) => c.factor_value > 0);
 
-  // Filter out infrastructure-scale factors
+  // Filter out infrastructure/equipment-scale per-piece factors.
+  // Insumos contados em "unit"/"un" na construção (parafuso, parabolt,
+  // espaçador, chumbador) emitem fração de kgCO₂ por peça. Um fator
+  // por-unidade na casa das centenas/milhares quase sempre é match errado
+  // com equipamento industrial (ex.: "parafuso" → "air compressor,
+  // screw-type" = 794 kgCO₂/unit, que inflava o GUARDA CORPO para 147 t).
   unique = unique.filter(
     (c) =>
       !(
-        (c.product_unit ?? "").toLowerCase() === "unit" &&
-        c.factor_value > 10000
+        ["unit", "un"].includes((c.product_unit ?? "").toLowerCase()) &&
+        c.factor_value > 100
       )
   );
 
