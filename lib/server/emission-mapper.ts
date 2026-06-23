@@ -19,6 +19,32 @@ import {
   searchCecarbon,
 } from "@/lib/server/supabase-emission";
 import { getConversionFactor } from "@/lib/server/calculator";
+import {
+  vectorSearchCandidates,
+  isVectorSearchEnabled,
+} from "@/lib/server/factor-search/vector-search";
+import {
+  rerankWithClaude,
+  isRerankerEnabled,
+} from "@/lib/server/factor-search/claude-reranker";
+
+// ---------------------------------------------------------------------------
+// Acentuação
+// ---------------------------------------------------------------------------
+// As descrições do orçamento iTwo vêm em CAIXA ALTA e SEM acento
+// ("ACO CA-50", "OLEO DIESEL", "COMBUSTIVEL PARA VEICULOS"), enquanto as
+// chaves dos dicionários de busca abaixo usam a grafia acentuada ("aço",
+// "óleo", "combustível", "alumínio", "escavação"). Sem normalizar acentos
+// no lado da BUSCA, esses materiais nunca casavam e ficavam "não
+// encontrados" — derrubando o total para ~60% do simulador antigo.
+//
+// A normalização é feita apenas no LOOKUP (chaves dos dicionários e
+// comparação de keywords); os tokens retornados por extractKeywords
+// preservam a grafia original para não quebrar contratos existentes.
+
+export function stripAccents(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
 
 // ---------------------------------------------------------------------------
 // Tradução PT→EN e queries compostas para Ecoinvent
@@ -133,8 +159,20 @@ const SEARCH_QUERIES: Record<string, string[]> = {
   // Combustíveis
   diesel: ["diesel"],
   "óleodiesel": ["diesel"],
+  "combustível": ["diesel"],
   gasolina: ["gasoline"],
 };
+
+// Versão normalizada (sem acento) das chaves — usada no lookup porque as
+// descrições do orçamento chegam sem acentuação. Ver nota em stripAccents.
+const SEARCH_QUERIES_NORM: Record<string, string[]> = (() => {
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(SEARCH_QUERIES)) {
+    const nk = stripAccents(k);
+    out[nk] = [...(out[nk] ?? []), ...v];
+  }
+  return out;
+})();
 
 // Normalização de nomes compostos escritos junto
 const COMPOUND_FIXES: Record<string, string> = {
@@ -159,6 +197,11 @@ const GHG_TRIGGER_WORDS = new Set([
   "óleodiesel",
   "óleo",
 ]);
+
+// Versão sem acento — comparada contra keywords também sem acento.
+const GHG_TRIGGER_WORDS_NORM = new Set(
+  [...GHG_TRIGGER_WORDS].map((w) => stripAccents(w))
+);
 
 // Palavras ignoradas
 const STOPWORDS = new Set([
@@ -224,11 +267,19 @@ function stemPt(word: string): string {
 
 export function extractKeywords(description: string): string[] {
   let text = description.toLowerCase().trim();
+  // Normalizar resistência: "40MPA" / "40 mpa" → fck=40, para que o concreto
+  // caia na query específica ("concreto 40") e ache o fator CECarbon BR certo
+  // em vez de um Ecoinvent genérico.
+  text = text.replace(/(\d+)\s*mpa\b/g, "fck=$1");
   // Normalizar fck
   text = text.replace(/fck\s*=?\s*(\d+)/g, "fck=$1");
   text = text.replace(/mrtf\s*=?\s*[\d,]+/g, "mrtf");
   // Normalizar palavras escritas junto
   text = text.replace(/[oó]l[eé]o\s*diesel/g, "óleo diesel");
+  // "COMBUSTIVEL PARA VEICULOS E EQUIPAMENTOS" não tem fator próprio na base;
+  // o simulador antigo o trata como combustão de diesel. Injetamos o token
+  // "diesel" para que a busca GHG (combustíveis) o alcance.
+  text = text.replace(/combust[ií]vel/g, "combustível diesel");
   for (const [wrong, fixed] of Object.entries(COMPOUND_FIXES)) {
     text = text.replaceAll(wrong, fixed);
   }
@@ -244,6 +295,14 @@ export function extractKeywords(description: string): string[] {
       keywords.push(w);
     }
   }
+  // Reagrupar a bitola do aço: o splitter fragmenta "CA-50" em "ca" + "50".
+  // Emitimos também o token unido (ca50/ca60/ca25) que as tabelas de busca
+  // reconhecem como aço/vergalhão — sem isso, armaduras, parabolts e
+  // guarda-corpos em aço não casavam com nenhum fator.
+  for (const m of text.matchAll(/\bca[\s-]?(\d{2})\b/g)) {
+    const tok = "ca" + m[1];
+    if (!keywords.includes(tok)) keywords.push(tok);
+  }
   return keywords;
 }
 
@@ -257,15 +316,16 @@ function buildSearchQueries(
   const queries: string[] = [];
   let shouldGhg = false;
 
+  const joinedNorm = stripAccents(keywords.join(" "));
   for (const kw of keywords) {
-    if (GHG_TRIGGER_WORDS.has(kw)) shouldGhg = true;
-    if (kw in SEARCH_QUERIES) {
-      queries.push(...SEARCH_QUERIES[kw]);
+    const nkw = stripAccents(kw);
+    if (GHG_TRIGGER_WORDS_NORM.has(nkw)) shouldGhg = true;
+    if (nkw in SEARCH_QUERIES_NORM) {
+      queries.push(...SEARCH_QUERIES_NORM[nkw]);
     }
     // Check multi-word matches
-    const joined = keywords.join(" ");
-    for (const [trigger, qList] of Object.entries(SEARCH_QUERIES)) {
-      if (trigger.includes(" ") && joined.includes(trigger)) {
+    for (const [trigger, qList] of Object.entries(SEARCH_QUERIES_NORM)) {
+      if (trigger.includes(" ") && joinedNorm.includes(trigger)) {
         queries.push(...qList);
       }
     }
@@ -379,15 +439,27 @@ const CECARBON_QUERIES: Record<string, string[]> = {
   bidim: [],
   lona: [],
   diesel: ["óleo diesel"],
+  "combustível": ["óleo diesel"],
   gasolina: ["gasolina"],
   "óleo": ["óleos lubrificantes"],
 };
 
+// Versão normalizada (sem acento) das chaves — ver nota em stripAccents.
+const CECARBON_QUERIES_NORM: Record<string, string[]> = (() => {
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(CECARBON_QUERIES)) {
+    const nk = stripAccents(k);
+    out[nk] = [...(out[nk] ?? []), ...v];
+  }
+  return out;
+})();
+
 function buildCecarbonQueries(keywords: string[]): string[] {
   const queries: string[] = [];
   for (const kw of keywords) {
-    if (kw in CECARBON_QUERIES) {
-      queries.push(...CECARBON_QUERIES[kw]);
+    const nkw = stripAccents(kw);
+    if (nkw in CECARBON_QUERIES_NORM) {
+      queries.push(...CECARBON_QUERIES_NORM[nkw]);
     }
   }
   const seen = new Set<string>();
@@ -640,7 +712,7 @@ export async function autoMatchItem(
   // ---------------------------------------------------------------
   for (const q of cecarbonQueries.slice(0, 6)) {
     try {
-      const rows = await searchCecarbon(q, 10);
+      const rows = await searchCecarbon(q, 25);
       for (const row of rows) {
         const score = scoreCecarbon(description, row, cecarbonQueries);
         let factorValue = row["fator de emissão (kgCO2)"];
@@ -682,12 +754,21 @@ export async function autoMatchItem(
       for (const row of rows) {
         const score = scoreEcoinvent(description, row, ecoinventQueries);
         const impact = row.impact_score ?? "0";
+        // O impact_score do Ecoinvent é por `product_unit` (kg/m³/unit/m²),
+        // mas impact_unit é só "kg CO2-Eq". Sem o denominador, o
+        // getConversionFactor removia o prefixo e devolvia 1.0 — aplicando,
+        // p.ex., um fator de aço por kg a um item em "m" ou "un". Codificamos
+        // o denominador real para a conversão (e a penalidade de unidade)
+        // funcionarem e rejeitarem incompatíveis.
+        const prodUnit = ((row.product_unit as string) ?? "").trim();
         allCandidates.push({
           source_tier: "ecoinvent",
           score,
           factor_value: impact ? parseFloat(String(impact)) : 0.0,
-          factor_unit: (row.impact_unit as string) ?? "kg CO2-Eq",
-          product_unit: (row.product_unit as string) ?? "",
+          factor_unit: prodUnit
+            ? `kgCO2e/${prodUnit}`
+            : ((row.impact_unit as string) ?? "kg CO2-Eq"),
+          product_unit: prodUnit,
           factor_name: (row.product_name as string) ?? "",
           factor_source: `Ecoinvent — ${(row.activity_name as string) ?? ""}`,
           geography: (row.geography as string) ?? "",
@@ -698,6 +779,16 @@ export async function autoMatchItem(
     } catch {
       continue;
     }
+  }
+
+  // ---------------------------------------------------------------
+  // Tier 4 (opcional): recall semântico via embeddings (RAG).
+  // Desligado por padrão (FACTOR_VECTOR_SEARCH_ENABLED + VOYAGE_API_KEY).
+  // Soma candidatos ao pool; eles passam pelos mesmos filtros/guardas.
+  // ---------------------------------------------------------------
+  if (isVectorSearchEnabled()) {
+    const vec = await vectorSearchCandidates(description);
+    allCandidates.push(...vec);
   }
 
   // ---------------------------------------------------------------
@@ -724,12 +815,17 @@ export async function autoMatchItem(
   // Filter out zero-value factors
   unique = unique.filter((c) => c.factor_value > 0);
 
-  // Filter out infrastructure-scale factors
+  // Filter out infrastructure/equipment-scale per-piece factors.
+  // Insumos contados em "unit"/"un" na construção (parafuso, parabolt,
+  // espaçador, chumbador) emitem fração de kgCO₂ por peça. Um fator
+  // por-unidade na casa das centenas/milhares quase sempre é match errado
+  // com equipamento industrial (ex.: "parafuso" → "air compressor,
+  // screw-type" = 794 kgCO₂/unit, que inflava o GUARDA CORPO para 147 t).
   unique = unique.filter(
     (c) =>
       !(
-        (c.product_unit ?? "").toLowerCase() === "unit" &&
-        c.factor_value > 10000
+        ["unit", "un"].includes((c.product_unit ?? "").toLowerCase()) &&
+        c.factor_value > 100
       )
   );
 
@@ -809,12 +905,29 @@ export async function autoMatchItem(
   unique.sort((a, b) => b.score - a.score);
 
   // Determine best and confidence
-  const best = unique.length > 0 ? unique[0] : null;
+  let best = unique.length > 0 ? unique[0] : null;
   let confidence: "high" | "medium" | "low" | null = null;
   if (best) {
     if (best.score >= 80) confidence = "high";
     else if (best.score >= 60) confidence = "medium";
     else confidence = "low";
+  }
+
+  // ---------------------------------------------------------------
+  // Rerank opcional via Claude (FACTOR_RERANKER_ENABLED + ANTHROPIC_API_KEY).
+  // Reordena o topo do pool escolhendo o fator semanticamente correto e
+  // valida unidade; qualquer falha mantém o resultado determinístico acima.
+  // ---------------------------------------------------------------
+  if (best && isRerankerEnabled()) {
+    const top = unique.slice(0, 12);
+    const reranked = await rerankWithClaude(description, unit, top);
+    if (reranked && reranked.bestIndex !== null) {
+      const chosen = top[reranked.bestIndex];
+      // Move o escolhido para o topo da lista de resultados.
+      unique = [chosen, ...unique.filter((c) => c !== chosen)];
+      best = chosen;
+      confidence = reranked.confidence;
+    }
   }
 
   return {

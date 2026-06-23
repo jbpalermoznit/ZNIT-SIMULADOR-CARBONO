@@ -146,6 +146,12 @@ const TYPE_BY_KEYWORD: [string, string][] = [
   ["corte dobra", "D"],
   ["bombeamento", "D"],
   ["arrasamento", "D"],
+  // Serviços de mão-de-obra/montagem — o material (concreto, aço) é
+  // orçado em linhas próprias; estes itens são acabamento/montagem e não
+  // devem casar um fator de material bruto pela descrição (evita dupla
+  // contagem e o casamento espúrio com "concreto").
+  ["acabamento", "F"],
+  ["fabricacao e montagem", "F"],
   // Administrativo
   ["ensaio", "F"],
   ["controle de concreto", "F"],
