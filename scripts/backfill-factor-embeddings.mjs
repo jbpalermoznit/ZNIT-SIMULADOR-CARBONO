@@ -92,8 +92,19 @@ async function loadRows() {
 }
 
 async function main() {
-  const rows = await loadRows();
-  console.log(`Carregados ${rows.length} fatores. Gerando embeddings (${MODEL})...`);
+  const loaded = await loadRows();
+  // Dedup por (source_tier, source_id): a fonte tem ids repetidos e o upsert
+  // rejeita ("ON CONFLICT cannot affect row a second time") se a mesma chave
+  // cair no mesmo lote. Mantém a última ocorrência.
+  const byKey = new Map();
+  for (const r of loaded) byKey.set(`${r.source_tier}::${r.source_id}`, r);
+  const rows = [...byKey.values()];
+  const dropped = loaded.length - rows.length;
+  console.log(
+    `Carregados ${loaded.length} fatores` +
+      (dropped > 0 ? ` (${dropped} duplicados removidos → ${rows.length})` : "") +
+      `. Gerando embeddings (${MODEL})...`,
+  );
   const BATCH = 100;
   let done = 0;
   for (let i = 0; i < rows.length; i += BATCH) {
