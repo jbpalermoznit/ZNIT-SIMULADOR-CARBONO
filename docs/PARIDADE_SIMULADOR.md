@@ -104,3 +104,47 @@ ARMADURA estacas 49,5 vs 47,5 ✅ · BRITA 1,37 = 1,37 ✅ · GUARDA CORPO ~0 (e
   espessura→m³ se quiser paridade nesse item.
 - Insumos pontuais sem fator (pontalete, sarrafo, espaçador, mangueiras, fitas):
   cobertura menor; avaliar cadastro de fatores se relevante ao total.
+
+## Estratégia de máxima precisão (RAG + reranker Claude)
+
+Para elevar a precisão do match acima do keyword+fuzzy determinístico, foi
+adicionada uma pilha em camadas (inspirada no simulador antigo, mas com as
+guardas determinísticas que impedem os erros de unidade/escala). **Tudo é
+opcional e desligado por padrão** — o pipeline determinístico segue intacto
+quando as flags estão off.
+
+| Camada | Onde | Liga com |
+|---|---|---|
+| 0. Factor Rules (cache curado por empresa) | já existia em `autoMatchItem` | — (sempre ativo) |
+| 1. RAG — embeddings/pgvector (recall semântico) | `lib/server/factor-search/{embeddings,vector-search}.ts` | `FACTOR_VECTOR_SEARCH_ENABLED=true` + `VOYAGE_API_KEY` |
+| 2. Reranker LLM (escolhe + valida unidade) | `lib/server/factor-search/claude-reranker.ts` | `FACTOR_RERANKER_ENABLED=true` + `ANTHROPIC_API_KEY` |
+| 3. Guardas determinísticas (unidade/escala/BR) | `emission-mapper.ts` (já aplicadas) | — |
+| 4. Revisão humana / confirmação → Factor Rule | UI de fator | — |
+
+**Por que Claude no reranker:** o LLM raciocina sobre contexto e unidade
+("parafuso em 'un' não casa com fator de aço por kg"; "concreto 40MPA →
+fator BR de concreto 40"), eliminando os matches espúrios na origem. Modelo
+padrão `claude-opus-4-8` (`FACTOR_RERANKER_MODEL` para trocar); saída
+estruturada (`output_config.format`); falha → mantém o determinístico.
+
+**Por que Voyage nos embeddings:** a Anthropic não tem API de embeddings; a
+recomendação oficial é a Voyage (voyage-3.5, 1024d).
+
+### Setup (para ativar)
+1. **Fase 0:** aplicar `supabase/fix-factor-scale.sql` (corrige os fatores de
+   escala errada — ganho imediato, independente do resto).
+2. **Fase 1:** aplicar `supabase/migration-pgvector-factor-embeddings.sql`,
+   depois `VOYAGE_API_KEY=... node scripts/backfill-factor-embeddings.mjs`,
+   e setar `FACTOR_VECTOR_SEARCH_ENABLED=true`.
+3. **Fase 2:** setar `ANTHROPIC_API_KEY` e `FACTOR_RERANKER_ENABLED=true`.
+
+> ⚠️ **Validação:** o reranker e a busca vetorial não foram validados em
+> runtime aqui (dependem de `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY` e do
+> `pgvector` na sua infra). A lógica de parsing/guardas tem testes unitários
+> (`tests/lib/server/claude-reranker.test.ts`). Recomenda-se ativar primeiro
+> em um projeto de teste e conferir cobertura/itens antes de produção.
+
+> Trade-off: o reranker LLM não é determinístico turno a turno — itens
+> recorrentes devem ser fixados como **Factor Rule** (camada 0) para virarem
+> determinísticos e baratos. Custo/latência sobem (1 chamada Claude + 1 Voyage
+> por material) — aceitável quando a prioridade é precisão.

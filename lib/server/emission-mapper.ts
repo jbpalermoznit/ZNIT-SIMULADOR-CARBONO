@@ -19,6 +19,14 @@ import {
   searchCecarbon,
 } from "@/lib/server/supabase-emission";
 import { getConversionFactor } from "@/lib/server/calculator";
+import {
+  vectorSearchCandidates,
+  isVectorSearchEnabled,
+} from "@/lib/server/factor-search/vector-search";
+import {
+  rerankWithClaude,
+  isRerankerEnabled,
+} from "@/lib/server/factor-search/claude-reranker";
 
 // ---------------------------------------------------------------------------
 // Acentuação
@@ -774,6 +782,16 @@ export async function autoMatchItem(
   }
 
   // ---------------------------------------------------------------
+  // Tier 4 (opcional): recall semântico via embeddings (RAG).
+  // Desligado por padrão (FACTOR_VECTOR_SEARCH_ENABLED + VOYAGE_API_KEY).
+  // Soma candidatos ao pool; eles passam pelos mesmos filtros/guardas.
+  // ---------------------------------------------------------------
+  if (isVectorSearchEnabled()) {
+    const vec = await vectorSearchCandidates(description);
+    allCandidates.push(...vec);
+  }
+
+  // ---------------------------------------------------------------
   // Dedup, filter, rank
   // ---------------------------------------------------------------
   const seen = new Set<string>();
@@ -887,12 +905,29 @@ export async function autoMatchItem(
   unique.sort((a, b) => b.score - a.score);
 
   // Determine best and confidence
-  const best = unique.length > 0 ? unique[0] : null;
+  let best = unique.length > 0 ? unique[0] : null;
   let confidence: "high" | "medium" | "low" | null = null;
   if (best) {
     if (best.score >= 80) confidence = "high";
     else if (best.score >= 60) confidence = "medium";
     else confidence = "low";
+  }
+
+  // ---------------------------------------------------------------
+  // Rerank opcional via Claude (FACTOR_RERANKER_ENABLED + ANTHROPIC_API_KEY).
+  // Reordena o topo do pool escolhendo o fator semanticamente correto e
+  // valida unidade; qualquer falha mantém o resultado determinístico acima.
+  // ---------------------------------------------------------------
+  if (best && isRerankerEnabled()) {
+    const top = unique.slice(0, 12);
+    const reranked = await rerankWithClaude(description, unit, top);
+    if (reranked && reranked.bestIndex !== null) {
+      const chosen = top[reranked.bestIndex];
+      // Move o escolhido para o topo da lista de resultados.
+      unique = [chosen, ...unique.filter((c) => c !== chosen)];
+      best = chosen;
+      confidence = reranked.confidence;
+    }
   }
 
   return {
