@@ -172,10 +172,56 @@ function ImpactAnalysis({ scenarioId, projectId }: { scenarioId: string; project
     .filter((p) => p.emission_tco2e > 0)
     .sort((a, b) => b.emission_tco2e - a.emission_tco2e);
 
-  // Direct items (no parent) with emission
-  const directItems = detail.items
-    .filter((i) => !((i as unknown as Record<string, unknown>).parent_item_id) && (i.emission_tco2e ?? 0) > 0 && !i.is_excluded)
-    .sort((a, b) => (b.emission_tco2e ?? 0) - (a.emission_tco2e ?? 0));
+  // Direct items (no parent) with emission — aggregated by material so the
+  // same material used in different parts of the budget (e.g. CONCRETO 40MPA
+  // em 3 trechos) shows as a SINGLE row with the summed emission, matching the
+  // legacy report (que agrupa por ID_PAI/material) em vez de "aparecer 3x".
+  const directRaw = detail.items.filter(
+    (i) =>
+      !((i as unknown as Record<string, unknown>).parent_item_id) &&
+      (i.emission_tco2e ?? 0) > 0 &&
+      !i.is_excluded
+  );
+  const directAggMap = new Map<
+    string,
+    {
+      id: string;
+      description: string;
+      cost_code: string;
+      quantity: number;
+      unit: string;
+      emission_tco2e: number;
+      factor_value: number | null;
+      factor_unit: string | null;
+      source_tier: string | null;
+      occurrences: number;
+    }
+  >();
+  for (const i of directRaw) {
+    const key = `${i.cost_code ?? ""}|${i.description ?? ""}|${i.unit ?? ""}`;
+    const prev = directAggMap.get(key);
+    if (prev) {
+      prev.quantity += i.quantity ?? 0;
+      prev.emission_tco2e += i.emission_tco2e ?? 0;
+      prev.occurrences += 1;
+    } else {
+      directAggMap.set(key, {
+        id: i.id,
+        description: i.description ?? "",
+        cost_code: i.cost_code ?? "",
+        quantity: i.quantity ?? 0,
+        unit: i.unit ?? "",
+        emission_tco2e: i.emission_tco2e ?? 0,
+        factor_value: i.factor_value ?? null,
+        factor_unit: i.factor_unit ?? null,
+        source_tier: i.source_tier ?? null,
+        occurrences: 1,
+      });
+    }
+  }
+  const directItems = [...directAggMap.values()].sort(
+    (a, b) => b.emission_tco2e - a.emission_tco2e
+  );
 
   // All items with emission (flat view)
   const allEmitters = [...compositionsWithEmission.map((p) => ({
@@ -187,15 +233,23 @@ function ImpactAnalysis({ scenarioId, projectId }: { scenarioId: string; project
     emission_tco2e: p.emission_tco2e,
     isComposition: true,
     children_count: p.children_count,
+    factor_value: null as number | null,
+    factor_unit: null as string | null,
+    source_tier: null as string | null,
+    occurrences: 1,
   })), ...directItems.map((i) => ({
     id: i.id,
-    description: i.description ?? "",
-    cost_code: i.cost_code ?? "",
+    description: i.description,
+    cost_code: i.cost_code,
     quantity: i.quantity,
-    unit: i.unit ?? "",
-    emission_tco2e: i.emission_tco2e ?? 0,
+    unit: i.unit,
+    emission_tco2e: i.emission_tco2e,
     isComposition: false,
     children_count: 0,
+    factor_value: i.factor_value,
+    factor_unit: i.factor_unit,
+    source_tier: i.source_tier,
+    occurrences: i.occurrences,
   }))].sort((a, b) => b.emission_tco2e - a.emission_tco2e);
 
   const getChildItems = (parentId: string) =>
@@ -306,26 +360,35 @@ function ImpactAnalysis({ scenarioId, projectId }: { scenarioId: string; project
                           <p className="text-[10px] text-[#808181]">
                             {item.cost_code}
                             {item.isComposition && ` · ${item.children_count} insumos`}
+                            {!item.isComposition && item.occurrences > 1 && ` · ${item.occurrences}× no orçamento`}
                           </p>
                         </div>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap text-[#808181]">
-                      {item.quantity?.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} {item.unit}
+                      {item.quantity?.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} {item.unit}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-[#808181]">
-                      {item.isComposition ? "Σ insumos" : "—"}
+                      {item.isComposition
+                        ? "Σ insumos"
+                        : item.factor_value != null
+                        ? `${item.factor_value.toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ${item.factor_unit ?? ""}`
+                        : "—"}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      {item.isComposition && (
+                      {item.isComposition ? (
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#E6F3EE] text-[#1d7a6b]">
                           Composição
                         </span>
-                      )}
+                      ) : item.source_tier ? (
+                        <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded", tierColor(item.source_tier))}>
+                          {tierLabel(item.source_tier)}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       <span className="font-bold text-[#030304]">
-                        {item.emission_tco2e.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}
+                        {item.emission_tco2e.toLocaleString("pt-BR", { maximumFractionDigits: 3 })}
                       </span>
                     </td>
                   </tr>
@@ -341,7 +404,9 @@ function ImpactAnalysis({ scenarioId, projectId }: { scenarioId: string; project
                           {child.quantity?.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} {child.unit}
                         </td>
                         <td className="px-4 py-2.5 whitespace-nowrap text-[#030304]">
-                          {child.factor_value} {child.factor_unit}
+                          {child.factor_value != null
+                            ? `${child.factor_value.toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ${child.factor_unit ?? ""}`
+                            : "—"}
                         </td>
                         <td className="px-4 py-2.5 whitespace-nowrap">
                           {child.source_tier && (
@@ -354,7 +419,7 @@ function ImpactAnalysis({ scenarioId, projectId }: { scenarioId: string; project
                           <div className="flex items-center justify-end gap-2">
                             <span className={cn("font-semibold", (child.emission_tco2e ?? 0) > 0 ? "text-[#030304]" : "text-[#BDBDBC]")}>
                               {(child.emission_tco2e ?? 0) > 0
-                                ? (child.emission_tco2e ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })
+                                ? (child.emission_tco2e ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 3 })
                                 : "—"}
                             </span>
                             <Link

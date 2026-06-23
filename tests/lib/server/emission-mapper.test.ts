@@ -80,19 +80,28 @@ describe("extractKeywords", () => {
 
   it("splits on slashes, hyphens, parens, commas, semicolons", () => {
     const ks = extractKeywords("Aço CA-50 (vergalhão)/barra 12,5mm");
-    // The hyphen splits "CA-50" into "ca" + "50" — that's intentional, the
-    // matcher reassembles via SEARCH_QUERIES["ca50"] when 'ca' and '50'
-    // both appear. We test the tokens that survive splitting.
     expect(ks).toContain("aço");
     expect(ks).toContain("vergalhão");
     expect(ks).toContain("barra");
     expect(ks).toContain("50"); // numeric tokens > 1 char are kept
   });
 
-  // Documented gap: "CA-50" gets fragmented. Production-quality matcher
-  // would coalesce common-pattern tokens like CA-50/CA-60/CA-25 before
-  // splitting. Fix candidate for a follow-up.
-  it.todo("recognises 'CA-50' as a single token (currently splits to ca+50)");
+  it("emits the joined steel-grade token ca50 (CA-50 / CA 50 / CA50)", () => {
+    // The splitter still fragments "CA-50" into "ca" + "50", but we now ALSO
+    // emit the joined "ca50" token so SEARCH_QUERIES/CECARBON_QUERIES land on
+    // the steel factor. Without it, armaduras/parabolts/guarda-corpos em aço
+    // matched nothing.
+    expect(extractKeywords("ARMADURA CA-50")).toContain("ca50");
+    expect(extractKeywords("Armadura CA 60")).toContain("ca60");
+    expect(extractKeywords("ACO CA-25 PARA ATERRAMENTO")).toContain("ca25");
+  });
+
+  it("injects 'diesel' for generic combustível (no own factor)", () => {
+    // "COMBUSTIVEL PARA VEICULOS E EQUIPAMENTOS" has no dedicated factor;
+    // the legacy simulator counted it as diesel combustion.
+    const ks = extractKeywords("COMBUSTIVEL PARA VEICULOS E EQUIPAMENTOS");
+    expect(ks).toContain("diesel");
+  });
 
   it("drops single-character tokens", () => {
     const ks = extractKeywords("Aço A B C");
@@ -213,5 +222,48 @@ describe("autoMatchItem — invariants", () => {
   it("does NOT trigger GHG for non-fuel descriptions", async () => {
     await autoMatchItem("Concreto fck=30");
     expect(mockedGhg).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------
+  // Acentuação: as descrições do iTwo vêm SEM acento ("ACO CA-50", "OLEO
+  // DIESEL"). O lookup precisa casar com as chaves acentuadas dos
+  // dicionários, senão aço/óleo/combustível ficam "não encontrados".
+  // ---------------------------------------------------------------------
+
+  it("matches steel from an unaccented description (ACO CA-50)", async () => {
+    mockedCecarbon.mockResolvedValue([
+      {
+        id: 7,
+        "Descrição fator de emissao": "Aço CA-50",
+        "fator de emissão (kgCO2)": 1.85,
+        Unidade: "kg",
+      },
+    ]);
+    const r = await autoMatchItem("ACO CA-50 - BITOLA MEDIA", "kg");
+    // The CECarbon query must be built as the accented "aço" term.
+    expect(mockedCecarbon).toHaveBeenCalledWith("aço", expect.anything());
+    expect(r.best?.source_tier).toBe("cecarbon");
+    expect(r.best?.factor_value).toBe(1.85);
+  });
+
+  it("triggers GHG for unaccented OLEO/COMBUSTIVEL descriptions", async () => {
+    mockedGhg.mockResolvedValue([
+      {
+        id: 2,
+        produto: "Óleo Diesel",
+        co2: "2.68",
+        ch4: "0",
+        n2o: "0",
+        versao_ghg: "v2024",
+        pais: "Brasil",
+      },
+    ]);
+    await autoMatchItem("OLEO DIESEL", "L");
+    expect(mockedGhg).toHaveBeenCalled();
+    mockedGhg.mockClear();
+    await autoMatchItem("COMBUSTIVEL PARA VEICULOS E EQUIPAMENTOS", "L");
+    expect(mockedGhg).toHaveBeenCalled();
+    // diesel injected → GHG search includes the "diesel" term
+    expect(mockedGhg).toHaveBeenCalledWith("diesel", expect.anything());
   });
 });

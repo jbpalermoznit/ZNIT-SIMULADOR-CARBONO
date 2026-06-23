@@ -21,6 +21,24 @@ import {
 import { getConversionFactor } from "@/lib/server/calculator";
 
 // ---------------------------------------------------------------------------
+// Acentuação
+// ---------------------------------------------------------------------------
+// As descrições do orçamento iTwo vêm em CAIXA ALTA e SEM acento
+// ("ACO CA-50", "OLEO DIESEL", "COMBUSTIVEL PARA VEICULOS"), enquanto as
+// chaves dos dicionários de busca abaixo usam a grafia acentuada ("aço",
+// "óleo", "combustível", "alumínio", "escavação"). Sem normalizar acentos
+// no lado da BUSCA, esses materiais nunca casavam e ficavam "não
+// encontrados" — derrubando o total para ~60% do simulador antigo.
+//
+// A normalização é feita apenas no LOOKUP (chaves dos dicionários e
+// comparação de keywords); os tokens retornados por extractKeywords
+// preservam a grafia original para não quebrar contratos existentes.
+
+export function stripAccents(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+// ---------------------------------------------------------------------------
 // Tradução PT→EN e queries compostas para Ecoinvent
 // ---------------------------------------------------------------------------
 
@@ -133,8 +151,20 @@ const SEARCH_QUERIES: Record<string, string[]> = {
   // Combustíveis
   diesel: ["diesel"],
   "óleodiesel": ["diesel"],
+  "combustível": ["diesel"],
   gasolina: ["gasoline"],
 };
+
+// Versão normalizada (sem acento) das chaves — usada no lookup porque as
+// descrições do orçamento chegam sem acentuação. Ver nota em stripAccents.
+const SEARCH_QUERIES_NORM: Record<string, string[]> = (() => {
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(SEARCH_QUERIES)) {
+    const nk = stripAccents(k);
+    out[nk] = [...(out[nk] ?? []), ...v];
+  }
+  return out;
+})();
 
 // Normalização de nomes compostos escritos junto
 const COMPOUND_FIXES: Record<string, string> = {
@@ -159,6 +189,11 @@ const GHG_TRIGGER_WORDS = new Set([
   "óleodiesel",
   "óleo",
 ]);
+
+// Versão sem acento — comparada contra keywords também sem acento.
+const GHG_TRIGGER_WORDS_NORM = new Set(
+  [...GHG_TRIGGER_WORDS].map((w) => stripAccents(w))
+);
 
 // Palavras ignoradas
 const STOPWORDS = new Set([
@@ -229,6 +264,10 @@ export function extractKeywords(description: string): string[] {
   text = text.replace(/mrtf\s*=?\s*[\d,]+/g, "mrtf");
   // Normalizar palavras escritas junto
   text = text.replace(/[oó]l[eé]o\s*diesel/g, "óleo diesel");
+  // "COMBUSTIVEL PARA VEICULOS E EQUIPAMENTOS" não tem fator próprio na base;
+  // o simulador antigo o trata como combustão de diesel. Injetamos o token
+  // "diesel" para que a busca GHG (combustíveis) o alcance.
+  text = text.replace(/combust[ií]vel/g, "combustível diesel");
   for (const [wrong, fixed] of Object.entries(COMPOUND_FIXES)) {
     text = text.replaceAll(wrong, fixed);
   }
@@ -244,6 +283,14 @@ export function extractKeywords(description: string): string[] {
       keywords.push(w);
     }
   }
+  // Reagrupar a bitola do aço: o splitter fragmenta "CA-50" em "ca" + "50".
+  // Emitimos também o token unido (ca50/ca60/ca25) que as tabelas de busca
+  // reconhecem como aço/vergalhão — sem isso, armaduras, parabolts e
+  // guarda-corpos em aço não casavam com nenhum fator.
+  for (const m of text.matchAll(/\bca[\s-]?(\d{2})\b/g)) {
+    const tok = "ca" + m[1];
+    if (!keywords.includes(tok)) keywords.push(tok);
+  }
   return keywords;
 }
 
@@ -257,15 +304,16 @@ function buildSearchQueries(
   const queries: string[] = [];
   let shouldGhg = false;
 
+  const joinedNorm = stripAccents(keywords.join(" "));
   for (const kw of keywords) {
-    if (GHG_TRIGGER_WORDS.has(kw)) shouldGhg = true;
-    if (kw in SEARCH_QUERIES) {
-      queries.push(...SEARCH_QUERIES[kw]);
+    const nkw = stripAccents(kw);
+    if (GHG_TRIGGER_WORDS_NORM.has(nkw)) shouldGhg = true;
+    if (nkw in SEARCH_QUERIES_NORM) {
+      queries.push(...SEARCH_QUERIES_NORM[nkw]);
     }
     // Check multi-word matches
-    const joined = keywords.join(" ");
-    for (const [trigger, qList] of Object.entries(SEARCH_QUERIES)) {
-      if (trigger.includes(" ") && joined.includes(trigger)) {
+    for (const [trigger, qList] of Object.entries(SEARCH_QUERIES_NORM)) {
+      if (trigger.includes(" ") && joinedNorm.includes(trigger)) {
         queries.push(...qList);
       }
     }
@@ -379,15 +427,27 @@ const CECARBON_QUERIES: Record<string, string[]> = {
   bidim: [],
   lona: [],
   diesel: ["óleo diesel"],
+  "combustível": ["óleo diesel"],
   gasolina: ["gasolina"],
   "óleo": ["óleos lubrificantes"],
 };
 
+// Versão normalizada (sem acento) das chaves — ver nota em stripAccents.
+const CECARBON_QUERIES_NORM: Record<string, string[]> = (() => {
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(CECARBON_QUERIES)) {
+    const nk = stripAccents(k);
+    out[nk] = [...(out[nk] ?? []), ...v];
+  }
+  return out;
+})();
+
 function buildCecarbonQueries(keywords: string[]): string[] {
   const queries: string[] = [];
   for (const kw of keywords) {
-    if (kw in CECARBON_QUERIES) {
-      queries.push(...CECARBON_QUERIES[kw]);
+    const nkw = stripAccents(kw);
+    if (nkw in CECARBON_QUERIES_NORM) {
+      queries.push(...CECARBON_QUERIES_NORM[nkw]);
     }
   }
   const seen = new Set<string>();
