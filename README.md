@@ -73,6 +73,12 @@ Abre em http://localhost:3000.
 | `POWERBI_API_KEY` | opcional | Chave para o endpoint de export ao Power BI |
 | `SENTRY_DSN` | opcional | Em breve — captura de erros server-side |
 | `NEXT_PUBLIC_SENTRY_DSN` | opcional | Em breve — captura de erros client-side |
+| `FACTOR_VECTOR_SEARCH_ENABLED` | opcional | Liga a busca semântica de fatores (RAG/pgvector). Default `false` |
+| `VOYAGE_API_KEY` | se RAG on | Chave da Voyage AI (embeddings `voyage-3.5`, 1024d) |
+| `FACTOR_EMBEDDINGS_MODEL` | opcional | Modelo de embeddings. Default `voyage-3.5` |
+| `FACTOR_RERANKER_ENABLED` | opcional | Liga o reranker LLM que valida/escolhe o fator. Default `false` |
+| `ANTHROPIC_API_KEY` | se reranker on | Chave da Anthropic para o reranker |
+| `FACTOR_RERANKER_MODEL` | opcional | Modelo do reranker. Default `claude-opus-4-8` |
 
 ## Comandos
 
@@ -86,7 +92,9 @@ npx tsc --noEmit # type check
 
 ## Banco de dados
 
-Schema principal em [supabase/migration.sql](supabase/migration.sql), incrementos em [supabase/migration-v2.sql](supabase/migration-v2.sql) e dados de exemplo em [supabase/seed.sql](supabase/seed.sql). Os fatores de emissão (EPDs, GHG Protocol, Ecoinvent) ficam em um schema separado `backend`, populado via importação manual — fora deste repo por enquanto.
+Schema principal em [supabase/migration.sql](supabase/migration.sql), incrementos versionados (`migration-v2.sql` … `migration-v8-unit-cost-override.sql`) e dados de exemplo em [supabase/seed.sql](supabase/seed.sql). Os fatores de emissão (EPDs, GHG Protocol, Ecoinvent) ficam em um schema separado `backend`, populado via importação manual — fora deste repo por enquanto.
+
+Para o match de alta precisão (ver abaixo), há duas migrações opcionais: [supabase/fix-factor-scale.sql](supabase/fix-factor-scale.sql) (corrige fatores com escala errada) e [supabase/migration-pgvector-factor-embeddings.sql](supabase/migration-pgvector-factor-embeddings.sql) (tabela de embeddings + função de busca por cosseno). Populadas pelo script [scripts/backfill-factor-embeddings.mjs](scripts/backfill-factor-embeddings.mjs).
 
 Multi-tenant: toda tabela transacional tem `company_id` que liga em `public.companies`. Após o lançamento do Clerk, cada `company_id` corresponde a uma Organization no Clerk, e o `clerk_user_id` é gravado em `public.users`.
 
@@ -104,6 +112,23 @@ Multi-tenant: toda tabela transacional tem `company_id` que liga em `public.comp
 10. Exporta memorando em PDF e dados pro Power BI
 
 Detalhes do escopo, regras de cálculo e contratos de API: [docs/specs/PRD.md](docs/specs/PRD.md), [docs/specs/SPEC.md](docs/specs/SPEC.md), [docs/specs/IMPL.md](docs/specs/IMPL.md).
+
+## Match de fatores de alta precisão
+
+O mapeamento item → fator de emissão (passo 5 acima) roda em camadas, todas em
+[lib/server/emission-mapper.ts](lib/server/emission-mapper.ts) e
+[lib/server/factor-search/](lib/server/factor-search/):
+
+1. **Factor Rules** — cache curado por empresa (sempre ativo, determinístico).
+2. **Determinístico** — keyword + fuzzy com guardas de unidade/escala/BR.
+3. **RAG (pgvector)** — recall semântico via embeddings Voyage. *Opt-in:* `FACTOR_VECTOR_SEARCH_ENABLED=true` + `VOYAGE_API_KEY`.
+4. **Reranker (Claude)** — escolhe/valida o melhor candidato (checa unidade). *Opt-in:* `FACTOR_RERANKER_ENABLED=true` + `ANTHROPIC_API_KEY`. Falha → mantém o determinístico.
+
+As camadas 3 e 4 são **desligadas por padrão** — o pipeline determinístico segue
+intacto sem elas. Metodologia, validação de paridade com o simulador antigo e
+diagnóstico das divergências: [docs/PARIDADE_SIMULADOR.md](docs/PARIDADE_SIMULADOR.md).
+Passo a passo de ativação (migrações + backfill + flags):
+[docs/PARIDADE_RUNBOOK.md](docs/PARIDADE_RUNBOOK.md).
 
 ## Status do lançamento
 
