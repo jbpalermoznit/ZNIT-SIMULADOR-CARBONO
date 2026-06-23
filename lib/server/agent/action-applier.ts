@@ -30,6 +30,7 @@ export async function applyDecisions(
   decisions: Decision[],
   projectId: string,
   userId = "agent",
+  companyId: string,
 ): Promise<{ resolved: number; rules_saved: number; excluded: number; errors: string[] }> {
   let resolved = 0;
   let rulesSaved = 0;
@@ -68,7 +69,7 @@ export async function applyDecisions(
       }
 
       if (decision.save_as_rule) {
-        await saveRule(item, decision, userId);
+        await saveRule(item, decision, userId, companyId);
         rulesSaved++;
       }
     } catch (e: unknown) {
@@ -154,7 +155,7 @@ async function applyEquipment(itemId: string, item: Record<string, unknown>, dec
   await supabase.from("abc_items").update({ mapping_status: "auto" }).eq("id", itemId);
 }
 
-async function saveRule(item: Record<string, unknown>, decision: Decision, userId: string) {
+async function saveRule(item: Record<string, unknown>, decision: Decision, userId: string, companyId: string) {
   const keyword = normalizeKeyword(item.description as string);
   const action = decision.action;
 
@@ -172,7 +173,7 @@ async function saveRule(item: Record<string, unknown>, decision: Decision, userI
     } else {
       const consumptionUnit = config.consumption_unit as string ?? "L/h";
       await supabase.from("equipment_rules").insert({
-        company_id: "company-htb",
+        company_id: companyId,
         match_keyword: keyword,
         original_description: item.description,
         category: config.fuel_type ?? "diesel",
@@ -199,7 +200,7 @@ async function saveRule(item: Record<string, unknown>, decision: Decision, userI
       await supabase.from("factor_rules").update({ times_applied: (existing.times_applied ?? 0) + 1 }).eq("id", existing.id);
     } else {
       await supabase.from("factor_rules").insert({
-        company_id: "company-htb",
+        company_id: companyId,
         match_keyword: keyword,
         original_description: item.description,
         factor_value: decision.factor_value ?? 0,
