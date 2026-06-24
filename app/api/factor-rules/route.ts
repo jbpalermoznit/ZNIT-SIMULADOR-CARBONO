@@ -2,21 +2,7 @@ import { NextRequest } from "next/server";
 import { supabase } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import type { AuthUser } from "@/lib/server/auth";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function normalizeKeyword(text: string): string {
-  let t = text.toLowerCase().trim();
-  // Remove accents
-  t = t.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
-  // Remove special chars, keep alphanumeric and spaces
-  t = t.replace(/[^a-z0-9\s]/g, " ");
-  // Normalize whitespace
-  t = t.replace(/\s+/g, " ").trim();
-  return t;
-}
+import { normalizeKeyword } from "@/lib/server/keyword";
 
 // ---------------------------------------------------------------------------
 // GET /api/factor-rules — list active rules for the company

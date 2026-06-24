@@ -86,13 +86,19 @@ npm run dev              # app: subir um cenário (Itens + Insumos) e conferir
 
 ## 4. Decisões em aberto (produto)
 
-1. **Concreto/aço — correção × paridade.** O reranker escolhe o fator *mais correto*
-   (concreto 40MPa 274; reinforcing steel 2,21), o que **afasta** do antigo no
-   Padrão (que usou ~218 no concreto e tem erro conhecido). Decidir:
-   - (a) priorizar **paridade com o antigo** (manter genérico 229 / aço 1,9), ou
-   - (b) priorizar **correção** (reranker on).
-   Sugestão: ligar reranker para correção e fixar itens recorrentes como **Factor
-   Rule** (vira determinístico).
+1. **Concreto/aço — correção × paridade.** ✅ **Decidido: (b) correção + Factor Rules.**
+   Liga o reranker para a escolha mais correta (concreto 40MPa 274; reinforcing
+   steel 2,21) e fixa os recorrentes como **Factor Rule** (prioridade 0 →
+   determinístico, independente da não-determinância do reranker). O antigo tem
+   erro conhecido no concreto (~218); priorizamos a correção.
+   - **Bug corrigido no caminho:** a normalização do `match_keyword` (salvamento)
+     divergia da normalização no match (runtime) — regras com hífen/pontuação
+     (`ACO CA-50`) **nunca casavam**. Unificado em `lib/server/keyword.ts`
+     (usado por `autoMatchItem`, `/api/factor-rules` e o `action-applier` do
+     agente). Coberto por `tests/lib/server/factor-rules.test.ts`.
+   - **Operacionalizar:** ligar o reranker (`FACTOR_RERANKER_ENABLED=true`) e
+     aplicar `supabase/seed-factor-rules.sql` (revisar valores/company_id antes —
+     é template para `company-htb`).
 
 2. **Reranker — endurecer prompt.** ✅ *Feito em código.* O `SYSTEM_PROMPT` em
    `lib/server/factor-search/claude-reranker.ts` agora instrui explicitamente que

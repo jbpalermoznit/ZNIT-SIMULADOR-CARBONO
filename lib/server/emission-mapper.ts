@@ -19,6 +19,7 @@ import {
   searchCecarbon,
 } from "@/lib/server/supabase-emission";
 import { resolveConversion } from "@/lib/server/calculator";
+import { normalizeKeyword } from "@/lib/server/keyword";
 import {
   vectorSearchCandidates,
   isVectorSearchEnabled,
@@ -627,10 +628,10 @@ export async function autoMatchItem(
   // Priority 0: Factor Rules — company-specific overrides
   if (companyId) {
     const { supabase } = await import("@/lib/server/supabase");
-    const descNorm = description
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "");
+    // Normaliza a descri\u00e7\u00e3o com a MESMA fun\u00e7\u00e3o usada para gerar o
+    // match_keyword no salvamento (pontua\u00e7\u00e3o \u2192 espa\u00e7o). Sem isto, regras de
+    // descri\u00e7\u00f5es com h\u00edfen/barra ("ACO CA-50") nunca casavam. Ver keyword.ts.
+    const descNorm = normalizeKeyword(description);
 
     const { data: rules } = await supabase
       .from("factor_rules")
@@ -640,7 +641,7 @@ export async function autoMatchItem(
 
     if (rules && rules.length > 0) {
       for (const rule of rules) {
-        const keyword = String(rule.match_keyword ?? "").toLowerCase();
+        const keyword = normalizeKeyword(String(rule.match_keyword ?? ""));
         if (keyword && descNorm.includes(keyword)) {
           // Direct match via rule — highest priority
           const candidate: MatchCandidate = {
