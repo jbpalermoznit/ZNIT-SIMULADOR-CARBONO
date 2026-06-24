@@ -1,0 +1,43 @@
+{
+  "_comment": "Comportamento de match esperado por item (chaveado pelo id de items.json). Cada item pode ter: expectTier, expectNameIncludes, expectValue (match positivo) e/ou rejectValue (fator que NÃO pode aparecer no pool — guarda contra match espúrio). Baseado nas correções de docs/PARIDADE_SIMULADOR.md.",
+  "concreto-40": {
+    "why": "CECarbon BR concreto 40 (274/m³) deve VENCER o Ecoinvent genérico 404/m³ (que segue no pool como competidor, mas perde).",
+    "expectTier": "cecarbon",
+    "expectNameIncludes": "Concreto 40",
+    "expectValue": 274
+  },
+  "armadura-aco": {
+    "why": "ACO CA-50 sem acento deve casar o aço CECarbon (1.85/kg), não ficar 0.",
+    "expectTier": "cecarbon",
+    "expectNameIncludes": "Aço CA-50",
+    "expectValue": 1.85
+  },
+  "oleo-diesel": {
+    "why": "Diesel vai pro GHG Protocol BR; co2e = co2 + ch4*28 + n2o*265 = 2.681.",
+    "expectTier": "ghg_protocol",
+    "expectNameIncludes": "Diesel",
+    "expectValue": 2.681
+  },
+  "combustivel": {
+    "why": "Combustível genérico injeta 'diesel' e cai no mesmo fator GHG do diesel.",
+    "expectTier": "ghg_protocol",
+    "expectNameIncludes": "Diesel",
+    "expectValue": 2.681
+  },
+  "parafuso": {
+    "why": "Parafuso em 'un' NÃO pode casar o air-compressor screw-type (794/un); a guarda per-peça (>100 em un) remove. O guarda-corpo inflava para 147 t por isso.",
+    "rejectValue": 794
+  },
+  "brita": {
+    "why": "Brita casa o agregado CECarbon BR.",
+    "expectTier": "cecarbon",
+    "expectNameIncludes": "Brita",
+    "expectValue": 0.0045
+  },
+  "escavacao": {
+    "why": "Escavação não tem fator BR no subset; cai no Ecoinvent excavation (m³).",
+    "expectTier": "ecoinvent",
+    "expectNameIncludes": "excavation",
+    "expectValue": 3.5
+  }
+}
