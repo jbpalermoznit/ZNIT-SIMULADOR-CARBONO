@@ -18,7 +18,7 @@ import {
   searchGhg,
   searchCecarbon,
 } from "@/lib/server/supabase-emission";
-import { getConversionFactor } from "@/lib/server/calculator";
+import { resolveConversion } from "@/lib/server/calculator";
 import {
   vectorSearchCandidates,
   isVectorSearchEnabled,
@@ -891,7 +891,10 @@ export async function autoMatchItem(
   if (unit) {
     for (const c of unique) {
       const factorUnit = c.factor_unit ?? "";
-      const conv = getConversionFactor(unit, factorUnit);
+      // resolveConversion considera receitas geométricas/densidade (PLANO §5):
+      // um fator de concreto por m³ para um item de piso em m² não é mais
+      // tratado como incompatível, pois a espessura da descrição faz a ponte.
+      const conv = resolveConversion(description, unit, factorUnit);
       if (conv === 0.0) {
         c.score = Math.max(0, c.score - 50);
         c._unit_incompatible = true;

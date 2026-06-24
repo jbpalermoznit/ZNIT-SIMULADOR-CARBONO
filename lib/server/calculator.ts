@@ -3,6 +3,7 @@
  * Port of backend/app/services/calculator.py
  */
 import { supabase } from "./supabase";
+import { geometricRecipe } from "./coverage-rules";
 
 // --------------------------------------------------------------------------
 // Transport factors — kgCO2e per tonne-km (GHG Protocol BR)
@@ -93,6 +94,34 @@ export function getConversionFactor(
   return 0.0;
 }
 
+/**
+ * Conversão ciente da descrição: tenta a conversão direta de unidade e, se
+ * for cross-family (0), tenta uma receita geométrica/densidade (PLANO §5),
+ * compondo a unidade-base da receita (kg/m³) com a unidade do fator.
+ *
+ * Ex.: "CONCRETO PARA PISO 15CM" (m²) com fator por m³ → 0 direto, mas a
+ * receita dá m²→m³ = 0,15, então o item passa a contribuir em vez de zerar.
+ * Retorna 0 quando não há conversão nem receita aplicável.
+ */
+export function resolveConversion(
+  description: string | null | undefined,
+  itemUnit: string | null | undefined,
+  factorUnit: string | null | undefined
+): number {
+  const direct = getConversionFactor(itemUnit, factorUnit);
+  if (direct !== 0.0) return direct;
+
+  const recipe = geometricRecipe(description, itemUnit);
+  if (!recipe) return 0.0;
+
+  // Compõe a unidade-base da receita (kg/m³) com a unidade do fator
+  // (ex.: m³→m³=1, m³→L=1000, kg→t=0,001). Se o fator não estiver na mesma
+  // família física da receita, não há conversão válida.
+  const compose = getConversionFactor(recipe.baseUnit, factorUnit);
+  if (compose === 0.0) return 0.0;
+  return recipe.multiplier * compose;
+}
+
 // --------------------------------------------------------------------------
 // Item-level emission helpers
 // --------------------------------------------------------------------------
@@ -119,7 +148,11 @@ function calcItemEmission(item: AbcItemRow, mapping: MappingRow | null): number 
   if (!mapping || mapping.source_tier === "excluded") return 0.0;
   if (!mapping.factor_value || mapping.factor_value <= 0) return 0.0;
   const qty = item.quantity ?? 0;
-  const conversion = getConversionFactor(item.unit, mapping.factor_unit);
+  const conversion = resolveConversion(
+    item.description as string | undefined,
+    item.unit,
+    mapping.factor_unit
+  );
   return qty * mapping.factor_value * conversion;
 }
 
@@ -436,7 +469,11 @@ export async function recalculateScenario(scenarioId: string) {
 
     if (abcItem && si.factor_value) {
       const qty = si.quantity_override ?? abcItem.quantity ?? 0;
-      const conversion = getConversionFactor(abcItem.unit, si.factor_unit);
+      const conversion = resolveConversion(
+        abcItem.description,
+        abcItem.unit,
+        si.factor_unit
+      );
       const emission = qty * si.factor_value * conversion;
       await supabase
         .from("scenario_items")

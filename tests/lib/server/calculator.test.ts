@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeUnit,
   getConversionFactor,
+  resolveConversion,
 } from "@/lib/server/calculator";
 
 // ===========================================================================
@@ -166,5 +167,51 @@ describe("getConversionFactor", () => {
     it.todo("vb item with bare 'kg CO2-Eq' factor → 0 (currently 1)");
     it.todo("m³ item with bare 'kg CO2-Eq' factor → 0 (currently 1)");
     it.todo("un item with bare 'kg CO2-Eq' factor → 0 (currently 1)");
+  });
+});
+
+// ===========================================================================
+// resolveConversion — conversão ciente da descrição (receitas §5)
+// ===========================================================================
+//
+// Direta quando a unidade converte; senão tenta a receita geométrica e compõe
+// a unidade-base (kg/m³) com a unidade do fator. Não altera nada para itens
+// sem receita (mantém o comportamento de getConversionFactor).
+
+describe("resolveConversion", () => {
+  it("usa a conversão direta quando as unidades convertem (sem receita)", () => {
+    // kg↔t = 0,001; ignora descrição.
+    expect(resolveConversion("ACO CA-50", "kg", "kgCO₂/t")).toBeCloseTo(0.001, 6);
+    expect(resolveConversion("ACO CA-50", "kg", "kgCO₂/kg")).toBe(1.0);
+  });
+
+  it("aplica a receita de concreto m²→m³ quando a unidade não converte direto", () => {
+    // m² vs m³ = 0 direto; receita 15cm → 0,15; fator por m³ → compõe ×1.
+    expect(
+      resolveConversion("CONCRETO PARA PISO 15CM", "m2", "kgCO₂/m3")
+    ).toBeCloseTo(0.15, 6);
+  });
+
+  it("compõe a unidade-base da receita com a do fator (m³→L)", () => {
+    // receita dá m³ (0,15); fator por L → m³→L = 1000 → 150.
+    expect(
+      resolveConversion("CONCRETO PARA PISO 15CM", "m2", "kgCO2e/L")
+    ).toBeCloseTo(150, 4);
+  });
+
+  it("aplica a receita de madeira m→kg compondo para t", () => {
+    // pontalete 7,5×7,5 → 3,375 kg/m; fator por t → kg→t = 0,001 → 0,003375.
+    expect(
+      resolveConversion("PONTALETE 7,5X7,5", "m", "kgCO₂/t")
+    ).toBeCloseTo(0.003375, 6);
+  });
+
+  it("retorna 0 quando não há conversão direta nem receita", () => {
+    expect(resolveConversion("ACO CA-50", "m", "kgCO₂/kg")).toBe(0.0);
+  });
+
+  it("retorna 0 quando a receita existe mas o fator está em outra família física", () => {
+    // receita de concreto dá m³; um fator por kg (sem densidade) não compõe.
+    expect(resolveConversion("CONCRETO PARA PISO 15CM", "m2", "kgCO₂/kg")).toBe(0.0);
   });
 });

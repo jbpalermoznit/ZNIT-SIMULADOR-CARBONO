@@ -104,12 +104,26 @@ npm run dev              # app: subir um cenário (Itens + Insumos) e conferir
 
 ## 5. Cobertura ainda faltante (não é match, é dado/receita)
 
-O reranker só reordena o pool; estes não têm fator válido no pool e o RAG/embeddings
-(Fase 1) ou regras de massa devem resolver:
-- `TAMPA DE CANALETA EM FERRO FUNDIDO` (m²) — precisa fator ferro fundido + massa/m².
-- `FORMA METALICA QUICKJET` (m²) — forma de aço reutilizável (emissão amortizada).
-- `PONTALETE / SARRAFO` (m) — madeira; fator em t → precisa densidade/seção→massa.
-- `CONCRETO PARA PISO ... 15CM` (m²) — converter espessura→m³.
+Mecanismo de **receitas geométricas/densidade** em `lib/server/coverage-rules.ts`
+(`geometricRecipe`) + `resolveConversion` no calculator. Quando a unidade do item
+não converte direto para a do fator (cross-family), a receita deriva massa/volume
+e o item passa a contribuir em vez de zerar. Ligado em `calcItemEmission`,
+`recalculateScenario` e na penalidade de unidade do matcher. Só dispara para
+descrições reconhecidas (null caso contrário → zero impacto no resto).
+
+- `CONCRETO PARA PISO ... 15CM` (m²) — ✅ **feito**: m²→m³ pela espessura **lida da
+  descrição** (`15CM`). Sem palpite.
+- `PONTALETE / SARRAFO` (m) — ✅ **feito**: m→kg pela **seção da descrição**
+  (`7,5x7,5`) × densidade de madeira (`WOOD_DENSITY_KG_M3 = 600`, padrão de
+  primeira-passada — revisar como a Fase 0).
+- `TAMPA DE CANALETA EM FERRO FUNDIDO` (m²) — ⏳ mecanismo pronto, falta a
+  constante massa/m² do ferro fundido (decisão de produto).
+- `FORMA METALICA QUICKJET` (m²) — ⏳ falta política de **amortização** (massa de
+  aço/m² ÷ nº de reutilizações).
+
+> Os itens ✅ derivam o número da própria descrição (espessura/seção); a densidade
+> da madeira é o único valor a validar. Os ⏳ precisam de constante de produto
+> antes de entrar no total.
 
 ---
 
