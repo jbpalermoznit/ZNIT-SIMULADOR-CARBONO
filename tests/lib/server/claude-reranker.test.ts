@@ -97,6 +97,53 @@ describe("rerankWithClaude", () => {
     expect(r?.bestIndex).toBeNull();
   });
 
+  it("rejects a fastener item matched to a non-metal factor (unit alone isn't enough)", async () => {
+    // Caso real: PARABOLT (un) → "room-connecting overflow" (un). A unidade
+    // bate (un↔un), mas não é metal → a guarda de fixador rejeita.
+    mockCreate.mockResolvedValue(reply({ best_index: 0, confidence: "high", reason: "x" }));
+    const cands = [
+      cand({
+        source_tier: "ecoinvent",
+        factor_name: "room-connecting overflow",
+        factor_unit: "kgCO2e/unit",
+        product_unit: "unit",
+        factor_value: 0.798,
+      }),
+    ];
+    const r = await rerankWithClaude("PARABOLT EM ACO INOX", "un", cands);
+    expect(r?.bestIndex).toBeNull();
+  });
+
+  it("keeps a fastener item matched to a metal factor", async () => {
+    // PARAFUSO → "aço" (un↔un compatível e é metal) → escolha mantida.
+    mockCreate.mockResolvedValue(reply({ best_index: 0, confidence: "high", reason: "aço" }));
+    const cands = [
+      cand({
+        factor_name: "Aço carbono (peça)",
+        factor_unit: "kgCO₂/un",
+        product_unit: "un",
+        factor_value: 0.05,
+      }),
+    ];
+    const r = await rerankWithClaude("PARAFUSO SEXTAVADO EM ACO", "un", cands);
+    expect(r?.bestIndex).toBe(0);
+  });
+
+  it("does not apply the fastener guard to non-fastener items", async () => {
+    // CONCRETO não é fixador → a guarda não interfere mesmo com fator não-metal.
+    mockCreate.mockResolvedValue(reply({ best_index: 0, confidence: "high", reason: "concreto" }));
+    const cands = [
+      cand({
+        factor_name: "Concreto 40 MPa",
+        factor_unit: "kgCO₂/m3",
+        product_unit: "m3",
+        factor_value: 274,
+      }),
+    ];
+    const r = await rerankWithClaude("CONCRETO 40 MPA", "m3", cands);
+    expect(r?.bestIndex).toBe(0);
+  });
+
   it("returns null on a model refusal", async () => {
     mockCreate.mockResolvedValue({ stop_reason: "refusal", content: [] });
     const r = await rerankWithClaude("ACO CA-50", "kg", [cand({})]);

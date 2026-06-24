@@ -94,11 +94,16 @@ npm run dev              # app: subir um cenário (Itens + Insumos) e conferir
    Sugestão: ligar reranker para correção e fixar itens recorrentes como **Factor
    Rule** (vira determinístico).
 
-2. **Reranker — endurecer prompt.** Ao vivo, NÃO rejeitou o `PARABOLT`→`room-connecting
-   overflow` (0,798/un). Ajustar o system prompt em
-   `lib/server/factor-search/claude-reranker.ts` para retornar `-1` quando os únicos
-   candidatos compatíveis por unidade forem equipamento/HVAC/itens não relacionados a
-   fixadores. Re-rodar o subconjunto-problema ao vivo p/ confirmar.
+2. **Reranker — endurecer prompt.** ✅ *Feito em código.* O `SYSTEM_PROMPT` em
+   `lib/server/factor-search/claude-reranker.ts` agora instrui explicitamente que
+   compatibilidade de unidade NÃO basta e manda `-1` quando os únicos candidatos
+   compatíveis forem equipamento/HVAC/não-fixadores. Além do prompt, há uma **guarda
+   determinística pós-rerank**: para itens fixadores (parafuso/parabolt/chumbador/
+   prego/porca/arruela/arame/grampo/rebite...), o fator escolhido tem de ser de metal,
+   senão a escolha é rejeitada (mantém o determinístico). Pega o caso real
+   `PARABOLT`→`room-connecting overflow` (un↔un passava na checagem de unidade).
+   Coberto por testes offline; **ainda falta re-rodar o subconjunto-problema ao vivo**
+   (`FACTOR_RERANKER_ENABLED=true` + `ANTHROPIC_API_KEY`) p/ confirmar end-to-end.
 
 ---
 
