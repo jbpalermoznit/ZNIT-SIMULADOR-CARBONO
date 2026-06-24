@@ -821,7 +821,7 @@ export default function ScenariosPage() {
           <Leaf size={28} className="text-[#BDBDBC] mb-3" />
           <p className="text-sm font-semibold text-[#808181]">Nenhum cenário calculado</p>
           <p className="text-xs text-[#BDBDBC] mt-1">
-            Importe a Curva ABC, execute o Auto-Map e clique em "Gerar Cenário Base".
+            Importe a Curva ABC, execute o Auto-Map e clique em &quot;Gerar Cenário Base&quot;.
           </p>
         </div>
       )}

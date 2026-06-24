@@ -34,7 +34,7 @@ export async function callGemini(instrucoes: string): Promise<Record<string, unk
       throw new Error(`Gemini falhou: ${JSON.stringify(data).slice(0, 500)}`);
     }
 
-    let resultado = data?.resultado ?? data;
+    const resultado = data?.resultado ?? data;
 
     if (typeof resultado === "string") {
       let cleaned = resultado.trim();

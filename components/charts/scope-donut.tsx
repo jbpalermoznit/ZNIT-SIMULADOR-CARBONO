@@ -7,7 +7,10 @@ export interface ScopeDataPoint {
   color: string;
 }
 
-const CustomTooltip = ({ active, payload }: any) => {
+const CustomTooltip = ({ active, payload }: {
+  active?: boolean;
+  payload?: Array<{ name: string; value: number }>;
+}) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-white border border-[#E0E4E3] rounded-lg shadow-lg p-3 text-xs">

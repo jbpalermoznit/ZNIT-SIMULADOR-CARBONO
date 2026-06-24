@@ -55,7 +55,7 @@ export async function GET(
 
   // Load abc_items for enrichment
   const abcItemIds = (scenarioItems ?? []).map((si) => si.abc_item_id);
-  let abcItemsMap: Record<string, Record<string, unknown>> = {};
+  const abcItemsMap: Record<string, Record<string, unknown>> = {};
 
   if (abcItemIds.length > 0) {
     const { data: abcItems } = await supabase

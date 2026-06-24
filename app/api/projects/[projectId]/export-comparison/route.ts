@@ -38,7 +38,7 @@ export async function GET(
       .from("scenario_items").select("*").eq("scenario_id", scenId);
 
     const abcIds = (scenItems ?? []).map((si) => si.abc_item_id);
-    let abcMap: Record<string, Record<string, unknown>> = {};
+    const abcMap: Record<string, Record<string, unknown>> = {};
     if (abcIds.length > 0) {
       const { data: abcItems } = await supabase
         .from("abc_items").select("*").in("id", abcIds);

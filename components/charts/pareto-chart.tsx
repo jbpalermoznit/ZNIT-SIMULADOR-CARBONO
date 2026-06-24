@@ -20,20 +20,23 @@ export interface ParetoDataPoint {
   cumPct: number;
 }
 
-const CustomTooltip = ({ active, payload }: any) => {
+const CustomTooltip = ({ active, payload }: {
+  active?: boolean;
+  payload?: Array<{ value?: number; payload?: ParetoDataPoint }>;
+}) => {
   if (active && payload && payload.length) {
-    const point = payload[0]?.payload as ParetoDataPoint | undefined;
-    const displayName = point?.fullName ?? payload[0]?.payload?.name ?? "";
+    const point = payload[0]?.payload;
+    const displayName = point?.fullName ?? point?.name ?? "";
     return (
       <div className="bg-white border border-[#E0E4E3] rounded-lg shadow-lg p-3 text-xs max-w-[320px]">
         <p className="font-semibold text-[#030304] mb-1">{displayName}</p>
-        {payload[0]?.value > 0 && (
+        {(payload[0]?.value ?? 0) > 0 && (
           <p className="text-[#56B7A5]">
             <span className="text-[#808181]">tCO₂e: </span>
-            <span className="font-semibold">{payload[0].value.toLocaleString("pt-BR")}</span>
+            <span className="font-semibold">{payload[0]?.value?.toLocaleString("pt-BR")}</span>
           </p>
         )}
-        {payload[1]?.value && (
+        {payload[1]?.value != null && (
           <p className="text-[#404040]">
             <span className="text-[#808181]">Acumulado: </span>
             <span className="font-semibold">{payload[1].value.toFixed(1)}%</span>
