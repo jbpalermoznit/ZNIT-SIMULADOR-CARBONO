@@ -5,8 +5,9 @@
  * specific items stay pending after the upload-abc auto-map ran.
  */
 import { NextRequest } from "next/server";
-import { getCurrentUser, unauthorized } from "@/lib/server/auth";
+import { getCurrentUser, unauthorized, forbidden } from "@/lib/server/auth";
 import { supabase } from "@/lib/server/supabase";
+import { curveBelongsToCompany } from "@/lib/server/tenant";
 import { autoMatchEnriched } from "@/lib/server/emission-mapper";
 import { getConversionFactor } from "@/lib/server/calculator";
 
@@ -21,7 +22,15 @@ export async function GET(
     return unauthorized();
   }
 
+  // Diagnostic endpoint: admin-only.
+  if (user.role !== "admin") return forbidden();
+
   const { curveId } = await params;
+
+  // Tenant scope: the curve must belong to the caller's company.
+  if (!(await curveBelongsToCompany(curveId, user.company_id))) {
+    return Response.json({ detail: "Curva não encontrada" }, { status: 404 });
+  }
 
   const { data: items, error } = await supabase
     .from("abc_items")

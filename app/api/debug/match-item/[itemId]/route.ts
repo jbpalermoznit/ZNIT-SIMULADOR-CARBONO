@@ -5,8 +5,9 @@
  * check. Used to triage low-coverage uploads.
  */
 import { NextRequest } from "next/server";
-import { getCurrentUser, unauthorized } from "@/lib/server/auth";
+import { getCurrentUser, unauthorized, forbidden } from "@/lib/server/auth";
 import { supabase } from "@/lib/server/supabase";
+import { curveBelongsToCompany } from "@/lib/server/tenant";
 import { autoMatchEnriched } from "@/lib/server/emission-mapper";
 import { getConversionFactor } from "@/lib/server/calculator";
 
@@ -21,18 +22,27 @@ export async function GET(
     return unauthorized();
   }
 
+  // Diagnostic endpoint: admin-only.
+  if (user.role !== "admin") return forbidden();
+
   const { itemId } = await params;
 
   const { data: item, error } = await supabase
     .from("abc_items")
     .select(
-      "id, cost_code, description, unit, item_type, mapping_status, supplier, canonical_description, assemblies, inferred_type"
+      "id, abc_curve_id, cost_code, description, unit, item_type, mapping_status, supplier, canonical_description, assemblies, inferred_type"
     )
     .eq("id", itemId)
     .single();
 
   if (error || !item) {
     return Response.json({ detail: "Item não encontrado", err: error?.message }, { status: 404 });
+  }
+
+  // Tenant scope: the item must belong to the caller's company
+  // (abc_item → abc_curve → project → company).
+  if (!(await curveBelongsToCompany(item.abc_curve_id as string, user.company_id))) {
+    return Response.json({ detail: "Item não encontrado" }, { status: 404 });
   }
 
   const assemblyDescriptions = Array.isArray(item.assemblies)

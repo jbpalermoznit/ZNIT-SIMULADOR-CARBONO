@@ -54,3 +54,8 @@ export async function getCurrentUser(_req?: NextRequest): Promise<AuthUser> {
 export function unauthorized(message = "Autenticação necessária") {
   return Response.json({ detail: message }, { status: 401 });
 }
+
+/** 403 helper for authenticated-but-not-authorized (e.g. admin-only routes) */
+export function forbidden(message = "Acesso restrito a administradores") {
+  return Response.json({ detail: message }, { status: 403 });
+}
