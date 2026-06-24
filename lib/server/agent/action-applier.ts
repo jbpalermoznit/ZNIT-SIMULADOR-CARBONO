@@ -3,15 +3,7 @@
  * Replaces backend/app/services/agent/action_applier.py
  */
 import { supabase } from "../supabase";
-
-function normalizeKeyword(text: string): string {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-záàâãéèêíïóôõúüç0-9\s]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+import { normalizeKeyword } from "../keyword";
 
 interface Decision {
   item_id: string;
