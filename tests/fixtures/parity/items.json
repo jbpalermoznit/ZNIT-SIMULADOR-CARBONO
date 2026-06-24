@@ -1,0 +1,47 @@
+{
+  "_comment": "Itens-chave da explosão dos cenários de paridade (Estaca Hélice / Prancha), com a grafia em CAIXA ALTA e SEM acento como chega do iTwo. quantity é ilustrativa — o harness valida o MATCH (tier/fator escolhido), não o total absoluto do cenário (a base completa de fatores não está versionada). Ver docs/PARIDADE_SIMULADOR.md.",
+  "items": [
+    {
+      "id": "concreto-40",
+      "description": "CONCRETO 40 MPA USINADO BOMBEADO",
+      "unit": "m3",
+      "quantity": 120
+    },
+    {
+      "id": "armadura-aco",
+      "description": "ACO CA-50 - BITOLA MEDIA",
+      "unit": "kg",
+      "quantity": 18000
+    },
+    {
+      "id": "oleo-diesel",
+      "description": "OLEO DIESEL",
+      "unit": "L",
+      "quantity": 5000
+    },
+    {
+      "id": "combustivel",
+      "description": "COMBUSTIVEL PARA VEICULOS E EQUIPAMENTOS",
+      "unit": "L",
+      "quantity": 3000
+    },
+    {
+      "id": "parafuso",
+      "description": "PARAFUSO SEXTAVADO EM ACO INOX",
+      "unit": "un",
+      "quantity": 400
+    },
+    {
+      "id": "brita",
+      "description": "BRITA 1",
+      "unit": "kg",
+      "quantity": 45000
+    },
+    {
+      "id": "escavacao",
+      "description": "ESCAVACAO MECANIZADA DE SOLO",
+      "unit": "m3",
+      "quantity": 800
+    }
+  ]
+}

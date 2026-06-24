@@ -113,12 +113,24 @@ O reranker só reordena o pool; estes não têm fator válido no pool e o RAG/em
 
 ---
 
-## 6. Validação de paridade (harness offline)
+## 6. Validação de paridade (harness offline) ✅
 
-Para re-rodar a comparação vs antigo sem depender de DB (usa os CSVs de fatores e as
-planilhas de teste): o harness foi usado de forma temporária nesta sessão. **TODO:**
-versionar em `scripts/parity-harness.mjs` (mocka as buscas com os CSVs e roda
-`autoMatchItem`) — opção marcada anteriormente mas ainda não implementada.
+Versionado como **teste vitest** em `tests/lib/server/parity.test.ts` (+ fixtures
+em `tests/fixtures/parity/`), em vez de `scripts/parity-harness.mjs`: o
+`autoMatchItem` é TS com alias `@/` e o vitest já resolve isso + tem a infra de
+mock, então roda no `npm test`/CI **sem segredos**.
+
+O que ele trava (regressão de **match**, não do total absoluto): roda o
+`autoMatchItem` real offline contra um catálogo curado (`factors.json`) que
+reproduz os fatores corretos **e as armadilhas documentadas** (air-compressor
+794/un, Ecoinvent concreto 404/m³, CECarbon `*deprecated`). Os `search*` são
+mockados espelhando o `ilike` real; reranker/vetorial ficam off → determinístico.
+Cada item de `items.json` valida tier/fator escolhido e rejeição de armadilha
+(`expected.json`).
+
+> **Por que não o total 1245,6/504,1:** a base completa de fatores e as planilhas
+> dos cenários não estão versionadas. Quando os exports reais forem versionados,
+> dá para estender o harness para o total absoluto do cenário.
 
 ---
 

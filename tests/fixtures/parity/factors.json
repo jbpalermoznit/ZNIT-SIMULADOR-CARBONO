@@ -1,0 +1,139 @@
+{
+  "_comment": "Catálogo curado de fatores para o harness de paridade. Linhas com os MESMOS shapes que searchGhg/searchCecarbon/searchEcoinvent retornam do Supabase (backend schema). Inclui os fatores corretos E as armadilhas documentadas em docs/PARIDADE_SIMULADOR.md (air-compressor 794/un, ecoinvent concreto 404/m³, CECarbon *deprecated) para travar as guardas do autoMatchItem. NÃO é a base inteira — é um subset de regressão de match.",
+  "ghg": [
+    {
+      "id": 1,
+      "produto": "Óleo Diesel",
+      "categoria": "Combustível líquido",
+      "pais": "Brasil",
+      "ano": 2024,
+      "co2": "2.681",
+      "ch4": "0",
+      "n2o": "0",
+      "co2_bio": "0",
+      "co2e_total": "2.681",
+      "versao_ghg": "v2024"
+    },
+    {
+      "id": 2,
+      "produto": "Gasolina automotiva",
+      "categoria": "Combustível líquido",
+      "pais": "Brasil",
+      "ano": 2024,
+      "co2": "2.212",
+      "ch4": "0",
+      "n2o": "0",
+      "co2_bio": "0",
+      "co2e_total": "2.212",
+      "versao_ghg": "v2024"
+    }
+  ],
+  "cecarbon": [
+    {
+      "id": 1,
+      "Descrição fator de emissao": "Concreto 40 MPa usinado",
+      "fator de emissão (kgCO2)": 274,
+      "Unidade": "m3",
+      "densidade": 2400,
+      "Referencia": "CECARBON 2024"
+    },
+    {
+      "id": 2,
+      "Descrição fator de emissao": "Concreto 25 MPa",
+      "fator de emissão (kgCO2)": 210,
+      "Unidade": "m3",
+      "densidade": 2400,
+      "Referencia": "CECARBON 2024"
+    },
+    {
+      "id": 3,
+      "Descrição fator de emissao": "Aço CA-50",
+      "fator de emissão (kgCO2)": 1.85,
+      "Unidade": "kg",
+      "densidade": 7850,
+      "Referencia": "CECARBON 2024"
+    },
+    {
+      "id": 4,
+      "Descrição fator de emissao": "*Concreto fck antigo (deprecated)",
+      "fator de emissão (kgCO2)": 0.3,
+      "Unidade": "kg",
+      "densidade": 2400,
+      "Referencia": "CECARBON 2020"
+    },
+    {
+      "id": 5,
+      "Descrição fator de emissao": "Brita 1 (agregado graúdo)",
+      "fator de emissão (kgCO2)": 0.0045,
+      "Unidade": "kg",
+      "densidade": 1500,
+      "Referencia": "CECARBON 2024"
+    },
+    {
+      "id": 6,
+      "Descrição fator de emissao": "Bloco de concreto estrutural",
+      "fator de emissão (kgCO2)": 0.12,
+      "Unidade": "un",
+      "densidade": 2400,
+      "Referencia": "CECARBON 2024"
+    }
+  ],
+  "ecoinvent": [
+    {
+      "product_id": "eco-concrete-40",
+      "activity_id": "act-concrete-40",
+      "product_name": "concrete, 40MPa",
+      "product_name_pt": "concreto 40MPa",
+      "activity_name": "concrete production, 40MPa",
+      "activity_name_pt": "produção de concreto, 40MPa",
+      "product_unit": "m3",
+      "geography": "RoW",
+      "impact_score": "404",
+      "impact_unit": "kg CO2-Eq",
+      "year_start": 2021,
+      "year_end": 2024
+    },
+    {
+      "product_id": "eco-reinf-steel",
+      "activity_id": "act-reinf-steel",
+      "product_name": "reinforcing steel",
+      "product_name_pt": "aço para reforço",
+      "activity_name": "reinforcing steel production",
+      "activity_name_pt": "produção de aço para reforço",
+      "product_unit": "kg",
+      "geography": "GLO",
+      "impact_score": "2.5",
+      "impact_unit": "kg CO2-Eq",
+      "year_start": 2021,
+      "year_end": 2024
+    },
+    {
+      "product_id": "eco-air-compressor",
+      "activity_id": "act-air-compressor",
+      "product_name": "air compressor, screw-type",
+      "product_name_pt": "compressor de ar, tipo parafuso",
+      "activity_name": "air compressor production, screw-type, 300kW",
+      "activity_name_pt": "produção de compressor de ar, tipo parafuso",
+      "product_unit": "unit",
+      "geography": "GLO",
+      "impact_score": "794",
+      "impact_unit": "kg CO2-Eq",
+      "year_start": 2021,
+      "year_end": 2024
+    },
+    {
+      "product_id": "eco-excavation",
+      "activity_id": "act-excavation",
+      "product_name": "excavation, hydraulic digger",
+      "product_name_pt": "escavação, escavadeira hidráulica",
+      "activity_name": "excavation, hydraulic digger",
+      "activity_name_pt": "escavação, escavadeira hidráulica",
+      "product_unit": "m3",
+      "geography": "RoW",
+      "impact_score": "3.5",
+      "impact_unit": "kg CO2-Eq",
+      "year_start": 2021,
+      "year_end": 2024
+    }
+  ]
+}
