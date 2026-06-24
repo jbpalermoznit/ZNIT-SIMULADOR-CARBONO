@@ -67,10 +67,30 @@ Dada a descrição de um insumo/serviço de orçamento e uma lista de fatores ca
 Regras:
 - Prefira o fator do material em si (ex.: "ACO CA-50" → aço/vergalhão; "OLEO DIESEL"/"COMBUSTIVEL" → diesel; "CONCRETO 40MPA" → concreto da resistência correspondente).
 - A unidade do fator deve ser compatível com a unidade do item (massa↔massa, volume↔volume, etc.). Rejeite candidatos cuja unidade não converte (ex.: fator de aço por kg para um item contado em "un" ou medido em "m").
-- Rejeite casamentos absurdos por similaridade textual (ex.: "parafuso" → "air compressor, screw-type"; "guarda-corpo" → fator industrial enorme).
+- COMPATIBILIDADE DE UNIDADE NÃO BASTA: "un" casar com "un" não torna o match válido. Avalie o TIPO de produto, não só a unidade. Um item e um candidato podem ambos ser contados em "un" e ainda assim serem coisas completamente diferentes.
+- Fixadores e conectores metálicos pequenos (PARAFUSO, PARABOLT, CHUMBADOR, PREGO, PORCA, ARRUELA, ARAME, GRAMPO, PINO, REBITE, ABRAÇADEIRA) só casam com fator do METAL (aço, aço inox, ferro). Se os ÚNICOS candidatos compatíveis por unidade forem equipamento, máquina, HVAC, peça hidráulica/sanitária, eletrodoméstico, mobiliário ou qualquer item NÃO relacionado a fixador metálico (ex.: "parabolt" → "room-connecting overflow"; "parafuso" → "air compressor, screw-type"), responda best_index = -1. NÃO escolha um match absurdo só porque a unidade bate.
+- Rejeite casamentos absurdos por similaridade textual (ex.: "guarda-corpo" → fator industrial enorme).
 - Prefira fontes nacionais (CECarbon/GHG Protocol BR) a genéricas (Ecoinvent) quando ambas representam o mesmo material.
 - Se NENHUM candidato representa o material, responda best_index = -1.
 Responda apenas no formato estruturado.`;
+
+// Guarda determinística pós-rerank para fixadores/conectores metálicos.
+// O problema observado ao vivo: PARABOLT (un) → "room-connecting overflow"
+// (un) passava porque a unidade é compatível (un↔un). A checagem de unidade
+// sozinha não pega isso; aqui exigimos que, para um item que é claramente um
+// fixador metálico, o fator escolhido seja de fato de metal — senão rejeita
+// (best_index = -1 efetivo), mantendo o determinístico.
+const FASTENER_ITEM_RE =
+  /\b(parafuso|parabolt|chumbador|prego|porca|arruela|arame|grampo|rebite|abracadeira|tirefond|tirefao|vergalhao|estribo)\b/;
+const METAL_FACTOR_RE =
+  /(aco|aço|steel|inox|stainless|ferro|iron|metal|metalic|zinco|zinc|galvaniz|aluminio|alumini|copper|cobre|lat[aã]o|brass|reinforc|vergalh|prego|arame|wire|nail|bolt|screw|anchor|fastener)/;
+
+function norm(s: string | null | undefined): string {
+  return String(s ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+}
 
 function buildUserPrompt(
   description: string,
@@ -138,6 +158,21 @@ export async function rerankWithClaude(
       if (conv === 0) {
         return { bestIndex: null, confidence: "low", reason: "unidade incompatível (rejeitado pós-rerank)" };
       }
+    }
+
+    // Guarda de fixador: un↔un (ou qualquer unidade compatível) não basta —
+    // um fixador metálico só pode casar com fator de metal. Pega o caso real
+    // PARABOLT → "room-connecting overflow" que a checagem de unidade deixava
+    // passar. Mantém o determinístico (bestIndex null) quando o LLM escorrega.
+    if (
+      FASTENER_ITEM_RE.test(norm(description)) &&
+      !METAL_FACTOR_RE.test(norm(chosen.factor_name))
+    ) {
+      return {
+        bestIndex: null,
+        confidence: "low",
+        reason: `fixador metálico não casa com "${chosen.factor_name}" (rejeitado pós-rerank)`,
+      };
     }
 
     return { bestIndex: idx, confidence: parsed.confidence ?? "medium", reason: parsed.reason ?? "" };
