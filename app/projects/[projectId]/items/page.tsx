@@ -390,6 +390,12 @@ const TIER_COLOR: Record<string, string> = {
   rule: "bg-teal-100 text-teal-700",
 };
 
+// Linhas de resultado de busca vêm de 3 tabelas externas (GHG / CECarbon /
+// Ecoinvent) com chaves dinâmicas — incluindo chaves em português usadas em
+// template literals e aritmética. Um tipo preciso não agrega valor aqui.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type FactorSearchRow = Record<string, any>;
+
 function EditEpdView({
   item,
   onBack,
@@ -684,10 +690,10 @@ function EditEpdView({
               <div className="px-5 py-8 text-center"><Loader2 size={20} className="text-[#56B7A5] animate-spin mx-auto" /></div>
             )}
             {(search ? [
-              ...(tierFilter.ghg_protocol ? (results?.ghg_protocol || []).map((r: any) => ({ ...r, source_tier: "ghg_protocol", factor_name: r.produto, factor_value: r.co2e_total, factor_unit: "kgCO₂e", factor_source: r.versao_ghg || "GHG Protocol" })) : []),
-              ...(tierFilter.cecarbon ? (results?.cecarbon || []).map((r: any) => ({ ...r, source_tier: "cecarbon", factor_name: r["Descrição fator de emissao"] || r.description || "", factor_value: r["fator de emissão (kgCO2)"] || r.factor_value || 0, factor_unit: `kgCO₂/${r["Unidade"] || r.unit || "t"}`, factor_source: r["Referencia"] || r.reference || "CECarbon", product_unit: r["Unidade"] || r.unit || "", cecarbon_id: r.id })) : []),
-              ...(tierFilter.ecoinvent ? (results?.ecoinvent || []).map((r: any) => ({ ...r, source_tier: "ecoinvent", factor_name: r.product_name, factor_value: r.impact_score, factor_unit: r.impact_unit, factor_source: r.activity_name, product_unit: r.product_unit })) : []),
-            ] : autoMatch?.results)?.map((r: any, i: number) => {
+              ...(tierFilter.ghg_protocol ? (results?.ghg_protocol || []).map((r: FactorSearchRow) => ({ ...r, source_tier: "ghg_protocol", factor_name: r.produto, factor_value: r.co2e_total, factor_unit: "kgCO₂e", factor_source: r.versao_ghg || "GHG Protocol" })) : []),
+              ...(tierFilter.cecarbon ? (results?.cecarbon || []).map((r: FactorSearchRow) => ({ ...r, source_tier: "cecarbon", factor_name: r["Descrição fator de emissao"] || r.description || "", factor_value: r["fator de emissão (kgCO2)"] || r.factor_value || 0, factor_unit: `kgCO₂/${r["Unidade"] || r.unit || "t"}`, factor_source: r["Referencia"] || r.reference || "CECarbon", product_unit: r["Unidade"] || r.unit || "", cecarbon_id: r.id })) : []),
+              ...(tierFilter.ecoinvent ? (results?.ecoinvent || []).map((r: FactorSearchRow) => ({ ...r, source_tier: "ecoinvent", factor_name: r.product_name, factor_value: r.impact_score, factor_unit: r.impact_unit, factor_source: r.activity_name, product_unit: r.product_unit })) : []),
+            ] : autoMatch?.results)?.map((r: FactorSearchRow, i: number) => {
               const tier = r.source_tier || "ecoinvent";
               const name = r.factor_name || r.product_name || "";
               const value = r.factor_value ?? r.impact_score ?? 0;
@@ -803,7 +809,7 @@ function EditEpdView({
               </div>
             ))}
             {search && results?.epd_catalog.length === 0 && (
-              <p className="text-xs text-[#BDBDBC] px-5 py-6 text-center">Nenhum EPD encontrado para "{search}"</p>
+              <p className="text-xs text-[#BDBDBC] px-5 py-6 text-center">Nenhum EPD encontrado para &quot;{search}&quot;</p>
             )}
           </div>
         )}

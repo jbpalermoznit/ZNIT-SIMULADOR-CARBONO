@@ -254,7 +254,7 @@ export default function OverviewPage() {
       {!viewScenario && (
         <div className="space-y-4">
           <Alert variant="info">
-            Nenhum Cenário Base calculado ainda. Importe uma Curva ABC, execute o Auto-Map e clique em <strong>"Gerar Cenário Base"</strong> para calcular as emissões.
+            Nenhum Cenário Base calculado ainda. Importe uma Curva ABC, execute o Auto-Map e clique em <strong>&quot;Gerar Cenário Base&quot;</strong> para calcular as emissões.
           </Alert>
           <div className="grid grid-cols-3 gap-4">
             <KpiCard label="Itens importados" value={String(totalItems)} sub="da Curva ABC" icon={<BarChart2 size={20} />} />

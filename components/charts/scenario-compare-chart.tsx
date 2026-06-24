@@ -11,12 +11,16 @@ import {
 } from "recharts";
 import { mockCompareData } from "@/lib/mock/data";
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload, label }: {
+  active?: boolean;
+  label?: string;
+  payload?: Array<{ name: string; value: number; fill: string }>;
+}) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-white border border-[#E0E4E3] rounded-lg shadow-lg p-3 text-xs space-y-1">
         <p className="font-semibold text-[#030304] mb-1">{label}</p>
-        {payload.map((p: any) => (
+        {payload.map((p) => (
           <div key={p.name} className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full" style={{ background: p.fill }} />
             <span className="text-[#808181]">{p.name}:</span>
