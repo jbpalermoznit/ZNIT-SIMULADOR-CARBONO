@@ -815,8 +815,33 @@ export default function MaccPage() {
                               <span className="text-[10px] font-normal text-[#808181]"> /tCO₂e</span>
                             </span>
                             {bar.price_estimate?.is_estimate && (
-                              <p className="text-[9px] text-[#BDBDBC] mt-0.5" title={bar.price_estimate.source_url ?? ""}>
-                                estimativa · {bar.price_estimate.source_name ?? "mercado"} · confirmar
+                              <p
+                                className="text-[9px] text-[#BDBDBC] mt-0.5"
+                                title={`Preço estimado: R$ ${Number(bar.price_estimate.value).toLocaleString("pt-BR")}/${bar.price_estimate.unit} · confiança ${bar.price_estimate.confidence}${bar.price_estimate.as_of ? ` · ${bar.price_estimate.as_of}` : ""}`}
+                              >
+                                estimativa
+                                {bar.price_estimate.confidence ? ` (${{ high: "alta", medium: "média", low: "baixa" }[bar.price_estimate.confidence] ?? bar.price_estimate.confidence})` : ""}
+                                {" · "}
+                                {bar.price_estimate.source_url ? (
+                                  <a
+                                    href={bar.price_estimate.source_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[#56B7A5] hover:underline inline-flex items-center gap-0.5"
+                                  >
+                                    {bar.price_estimate.source_name ?? "fonte"}
+                                    <ExternalLink size={8} />
+                                  </a>
+                                ) : (
+                                  bar.price_estimate.source_name ?? "mercado"
+                                )}
+                                {" · "}
+                                <button
+                                  onClick={() => setEditingId(bar.id)}
+                                  className="text-[#56B7A5] hover:underline"
+                                >
+                                  confirmar
+                                </button>
                               </p>
                             )}
                           </>
