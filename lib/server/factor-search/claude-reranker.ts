@@ -23,7 +23,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { MatchCandidate } from "@/lib/server/emission-mapper";
 import { getConversionFactor } from "@/lib/server/calculator";
 
-const MODEL = process.env.FACTOR_RERANKER_MODEL ?? "claude-opus-4-8";
+// Default Haiku (barato). Override por FACTOR_RERANKER_MODEL se quiser mais
+// qualidade de julgamento (Sonnet/Opus) ao custo de mais $$.
+const MODEL = process.env.FACTOR_RERANKER_MODEL ?? "claude-haiku-4-5-20251001";
 const MAX_CANDIDATES = 12;
 
 export interface RerankResult {

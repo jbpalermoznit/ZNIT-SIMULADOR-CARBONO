@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     reranker: {
       enabled_flag: process.env.FACTOR_RERANKER_ENABLED === "true",
       anthropic_key_present: !!process.env.ANTHROPIC_API_KEY,
-      model: process.env.FACTOR_RERANKER_MODEL ?? "claude-opus-4-8",
+      model: process.env.FACTOR_RERANKER_MODEL ?? "claude-haiku-4-5-20251001",
       effective: isRerankerEnabled(),
     },
     // Estimador de preço por IA (Recomendações de redução). `effective` =
