@@ -2,7 +2,33 @@ import { NextRequest } from "next/server";
 import { supabase, supabaseEmission } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import { getConversionFactor } from "@/lib/server/calculator";
+import { normalizeKeyword } from "@/lib/server/keyword";
+import {
+  estimateMarketPrice,
+  isPriceEstimationEnabled,
+} from "@/lib/server/factor-search/price-estimator";
+import {
+  getCachedPriceEstimate,
+  upsertPriceEstimate,
+} from "@/lib/server/supabase-emission";
+import {
+  abatementCostPerTco2e,
+  costCategory,
+  compareByAbatementCost,
+} from "@/lib/macc-economics";
 import type { AuthUser } from "@/lib/server/auth";
+
+/** Classe de resistência fck (MPa) a partir do texto ("fck 30", "C30", "fck=40"). */
+function parseFckClass(text: string): number | null {
+  const t = text.toLowerCase();
+  const m =
+    t.match(/fck\s*=?\s*(\d{2,3})/) ||
+    t.match(/\bc[-\s]?(\d{2,3})\b/) ||
+    t.match(/(\d{2,3})\s*mpa/);
+  if (!m) return null;
+  const v = parseInt(m[1], 10);
+  return v >= 10 && v <= 100 ? v : null;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -153,6 +179,9 @@ function matchEpdsToItem(
 ): Record<string, unknown>[] {
   const keywords = extractKeywords(description);
   const descLower = description.toLowerCase();
+  // Equivalência de spec: se o item tem classe (fck), não recomendar EPD de
+  // classe INFERIOR (perderia a especificação estrutural).
+  const itemFck = parseFckClass(description);
 
   const matches: Record<string, unknown>[] = [];
 
@@ -162,6 +191,12 @@ function matchEpdsToItem(
 
     const titulo = ((epd.titulo as string) ?? "").toLowerCase();
     const info = ((epd.informacao_produto as string) ?? "").toLowerCase();
+
+    // Guarda de classe: rejeita EPD de fck conhecido e menor que o do item.
+    if (itemFck != null) {
+      const epdFck = parseFckClass(`${titulo} ${info}`);
+      if (epdFck != null && epdFck < itemFck) continue;
+    }
 
     // Quick relevance check
     let relevant = false;
@@ -203,8 +238,12 @@ function matchEpdsToItem(
       supplier: epd.company_name ?? "",
       source_tier: "epd",
       declared_unit: ((epd.declared_unit as string) ?? "").trim(),
+      price_per_declared_unit: (epd.price_per_declared_unit as number | null) ?? null,
       score,
       country: epd.country ?? epd.geographical_scopes ?? "",
+      reason: relevant
+        ? `Casou "${epd.titulo ?? ""}" por descri\u00e7\u00e3o${itemFck != null ? ` (fck \u2265 ${itemFck})` : ""}`
+        : `Similaridade textual com "${epd.titulo ?? ""}"`,
     });
   }
 
@@ -221,6 +260,8 @@ function emptyKpis() {
     savings_count: 0,
     avg_cost: 0,
     total_alternatives: 0,
+    priced_count: 0,
+    unpriced_count: 0,
   };
 }
 
@@ -231,16 +272,21 @@ function computeKpis(bars: Record<string, unknown>[]) {
     (s, b) => s + (b.abatement_tco2e as number),
     0
   );
+  // "no-regret": custo de abatimento negativo (reduz carbono E custo).
   const savingsBars = bars.filter(
-    (b) => (b.cost_per_tco2e as number) < 0
+    (b) => b.cost_per_tco2e != null && (b.cost_per_tco2e as number) < 0
   );
   const savingsAbatement = savingsBars.reduce(
     (s, b) => s + (b.abatement_tco2e as number),
     0
   );
-  const costs = bars.map((b) => b.cost_per_tco2e as number);
+  // Média só sobre alternativas com preço conhecido (ignora "custo a confirmar").
+  const costs = bars
+    .map((b) => b.cost_per_tco2e as number | null)
+    .filter((c): c is number => c != null);
   const avgCost =
     costs.length > 0 ? costs.reduce((a, b) => a + b, 0) / costs.length : 0;
+  const pricedCount = costs.length;
 
   return {
     total_abatement: Math.round(totalAbatement * 100) / 100,
@@ -248,6 +294,8 @@ function computeKpis(bars: Record<string, unknown>[]) {
     savings_count: savingsBars.length,
     avg_cost: Math.round(avgCost * 100) / 100,
     total_alternatives: bars.length,
+    priced_count: pricedCount,
+    unpriced_count: bars.length - pricedCount,
   };
 }
 
@@ -348,6 +396,9 @@ export async function GET(
         item.unit ?? "",
         (candidate.declared_unit as string) ?? ""
       );
+      // Guarda de unidade: conversão 0 = unidade do EPD incompatível com a do
+      // item. Sem isto, altEmission=0 → abatimento "100%" espúrio.
+      if (altConv === 0) continue;
       const altEmissionKg = altFactor * (item.quantity ?? 0) * altConv;
 
       if (altEmissionKg >= baselineEmissionKg) continue;
@@ -373,11 +424,19 @@ export async function GET(
         alternative_emission_kg: Math.round(altEmissionKg * 100) / 100,
         supplier: candidate.supplier ?? "",
         source_tier: "epd",
+        epd_id: candidate.epd_id ?? null,
+        item_id: item.id,
+        item_unit: item.unit ?? "",
+        declared_unit: candidate.declared_unit ?? "",
+        alt_conv: altConv,
+        price_per_declared_unit: candidate.price_per_declared_unit ?? null,
         abatement_tco2e: Math.round(abatementTco2e * 100) / 100,
         abatement_unit: "tCO\u2082e",
-        cost_per_tco2e: 0.0,
+        cost_per_tco2e: null,
+        category: "unknown",
+        price_estimate: null,
+        reason: candidate.reason ?? "",
         score: candidate.score ?? 0,
-        category: "low",
         country: candidate.country ?? "",
       });
     }
@@ -399,6 +458,75 @@ export async function GET(
       uniqueBars.push(bar);
     }
   }
+
+  // -------------------------------------------------------------------------
+  // Resolver o PREÇO da alternativa e computar o custo de abatimento por bar.
+  // Ordem: preço semeado no EPD > cache de estimativa > estimativa nova (IA,
+  // só se PRICE_ESTIMATION_ENABLED) > nenhum ("custo a confirmar").
+  // -------------------------------------------------------------------------
+  const period = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const region = "BR";
+  for (const bar of uniqueBars) {
+    const qty = Number(bar.item_quantity ?? 0);
+    const baselineLineCost = Number(bar.item_unit_cost ?? 0) * qty;
+    let altUnitPerItem: number | null = null;
+    let priceMeta: Record<string, unknown> | null = null;
+
+    const seeded = bar.price_per_declared_unit as number | null;
+    if (seeded != null && seeded > 0) {
+      // Preço por unidade declarada → por unidade do item via a conversão.
+      altUnitPerItem = seeded * Number(bar.alt_conv ?? 0);
+      priceMeta = {
+        value: seeded, unit: bar.declared_unit, source_name: "EPD (cadastro)",
+        source_url: null, as_of: null, confidence: "high", is_estimate: false,
+      };
+    } else {
+      const materialKey = normalizeKeyword(String(bar.alternative_name ?? ""));
+      const itemUnit = String(bar.item_unit ?? "");
+      if (materialKey && itemUnit) {
+        let est = await getCachedPriceEstimate(materialKey, region, itemUnit, period);
+        if (!est && isPriceEstimationEnabled()) {
+          const live = await estimateMarketPrice({
+            materialDesc: String(bar.alternative_name ?? ""), unit: itemUnit, region,
+          });
+          if (live) {
+            await upsertPriceEstimate({
+              material_key: materialKey, region, unit: itemUnit, period,
+              price: live.price, currency: live.currency, source_name: live.source_name,
+              source_url: live.source_url, as_of: live.as_of, confidence: live.confidence,
+            });
+            est = { ...live };
+          }
+        }
+        if (est) {
+          altUnitPerItem = est.price; // estimativa já é por unidade do item
+          priceMeta = {
+            value: est.price, unit: itemUnit, source_name: est.source_name,
+            source_url: est.source_url, as_of: est.as_of, confidence: est.confidence,
+            is_estimate: true,
+          };
+        }
+      }
+    }
+
+    let deltaCost: number | null = null;
+    if (altUnitPerItem != null) {
+      deltaCost = Math.round((altUnitPerItem * qty - baselineLineCost) * 100) / 100;
+    }
+    const cpt = abatementCostPerTco2e(deltaCost, Number(bar.abatement_tco2e ?? 0));
+    bar.delta_cost_r = deltaCost;
+    bar.cost_per_tco2e = cpt;
+    bar.category = costCategory(cpt);
+    bar.price_estimate = priceMeta;
+  }
+
+  // Ranquear por custo de abatimento crescente (no-regret primeiro; sem preço por último).
+  uniqueBars.sort((a, b) =>
+    compareByAbatementCost(
+      { cost_per_tco2e: a.cost_per_tco2e as number | null, abatement_tco2e: a.abatement_tco2e as number },
+      { cost_per_tco2e: b.cost_per_tco2e as number | null, abatement_tco2e: b.abatement_tco2e as number }
+    )
+  );
 
   const kpis = computeKpis(uniqueBars);
 
