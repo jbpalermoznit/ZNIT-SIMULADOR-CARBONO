@@ -1,14 +1,14 @@
 /**
  * PUT/DELETE /api/epd-prices/[epdId]
- * Cadastra/atualiza ou remove o preço de um EPD para a empresa do usuário.
+ * Registra/atualiza (preço + unidade + GWP) ou limpa o preço de um EPD para a
+ * empresa do usuário. Tudo POR EMPRESA (org).
  */
 import { NextRequest } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import {
-  upsertCompanyEpdPrice,
-  deleteCompanyEpdPrice,
+  upsertCompanyEpd,
+  clearCompanyEpdPrice,
 } from "@/lib/server/epd-prices";
-import { setEpdGwp } from "@/lib/server/supabase-emission";
 import type { AuthUser } from "@/lib/server/auth";
 
 export async function PUT(
@@ -35,38 +35,37 @@ export async function PUT(
     return Response.json({ detail: "Informe preço e/ou GWP." }, { status: 400 });
   }
 
-  // GWP (global, catálogo) — objetivo, do PDF do EPD; vale para todos.
-  if (hasGwp) {
-    const gwp = Number(body.gwp_a1a3);
-    if (!Number.isFinite(gwp) || gwp <= 0) {
-      return Response.json({ detail: "GWP inválido" }, { status: 400 });
-    }
-    const r = await setEpdGwp(id, gwp);
-    if (!r.ok) return Response.json({ detail: r.error ?? "Erro ao salvar GWP" }, { status: 400 });
-  }
-
-  // Preço (por empresa).
+  let price: number | null = null;
   if (hasPrice) {
-    const price = Number(body.price);
+    price = Number(body.price);
     if (!Number.isFinite(price) || price <= 0) {
-      return Response.json({ detail: "Preço inválido" }, { status: 400 });
+      return Response.json({ detail: "Preço inválido (> 0)." }, { status: 400 });
     }
-    const res = await upsertCompanyEpdPrice({
-      companyId: user.company_id,
-      epdId: id,
-      price,
-      declaredUnit: body.declared_unit ?? null,
-      note: body.note ?? null,
-      updatedBy: user.id,
-    });
-    if (!res.ok) {
-      return Response.json(
-        { detail: res.error ?? "Erro ao salvar preço (aplique migration-v10?)" },
-        { status: 400 }
-      );
+  }
+  let gwp: number | null = null;
+  if (hasGwp) {
+    gwp = Number(body.gwp_a1a3);
+    if (!Number.isFinite(gwp) || gwp <= 0) {
+      return Response.json({ detail: "GWP inválido (> 0)." }, { status: 400 });
     }
   }
 
+  const res = await upsertCompanyEpd({
+    companyId: user.company_id,
+    epdId: id,
+    price,
+    priceUnit: body.price_unit ?? null,
+    gwp,
+    declaredUnit: body.declared_unit ?? null,
+    note: body.note ?? null,
+    updatedBy: user.id,
+  });
+  if (!res.ok) {
+    return Response.json(
+      { detail: res.error ?? "Erro ao salvar (a tabela epd_prices existe? aplique migration-v10)" },
+      { status: 400 }
+    );
+  }
   return Response.json({ ok: true });
 }
 
@@ -85,7 +84,7 @@ export async function DELETE(
   if (!Number.isFinite(id)) {
     return Response.json({ detail: "EPD inválido" }, { status: 400 });
   }
-  const res = await deleteCompanyEpdPrice(user.company_id, id);
+  const res = await clearCompanyEpdPrice(user.company_id, id);
   if (!res.ok) return Response.json({ detail: res.error }, { status: 400 });
   return Response.json({ ok: true });
 }

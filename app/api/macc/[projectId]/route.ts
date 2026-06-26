@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { supabase, supabaseEmission } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import { getConversionFactor } from "@/lib/server/calculator";
-import { getCompanyEpdPrices } from "@/lib/server/epd-prices";
+import { getCompanyEpdRegistry } from "@/lib/server/epd-prices";
+import { getEpdsByIds } from "@/lib/server/supabase-emission";
 import {
   abatementCostPerTco2e,
   costCategory,
@@ -359,8 +360,22 @@ export async function GET(
     mappingByItem[m.abc_item_id] = m;
   }
 
-  // Load all EPDs with GWP (single batch)
-  const allEpds = await loadAllEpdsWithGwp();
+  // Registro da empresa (preço + GWP manual por EPD).
+  const registry = await getCompanyEpdRegistry(user.company_id);
+
+  // Pool de EPDs com GWP: catálogo global + os que a EMPRESA preencheu o GWP.
+  // O GWP da empresa sobrepõe o global (vale só para esta empresa).
+  const globalEpds = await loadAllEpdsWithGwp();
+  const globalIds = new Set(globalEpds.map((e) => Number(e.id)));
+  const companyGwpIds = [...registry.values()]
+    .filter((r) => r.gwp_a1a3 != null)
+    .map((r) => r.epd_id);
+  const missingIds = companyGwpIds.filter((id) => !globalIds.has(id));
+  const extraEpds = missingIds.length > 0 ? await getEpdsByIds(missingIds) : [];
+  const allEpds = [...globalEpds, ...extraEpds].map((e) => {
+    const reg = registry.get(Number(e.id));
+    return reg?.gwp_a1a3 != null ? { ...e, gwp_a1a3: reg.gwp_a1a3 } : e;
+  });
 
   const bars: Record<string, unknown>[] = [];
 
@@ -468,33 +483,34 @@ export async function GET(
   // preço global no EPD > nenhum ("custo a confirmar"). O usuário cadastra os
   // preços em /epd-prices (public.epd_prices).
   // -------------------------------------------------------------------------
-  const epdIds = uniqueBars
-    .map((b) => Number(b.epd_id))
-    .filter((n) => Number.isFinite(n));
-  const companyPrices = await getCompanyEpdPrices(user.company_id, epdIds);
-
   for (const bar of uniqueBars) {
     const qty = Number(bar.item_quantity ?? 0);
     const baselineLineCost = Number(bar.item_unit_cost ?? 0) * qty;
     let altUnitPerItem: number | null = null;
     let priceMeta: Record<string, unknown> | null = null;
 
-    // preço cadastrado pela empresa > preço global no EPD (ambos por unidade
-    // declarada → convertidos para a unidade do item via alt_conv).
-    const cp = companyPrices.get(Number(bar.epd_id));
-    const declaredPrice =
-      cp?.price_per_declared_unit ?? (bar.price_per_declared_unit as number | null);
-    if (declaredPrice != null && declaredPrice > 0) {
-      altUnitPerItem = declaredPrice * Number(bar.alt_conv ?? 0);
+    // Preço cadastrado pela empresa (na price_unit escolhida) > preço global no
+    // EPD (na declared_unit). Converte para a unidade do item via a unidade do
+    // próprio preço (não necessariamente a declared_unit do EPD).
+    const reg = registry.get(Number(bar.epd_id));
+    if (reg?.price != null && reg.price > 0) {
+      const priceUnit = reg.price_unit ?? String(bar.declared_unit ?? "");
+      const conv = getConversionFactor(String(bar.item_unit ?? ""), priceUnit);
+      altUnitPerItem = reg.price * conv;
       priceMeta = {
-        value: declaredPrice,
-        unit: bar.declared_unit,
-        source_name: cp ? "Preço cadastrado" : "EPD (global)",
-        source_url: null,
-        as_of: cp?.updated_at ?? null,
-        confidence: "high",
-        is_estimate: false,
+        value: reg.price, unit: priceUnit, source_name: "Preço cadastrado",
+        source_url: null, as_of: reg.updated_at ?? null,
+        confidence: "high", is_estimate: false,
       };
+    } else {
+      const globalPrice = bar.price_per_declared_unit as number | null;
+      if (globalPrice != null && globalPrice > 0) {
+        altUnitPerItem = globalPrice * Number(bar.alt_conv ?? 0);
+        priceMeta = {
+          value: globalPrice, unit: bar.declared_unit, source_name: "EPD (global)",
+          source_url: null, as_of: null, confidence: "high", is_estimate: false,
+        };
+      }
     }
 
     let deltaCost: number | null = null;

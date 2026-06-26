@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Search, Loader2, Check, Trash2, DollarSign } from "lucide-react";
+import { Search, Loader2, Check, Trash2, DollarSign, ExternalLink } from "lucide-react";
 import {
   searchEpdPrices,
   saveEpd,
@@ -17,6 +17,7 @@ export default function EpdPricesPage() {
   const [searched, setSearched] = useState(false);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [gwpDrafts, setGwpDrafts] = useState<Record<number, string>>({});
+  const [unitDrafts, setUnitDrafts] = useState<Record<number, string>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,13 +41,14 @@ export default function EpdPricesPage() {
   const save = async (item: EpdPriceItem) => {
     const priceRaw = drafts[item.epd_id];
     const gwpRaw = gwpDrafts[item.epd_id];
-    const fields: { price?: number; gwp_a1a3?: number; declaredUnit?: string } = {
+    const fields: { price?: number; price_unit?: string; gwp_a1a3?: number; declaredUnit?: string } = {
       declaredUnit: item.declared_unit,
     };
     if (priceRaw != null && priceRaw !== "") {
       const price = parseFloat(priceRaw.replace(",", "."));
       if (!Number.isFinite(price) || price <= 0) { setError("Preço inválido (> 0)."); return; }
       fields.price = price;
+      fields.price_unit = unitDrafts[item.epd_id] ?? item.price_unit ?? item.declared_unit;
     }
     if (gwpRaw != null && gwpRaw !== "") {
       const gwp = parseFloat(gwpRaw.replace(",", "."));
@@ -67,7 +69,9 @@ export default function EpdPricesPage() {
             ? {
                 ...r,
                 price: fields.price ?? r.price,
+                price_unit: fields.price_unit ?? r.price_unit,
                 gwp_a1a3: fields.gwp_a1a3 ?? r.gwp_a1a3,
+                gwp_manual: fields.gwp_a1a3 != null ? true : r.gwp_manual,
                 updated_at: new Date().toISOString(),
               }
             : r
@@ -75,6 +79,7 @@ export default function EpdPricesPage() {
       );
       setDrafts((d) => { const n = { ...d }; delete n[item.epd_id]; return n; });
       setGwpDrafts((d) => { const n = { ...d }; delete n[item.epd_id]; return n; });
+      setUnitDrafts((d) => { const n = { ...d }; delete n[item.epd_id]; return n; });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao salvar");
     } finally {
@@ -98,6 +103,9 @@ export default function EpdPricesPage() {
 
   return (
     <div className="p-7">
+      <datalist id="epd-units">
+        {["m3", "m2", "kg", "t", "un", "L", "m"].map((u) => <option key={u} value={u} />)}
+      </datalist>
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-[#030304] mb-1">Cadastro de preços de EPD</h1>
@@ -169,7 +177,20 @@ export default function EpdPricesPage() {
                 return (
                   <tr key={item.epd_id} className="border-b border-[#F0F4F3] hover:bg-[#F8FAF9]">
                     <td className="px-4 py-3 max-w-[340px]">
-                      <p className="font-semibold text-[#030304] truncate" title={item.titulo}>{item.titulo}</p>
+                      {item.link ? (
+                        <a
+                          href={item.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-semibold text-[#030304] truncate hover:text-[#56B7A5] hover:underline inline-flex items-center gap-1 max-w-full"
+                          title={`Abrir EPD: ${item.titulo}`}
+                        >
+                          <span className="truncate">{item.titulo}</span>
+                          <ExternalLink size={11} className="shrink-0 text-[#BDBDBC]" />
+                        </a>
+                      ) : (
+                        <p className="font-semibold text-[#030304] truncate" title={item.titulo}>{item.titulo}</p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-[#808181]">
                       {item.manufacturer || "—"}<span className="text-[#BDBDBC]"> · {item.country || "—"}</span>
@@ -188,9 +209,11 @@ export default function EpdPricesPage() {
                         />
                         <span className="text-[#BDBDBC] text-[10px]">/{item.declared_unit || "?"}</span>
                       </div>
-                      {item.gwp_a1a3 == null && (
+                      {item.gwp_a1a3 == null ? (
                         <p className="text-[9px] text-[#EF4444] mt-0.5">sem GWP</p>
-                      )}
+                      ) : item.gwp_manual ? (
+                        <p className="text-[9px] text-[#7c3aed] mt-0.5">manual da organização</p>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -204,7 +227,15 @@ export default function EpdPricesPage() {
                           placeholder="—"
                           className="w-24 h-8 px-2 text-right rounded border border-[#E0E4E3] focus:outline-none focus:border-[#56B7A5]"
                         />
-                        <span className="text-[#BDBDBC] text-[10px]">/{item.declared_unit || "?"}</span>
+                        <span className="text-[#BDBDBC] text-[10px]">/</span>
+                        <input
+                          list="epd-units"
+                          value={unitDrafts[item.epd_id] ?? item.price_unit ?? item.declared_unit ?? ""}
+                          onChange={(e) => setUnitDrafts((d) => ({ ...d, [item.epd_id]: e.target.value }))}
+                          placeholder="unid."
+                          className="w-14 h-8 px-1 text-center rounded border border-[#E0E4E3] focus:outline-none focus:border-[#56B7A5] text-[11px]"
+                          title="Unidade do preço (m3, m2, kg, t, un, L, m...). Pode diferir da unidade declarada do EPD."
+                        />
                       </div>
                       {item.updated_at && !dirty && (
                         <p className="text-[9px] text-[#16A34A] mt-0.5">cadastrado</p>

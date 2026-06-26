@@ -135,16 +135,13 @@ export async function listBrazilEpds(limit = 500) {
   return data ?? [];
 }
 
-/**
- * Define o GWP (A1-A3) de um EPD no catálogo (backend.epd_dev). GLOBAL — o GWP
- * é objetivo (vem do PDF do EPD), igual para todos os tenants; preencher 1×
- * torna o EPD candidato nas Recomendações para todas as empresas.
- */
-export async function setEpdGwp(epdId: number, gwp: number): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await supabaseEmission
+/** Busca EPDs do catálogo por ids (para aplicar o GWP manual por empresa). */
+export async function getEpdsByIds(ids: number[]) {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabaseEmission
     .from("epd_dev")
-    .update({ gwp_a1a3: gwp })
-    .eq("id", epdId);
-  if (error) return { ok: false, error: error.message };
-  return { ok: true };
+    .select("*")
+    .in("id", ids);
+  if (error) return [];
+  return data ?? [];
 }
