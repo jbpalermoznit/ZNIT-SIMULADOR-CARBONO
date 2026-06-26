@@ -59,7 +59,8 @@ Regras:
 - É a estimativa da CATEGORIA do material (ex.: "concreto usinado fck 30"), não de um produto/fornecedor específico.
 - SEMPRE baseie em uma fonte encontrada na busca. Se não encontrar fonte confiável, retorne price = null.
 - confidence: "high" só com fonte oficial/recente (SINAPI do mês/UF); "medium" com fonte de mercado razoável; "low" caso contrário.
-- Responda APENAS com um bloco JSON no formato:
+- Seja CONCISO: no máximo 2 buscas. Não escreva análise longa.
+- Termine SEMPRE com APENAS um bloco JSON no formato (e nada depois dele):
 {"price": number|null, "currency": "BRL", "unit": "<unidade>", "source_name": "<fonte>", "source_url": "<url>", "as_of": "<data/competência>", "confidence": "high|medium|low"}`;
 
 function extractJson(text: string): Record<string, unknown> | null {
@@ -92,13 +93,13 @@ export async function estimateMarketPrice(
     const client = new Anthropic();
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 1536,
       system: SYSTEM_PROMPT,
       tools: [
         {
           type: "web_search_20250305",
           name: "web_search",
-          max_uses: 4,
+          max_uses: 3,
         } as unknown as Anthropic.Tool,
       ],
       messages: [
@@ -119,10 +120,16 @@ export async function estimateMarketPrice(
     );
     if (!usedSearch) return null;
 
-    const textBlock = response.content.find((b) => b.type === "text");
-    if (!textBlock || textBlock.type !== "text") return null;
+    // Com web search o modelo emite VÁRIOS blocos de texto (comentários entre
+    // as buscas + a resposta final). Concatena todos; o extractJson pega o
+    // ÚLTIMO objeto JSON (a resposta final), não um interstício.
+    const text = response.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { text: string }).text)
+      .join("\n");
+    if (!text) return null;
 
-    const parsed = extractJson(textBlock.text);
+    const parsed = extractJson(text);
     if (!parsed) return null;
 
     const price = Number(parsed.price);
