@@ -3,6 +3,11 @@ import { supabase, supabaseEmission } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import { getConversionFactor } from "@/lib/server/calculator";
 import { normalizeKeyword } from "@/lib/server/keyword";
+
+// Com PRICE_ESTIMATION_ENABLED, a rota faz 1 busca web + LLM por recomendação
+// (sequencial) na 1ª vez (depois cacheia). Sobe o teto do Vercel para não
+// estourar o timeout default (~60s). Determinístico/cacheado roda rápido.
+export const maxDuration = 300;
 import {
   estimateMarketPrice,
   isPriceEstimationEnabled,
