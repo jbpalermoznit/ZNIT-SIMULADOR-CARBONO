@@ -37,5 +37,15 @@ export async function GET(req: NextRequest) {
       model: process.env.FACTOR_RERANKER_MODEL ?? "claude-opus-4-8",
       effective: isRerankerEnabled(),
     },
+    // Estimador de preço por IA (Recomendações de redução). `effective` =
+    // flag && chave, idêntico ao isPriceEstimationEnabled() do estimador.
+    price_estimation: {
+      enabled_flag: process.env.PRICE_ESTIMATION_ENABLED === "true",
+      anthropic_key_present: !!process.env.ANTHROPIC_API_KEY,
+      model: process.env.FACTOR_RERANKER_MODEL ?? "claude-opus-4-8",
+      effective:
+        process.env.PRICE_ESTIMATION_ENABLED === "true" &&
+        !!process.env.ANTHROPIC_API_KEY,
+    },
   });
 }
