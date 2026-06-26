@@ -31,7 +31,7 @@ const projectMenuItems = [
   { label: "Visão Geral",       path: "overview",    icon: LayoutDashboard },
   { label: "Cenários",          path: "scenarios",   icon: GitCompare },
   { label: "Regras Salvas",     path: "rules",       icon: BookOpen },
-  { label: "Curva MACC",        path: "macc",        icon: BarChart3 },
+  { label: "Recomendações",     path: "macc",        icon: BarChart3 },
   { label: "Simulação Carbono", path: "simulation",  icon: Scale },
   { label: "Relatórios",        path: "reports",     icon: FileText },
   { label: "Agente IA",         path: "agent",       icon: MessageSquare, comingSoon: true },

@@ -178,6 +178,15 @@ function matchEpdsToItem(
   epds: Record<string, unknown>[]
 ): Record<string, unknown>[] {
   const keywords = extractKeywords(description);
+  // Tradução PT→EN: os títulos dos EPDs estão em inglês ("concrete", "steel",
+  // "reinforcing"), mas as descrições do orçamento vêm em PT ("concreto",
+  // "aço"). Sem traduzir, os EPDs com GWP (poucos, em inglês) nunca casavam.
+  // Mesma lógica do matchEpdsReferences (itens sem GWP).
+  const searchTerms = [...keywords];
+  for (const kw of keywords) {
+    const tr = EPD_TRANSLATIONS[kw];
+    if (tr) searchTerms.push(...tr);
+  }
   const descLower = description.toLowerCase();
   // Equivalência de spec: se o item tem classe (fck), não recomendar EPD de
   // classe INFERIOR (perderia a especificação estrutural).
@@ -198,10 +207,10 @@ function matchEpdsToItem(
       if (epdFck != null && epdFck < itemFck) continue;
     }
 
-    // Quick relevance check
+    // Quick relevance check (keywords PT + traduções EN)
     let relevant = false;
-    for (const kw of keywords) {
-      if (titulo.includes(kw) || info.includes(kw)) {
+    for (const term of searchTerms) {
+      if (titulo.includes(term) || info.includes(term)) {
         relevant = true;
         break;
       }
