@@ -20,7 +20,10 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 
-const MODEL = process.env.FACTOR_RERANKER_MODEL ?? "claude-opus-4-8";
+// Modelo do estimador é INDEPENDENTE do reranker (FACTOR_PRICE_MODEL) e
+// defaulta para o Haiku — estimar preço com busca web é tarefa simples e o
+// Haiku é muito mais barato que o Opus. Override por env quando quiser.
+const MODEL = process.env.FACTOR_PRICE_MODEL ?? "claude-haiku-4-5-20251001";
 
 export interface PriceEstimate {
   /** Preço na `unit` informada. */
