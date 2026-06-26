@@ -122,3 +122,15 @@ export async function getCecarbonById(rowId: number) {
   if (error) return null;
   return data;
 }
+
+/** Lista todos os EPDs do Brasil (country contém Brazil/Brasil). Pool pequeno (~90). */
+export async function listBrazilEpds(limit = 500) {
+  const { data, error } = await supabaseEmission
+    .from("epd_dev")
+    .select("*")
+    .or("country.ilike.%brazil%,country.ilike.%brasil%")
+    .order("titulo")
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}

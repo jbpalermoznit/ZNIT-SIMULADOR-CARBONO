@@ -20,7 +20,8 @@ export default function EpdPricesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const runSearch = useCallback(async () => {
-    if (!query.trim()) return;
+    // Sem termo + "Só Brasil" → lista todos os EPDs do Brasil.
+    if (!query.trim() && !brazilOnly) return;
     setLoading(true);
     setError(null);
     try {
@@ -103,12 +104,16 @@ export default function EpdPricesPage() {
           </label>
           <button
             onClick={runSearch}
-            disabled={loading || !query.trim()}
+            disabled={loading || (!query.trim() && !brazilOnly)}
             className="h-10 px-4 rounded-lg bg-[#56B7A5] text-white text-sm font-semibold hover:bg-[#469385] disabled:opacity-40"
           >
-            {loading ? <Loader2 size={16} className="animate-spin" /> : "Buscar"}
+            {loading ? <Loader2 size={16} className="animate-spin" /> : query.trim() ? "Buscar" : "Listar Brasil"}
           </button>
         </div>
+        <p className="text-[11px] text-[#BDBDBC] mt-2">
+          Só EPDs <strong>com GWP</strong> viram alternativa nas Recomendações — eles aparecem no topo.
+          Cadastrar preço de EPD sem GWP não tem efeito até o GWP ser preenchido.
+        </p>
       </div>
 
       {error && (
@@ -200,7 +205,8 @@ export default function EpdPricesPage() {
       {!searched && (
         <div className="bg-white rounded-xl border border-[#E0E4E3] p-10 text-center text-sm text-[#808181]">
           <DollarSign size={24} className="mx-auto mb-2 text-[#BDBDBC]" />
-          Busque um material para cadastrar o preço dos EPDs.
+          Clique em <strong>Listar Brasil</strong> para ver todos os EPDs do Brasil,
+          ou busque um material específico.
         </div>
       )}
     </div>

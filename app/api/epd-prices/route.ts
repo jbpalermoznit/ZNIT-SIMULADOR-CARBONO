@@ -5,7 +5,7 @@
  */
 import { NextRequest } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
-import { searchEpdCatalog } from "@/lib/server/supabase-emission";
+import { searchEpdCatalog, listBrazilEpds } from "@/lib/server/supabase-emission";
 import { getCompanyEpdPrices } from "@/lib/server/epd-prices";
 import type { AuthUser } from "@/lib/server/auth";
 
@@ -20,20 +20,25 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") ?? "").trim();
   const brazilOnly = searchParams.get("brazil") === "1";
-  if (!q) return Response.json({ results: [] });
+  // Sem busca: se "Só Brasil", lista TODOS os EPDs do Brasil (pool pequeno);
+  // senão, exige um termo (o catálogo global tem ~17 mil).
+  if (!q && !brazilOnly) return Response.json({ results: [] });
 
   let rows: Record<string, unknown>[] = [];
   try {
-    rows = await searchEpdCatalog(q, 50);
+    if (!q) {
+      rows = await listBrazilEpds(500); // todos do Brasil
+    } else {
+      rows = await searchEpdCatalog(q, 50);
+      if (brazilOnly) {
+        rows = rows.filter((r) => {
+          const c = String(r.country ?? r.geographical_scopes ?? "").toLowerCase();
+          return c.includes("brazil") || c.includes("brasil");
+        });
+      }
+    }
   } catch {
     return Response.json({ results: [] });
-  }
-
-  if (brazilOnly) {
-    rows = rows.filter((r) => {
-      const c = String(r.country ?? r.geographical_scopes ?? "").toLowerCase();
-      return c.includes("brazil") || c.includes("brasil");
-    });
   }
 
   const ids = rows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n));
@@ -53,6 +58,17 @@ export async function GET(req: NextRequest) {
       note: p?.note ?? null,
       updated_at: p?.updated_at ?? null,
     };
+  });
+
+  // EPDs com GWP primeiro (são os que viram alternativa nas Recomendações);
+  // entre os com GWP, os já com preço cadastrado no topo.
+  results.sort((a, b) => {
+    const ga = a.gwp_a1a3 != null ? 1 : 0;
+    const gb = b.gwp_a1a3 != null ? 1 : 0;
+    if (ga !== gb) return gb - ga;
+    const pa = a.price != null ? 1 : 0;
+    const pb = b.price != null ? 1 : 0;
+    return pb - pa;
   });
 
   return Response.json({ results });
