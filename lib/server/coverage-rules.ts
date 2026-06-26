@@ -35,6 +35,21 @@ export interface GeometricRecipe {
 // primeira-passada — varia ~500 (pinus) a ~700 (eucalipto). Revisar.
 const WOOD_DENSITY_KG_M3 = 600;
 
+// ⚠️ CONSTANTES DE PRODUTO — primeira-passada, REVISAR antes de confiar no
+// total (igual à Fase 0). Valores típicos de mercado; ajuste com a ficha real.
+
+// Massa por m² de tampa/grelha de canaleta em ferro fundido (uso leve/médio).
+// Faixa real ~50–120 kg/m² conforme classe (B125/C250). Densidade do FoFo é
+// ~7200 kg/m³, mas a peça é vazada (grelha), então a massa areal << placa cheia.
+const CAST_IRON_AREAL_MASS_KG_M2 = 85;
+
+// Forma metálica (ex.: QUICKJET): massa de aço por m² do painel. ~30–50 kg/m².
+const STEEL_FORM_AREAL_MASS_KG_M2 = 40;
+// Reutilizações da forma — a emissão embutida do aço é AMORTIZADA pelo nº de
+// usos (a forma serve N vezes). Vida típica de forma metálica ~50–200 usos;
+// 50 é conservador (mais emissão/uso). Política de produto — revisar.
+const STEEL_FORM_REUSES = 50;
+
 // Normalização mínima de unidade (local, para não acoplar ao calculator).
 function normUnit(u: string | null | undefined): string {
   if (!u) return "";
@@ -118,11 +133,30 @@ export function geometricRecipe(
     }
   }
 
-  // TODO (precisa de constante de produto — revisar como Fase 0):
-  //  - TAMPA DE CANALETA EM FERRO FUNDIDO (m²) → massa/m² do ferro fundido.
-  //  - FORMA METÁLICA QUICKJET (m²) → massa de aço/m² ÷ nº de reutilizações
-  //    (emissão amortizada). Depende de política de amortização do produto.
-  // Mecanismo pronto; basta adicionar a regra com o valor validado.
+  // --- Ferro fundido por área → massa (tampa/grelha de canaleta) ------------
+  // "TAMPA DE CANALETA EM FERRO FUNDIDO" (m²) — fator do FoFo é por kg.
+  if (u === "m2" && /\b(ferro fundido|fofo)\b/.test(d)) {
+    return {
+      baseUnit: "kg",
+      multiplier: CAST_IRON_AREAL_MASS_KG_M2,
+      note: `tampa FoFo: ${CAST_IRON_AREAL_MASS_KG_M2} kg/m² (revisar)`,
+    };
+  }
+
+  // --- Forma metálica por área → massa de aço AMORTIZADA --------------------
+  // "FORMA METALICA QUICKJET" (m²): a forma é reutilizável; a emissão do aço
+  // é dividida pelo nº de usos. Fator do aço é por kg.
+  if (
+    u === "m2" &&
+    /\b(forma metalica|forma de aco|quickjet|escoramento metalico|painel metalico)\b/.test(d)
+  ) {
+    const kgPerM2 = STEEL_FORM_AREAL_MASS_KG_M2 / STEEL_FORM_REUSES;
+    return {
+      baseUnit: "kg",
+      multiplier: kgPerM2,
+      note: `forma de aço amortizada: ${STEEL_FORM_AREAL_MASS_KG_M2} kg/m² ÷ ${STEEL_FORM_REUSES} usos = ${kgPerM2.toFixed(3)} kg/m² (revisar)`,
+    };
+  }
 
   return null;
 }
