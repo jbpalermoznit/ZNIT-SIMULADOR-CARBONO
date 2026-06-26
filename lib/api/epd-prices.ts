@@ -23,16 +23,16 @@ export async function searchEpdPrices(
   return r.results;
 }
 
-export async function setEpdPrice(
+/** Salva preço (por empresa) e/ou GWP (global). Pelo menos um obrigatório. */
+export async function saveEpd(
   epdId: number,
-  price: number,
-  declaredUnit?: string,
-  note?: string
+  fields: { price?: number; gwp_a1a3?: number; declaredUnit?: string; note?: string }
 ): Promise<void> {
   await api.put(`/api/epd-prices/${epdId}`, {
-    price,
-    declared_unit: declaredUnit ?? null,
-    note: note ?? null,
+    price: fields.price ?? null,
+    gwp_a1a3: fields.gwp_a1a3 ?? null,
+    declared_unit: fields.declaredUnit ?? null,
+    note: fields.note ?? null,
   });
 }
 

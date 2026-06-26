@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 import { Search, Loader2, Check, Trash2, DollarSign } from "lucide-react";
 import {
   searchEpdPrices,
-  setEpdPrice,
+  saveEpd,
   clearEpdPrice,
   type EpdPriceItem,
 } from "@/lib/api/epd-prices";
@@ -16,6 +16,7 @@ export default function EpdPricesPage() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const [gwpDrafts, setGwpDrafts] = useState<Record<number, string>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,22 +38,43 @@ export default function EpdPricesPage() {
   }, [query, brazilOnly]);
 
   const save = async (item: EpdPriceItem) => {
-    const raw = drafts[item.epd_id] ?? String(item.price ?? "");
-    const price = parseFloat(raw.replace(",", "."));
-    if (!Number.isFinite(price) || price <= 0) {
-      setError("Informe um preço válido (> 0).");
+    const priceRaw = drafts[item.epd_id];
+    const gwpRaw = gwpDrafts[item.epd_id];
+    const fields: { price?: number; gwp_a1a3?: number; declaredUnit?: string } = {
+      declaredUnit: item.declared_unit,
+    };
+    if (priceRaw != null && priceRaw !== "") {
+      const price = parseFloat(priceRaw.replace(",", "."));
+      if (!Number.isFinite(price) || price <= 0) { setError("Preço inválido (> 0)."); return; }
+      fields.price = price;
+    }
+    if (gwpRaw != null && gwpRaw !== "") {
+      const gwp = parseFloat(gwpRaw.replace(",", "."));
+      if (!Number.isFinite(gwp) || gwp <= 0) { setError("GWP inválido (> 0)."); return; }
+      fields.gwp_a1a3 = gwp;
+    }
+    if (fields.price == null && fields.gwp_a1a3 == null) {
+      setError("Informe preço e/ou GWP.");
       return;
     }
     setSavingId(item.epd_id);
     setError(null);
     try {
-      await setEpdPrice(item.epd_id, price, item.declared_unit);
+      await saveEpd(item.epd_id, fields);
       setResults((prev) =>
         prev.map((r) =>
-          r.epd_id === item.epd_id ? { ...r, price, updated_at: new Date().toISOString() } : r
+          r.epd_id === item.epd_id
+            ? {
+                ...r,
+                price: fields.price ?? r.price,
+                gwp_a1a3: fields.gwp_a1a3 ?? r.gwp_a1a3,
+                updated_at: new Date().toISOString(),
+              }
+            : r
         )
       );
       setDrafts((d) => { const n = { ...d }; delete n[item.epd_id]; return n; });
+      setGwpDrafts((d) => { const n = { ...d }; delete n[item.epd_id]; return n; });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao salvar");
     } finally {
@@ -111,8 +133,9 @@ export default function EpdPricesPage() {
           </button>
         </div>
         <p className="text-[11px] text-[#BDBDBC] mt-2">
-          Só EPDs <strong>com GWP</strong> viram alternativa nas Recomendações — eles aparecem no topo.
-          Cadastrar preço de EPD sem GWP não tem efeito até o GWP ser preenchido.
+          Preencha o <strong>GWP (A1-A3)</strong> do PDF do EPD para ele virar alternativa nas
+          Recomendações (GWP é do produto, compartilhado). O <strong>preço</strong> é por empresa.
+          EPDs sem GWP ficam destacados.
         </p>
       </div>
 
@@ -151,8 +174,23 @@ export default function EpdPricesPage() {
                     <td className="px-4 py-3 text-[#808181]">
                       {item.manufacturer || "—"}<span className="text-[#BDBDBC]"> · {item.country || "—"}</span>
                     </td>
-                    <td className="px-4 py-3 text-right text-[#404040]">
-                      {item.gwp_a1a3 != null ? `${item.gwp_a1a3} /${item.declared_unit || "?"}` : "—"}
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <input
+                          type="number"
+                          step="0.0001"
+                          min="0"
+                          value={gwpDrafts[item.epd_id] ?? (item.gwp_a1a3 ?? "")}
+                          onChange={(e) => setGwpDrafts((d) => ({ ...d, [item.epd_id]: e.target.value }))}
+                          placeholder="—"
+                          className={`w-20 h-8 px-2 text-right rounded border focus:outline-none focus:border-[#56B7A5] ${item.gwp_a1a3 == null ? "border-[#FECACA] bg-[#FEF2F2]" : "border-[#E0E4E3]"}`}
+                          title="GWP A1-A3 (kgCO₂e por unidade declarada). Do PDF do EPD."
+                        />
+                        <span className="text-[#BDBDBC] text-[10px]">/{item.declared_unit || "?"}</span>
+                      </div>
+                      {item.gwp_a1a3 == null && (
+                        <p className="text-[9px] text-[#EF4444] mt-0.5">sem GWP</p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
