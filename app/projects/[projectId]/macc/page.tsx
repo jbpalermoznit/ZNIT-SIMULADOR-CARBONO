@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { ArrowDownRight, Info, Loader2, Pencil, ExternalLink, FileText, Check, X, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getMaccData, type MaccBar, type EpdRecommendation } from "@/lib/api/macc";
+import { costCategory } from "@/lib/macc-economics";
 import { searchEmissionFactors } from "@/lib/api/emission-factors";
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -163,8 +164,10 @@ export default function MaccPage() {
       const costPerTco2e = abatementTco2e > 0 ? deltaCost / abatementTco2e : 0;
       bars.push({
         id: `user_epd_${key}`,
+        item_id: rec.item_id,
         item_description: rec.item_description,
         item_cost_code: rec.item_cost_code,
+        item_unit: rec.item_unit,
         item_unit_cost: rec.item_unit_cost,
         item_quantity: rec.item_quantity,
         baseline_factor: rec.baseline_factor,
@@ -176,11 +179,16 @@ export default function MaccPage() {
         alternative_emission_kg: Math.round(altEmissionKg * 100) / 100,
         supplier: custom?.company_name ?? rec.company_name,
         source_tier: "epd",
+        epd_id: rec.epd_id ?? null,
+        declared_unit: rec.declared_unit ?? "",
         abatement_tco2e: Math.round(abatementTco2e * 100) / 100,
         abatement_unit: "tCO₂e",
+        delta_cost_r: Math.round(deltaCost * 100) / 100,
         cost_per_tco2e: Math.round(costPerTco2e),
-        score: rec.score,
         category: costPerTco2e < 0 ? "saving" : costPerTco2e <= 50 ? "low" : costPerTco2e <= 200 ? "medium" : "high",
+        price_estimate: null,
+        reason: "EPD/GWP informado pelo usuário",
+        score: rec.score,
         country: custom?.country ?? rec.country,
       });
     }
@@ -216,29 +224,43 @@ export default function MaccPage() {
     return { br, other };
   }, [combinedBars]);
 
-  // Apply multipliers to compute cost in R$/tCO₂e
+  // Custo por R$/tCO₂e: por PADRÃO usa o custo real do servidor (preço do EPD
+  // ou estimativa de mercado). O multiplicador manual é override do usuário.
+  // `is_priced=false` → "custo a confirmar" (sem preço).
   const barsWithCost = useMemo(() => {
     return topItems.map((bar) => {
-      const mult = multipliers[bar.id] ?? 1.0;
-      // Total baseline cost = unit_cost × quantity
-      const baselineTotalCost = (bar.item_unit_cost ?? 0) * (bar.item_quantity ?? 0);
-      // Alternative total cost = baseline × multiplier
-      const altTotalCost = baselineTotalCost * mult;
-      // Delta cost in R$
-      const deltaCost = altTotalCost - baselineTotalCost;
-      // Cost per tCO₂e avoided (R$/tCO₂e)
-      const costPerTco2e = bar.abatement_tco2e > 0 ? deltaCost / bar.abatement_tco2e : 0;
-      const category = costPerTco2e < 0 ? "saving" as const
-        : costPerTco2e <= 50 ? "low" as const
-        : costPerTco2e <= 200 ? "medium" as const
-        : "high" as const;
-      return { ...bar, cost_per_tco2e: Math.round(costPerTco2e), category };
+      const manual = multipliers[bar.id];
+      let deltaCost: number | null;
+      let cpt: number | null;
+      if (manual != null) {
+        const baseCost = (bar.item_unit_cost ?? 0) * (bar.item_quantity ?? 0);
+        deltaCost = Math.round((baseCost * manual - baseCost) * 100) / 100;
+        cpt = bar.abatement_tco2e > 0 ? Math.round(deltaCost / bar.abatement_tco2e) : null;
+      } else {
+        deltaCost = bar.delta_cost_r;
+        cpt = bar.cost_per_tco2e;
+      }
+      const is_priced = cpt != null;
+      return {
+        ...bar,
+        delta_cost_r: deltaCost,
+        cost_per_tco2e: is_priced ? (cpt as number) : 0,
+        is_priced,
+        category: costCategory(is_priced ? (cpt as number) : null),
+      };
     });
   }, [topItems, multipliers]);
 
-  // Sort by cost (MACC convention: cheapest first)
+  // Ranqueia por custo de abatimento crescente; "custo a confirmar" por último.
   const sorted = useMemo(
-    () => [...barsWithCost].sort((a, b) => a.cost_per_tco2e - b.cost_per_tco2e),
+    () =>
+      [...barsWithCost].sort((a, b) =>
+        a.is_priced === b.is_priced
+          ? a.cost_per_tco2e - b.cost_per_tco2e
+          : a.is_priced
+            ? -1
+            : 1
+      ),
     [barsWithCost]
   );
 
@@ -256,20 +278,22 @@ export default function MaccPage() {
   const kpis = useMemo(() => {
     if (sorted.length === 0) return null;
     const total = sorted.reduce((s, b) => s + b.abatement_tco2e, 0);
-    const savingsBars = sorted.filter((b) => b.cost_per_tco2e < 0);
+    const savingsBars = sorted.filter((b) => b.is_priced && b.cost_per_tco2e < 0);
     const savingsTotal = savingsBars.reduce((s, b) => s + b.abatement_tco2e, 0);
-    const costs = sorted.map((b) => b.cost_per_tco2e);
-    const avg = costs.reduce((s, c) => s + c, 0) / costs.length;
+    const costs = sorted.filter((b) => b.is_priced).map((b) => b.cost_per_tco2e);
+    const avg = costs.length > 0 ? costs.reduce((s, c) => s + c, 0) / costs.length : 0;
     return {
       total_abatement: total,
       savings_abatement: savingsTotal,
       savings_count: savingsBars.length,
       avg_cost: avg,
       total_alternatives: sorted.length,
+      priced_count: costs.length,
+      unpriced_count: sorted.length - costs.length,
     };
   }, [sorted]);
 
-  const hasCostData = sorted.some((d) => d.cost_per_tco2e !== 0);
+  const hasCostData = sorted.some((d) => d.is_priced);
 
   // Chart dimensions
   const chartW = 900;
@@ -337,6 +361,7 @@ export default function MaccPage() {
       case "low": return "#56B7A5";
       case "medium": return "#F59E0B";
       case "high": return "#EF4444";
+      case "unknown": return "#BDBDBC";
       default: return "#56B7A5";
     }
   };
@@ -362,9 +387,9 @@ export default function MaccPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-[#030304] mb-1">Curva MACC</h1>
+          <h1 className="text-2xl font-bold text-[#030304] mb-1">Recomendações de redução</h1>
           <p className="text-sm text-[#808181]">
-            Curva de Custo Marginal de Abatimento — materiais com maior potencial de redução de carbono
+            Atinja sua meta de carbono pelo menor custo — substituições de EPD ordenadas por custo de abatimento (R$/tCO₂e)
           </p>
         </div>
         {allBars.length > 0 && (
@@ -407,6 +432,21 @@ export default function MaccPage() {
 
       {!loading && !error && sorted.length > 0 && (
         <>
+          {/* Cobertura: quantas recomendações têm preço (ROI) vs "custo a confirmar" */}
+          <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#808181]">
+            <span><strong className="text-[#030304]">{sorted.length}</strong> otimizáveis</span>
+            <span>·</span>
+            <span><strong className="text-[#16A34A]">{kpis?.priced_count ?? 0}</strong> com preço (ROI)</span>
+            <span>·</span>
+            <span><strong className="text-[#030304]">{kpis?.unpriced_count ?? 0}</strong> custo a confirmar</span>
+            {epdRecs.length > 0 && (
+              <>
+                <span>·</span>
+                <span><strong className="text-[#030304]">{epdRecs.length}</strong> sem GWP no catálogo</span>
+              </>
+            )}
+          </div>
+
           {/* KPIs */}
           <div className="grid grid-cols-4 gap-4 mb-6">
             <div className="bg-white rounded-xl border border-[#E0E4E3] p-4">
@@ -762,13 +802,25 @@ export default function MaccPage() {
                         </div>
                       </td>
                       <td className="px-6 py-3 text-right">
-                        <span className={`text-sm font-bold ${
-                          bar.cost_per_tco2e < 0 ? "text-[#16A34A]"
-                          : bar.cost_per_tco2e === 0 ? "text-[#808181]"
-                          : "text-[#EF4444]"
-                        }`}>
-                          {bar.cost_per_tco2e === 0 ? "—" : `R$ ${bar.cost_per_tco2e > 0 ? "+" : ""}${bar.cost_per_tco2e.toLocaleString("pt-BR")}`}
-                        </span>
+                        {!bar.is_priced ? (
+                          <span className="text-xs text-[#BDBDBC] italic">custo a confirmar</span>
+                        ) : (
+                          <>
+                            <span className={`text-sm font-bold ${
+                              bar.cost_per_tco2e < 0 ? "text-[#16A34A]"
+                              : bar.cost_per_tco2e === 0 ? "text-[#808181]"
+                              : "text-[#EF4444]"
+                            }`}>
+                              {`R$ ${bar.cost_per_tco2e > 0 ? "+" : ""}${bar.cost_per_tco2e.toLocaleString("pt-BR")}`}
+                              <span className="text-[10px] font-normal text-[#808181]"> /tCO₂e</span>
+                            </span>
+                            {bar.price_estimate?.is_estimate && (
+                              <p className="text-[9px] text-[#BDBDBC] mt-0.5" title={bar.price_estimate.source_url ?? ""}>
+                                estimativa · {bar.price_estimate.source_name ?? "mercado"} · confirmar
+                              </p>
+                            )}
+                          </>
+                        )}
                       </td>
                       <td className="px-2 py-3">
                         <button

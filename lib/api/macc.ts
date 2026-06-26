@@ -1,9 +1,22 @@
 import { api } from "./client";
 
+export interface PriceEstimateMeta {
+  value: number;
+  unit: string;
+  source_name: string | null;
+  source_url: string | null;
+  as_of: string | null;
+  confidence: "high" | "medium" | "low";
+  /** true = estimativa de mercado (IA); false = preço cadastrado no EPD. */
+  is_estimate: boolean;
+}
+
 export interface MaccBar {
   id: string;
+  item_id: string;
   item_description: string;
   item_cost_code: string;
+  item_unit: string;
   item_unit_cost: number;
   item_quantity: number;
   baseline_factor: number;
@@ -15,11 +28,18 @@ export interface MaccBar {
   alternative_emission_kg: number;
   supplier: string;
   source_tier: string;
+  epd_id: number | null;
+  declared_unit: string;
   abatement_tco2e: number;
   abatement_unit: string;
-  cost_per_tco2e: number;
+  /** Δ custo do projeto (R$); null quando não há preço. */
+  delta_cost_r: number | null;
+  /** Custo de abatimento (R$/tCO₂e); null = "custo a confirmar". */
+  cost_per_tco2e: number | null;
+  category: "saving" | "low" | "medium" | "high" | "unknown";
+  price_estimate: PriceEstimateMeta | null;
+  reason: string;
   score: number;
-  category: "saving" | "low" | "medium" | "high";
   country?: string;
 }
 
@@ -29,6 +49,8 @@ export interface MaccKpis {
   savings_count: number;
   avg_cost: number;
   total_alternatives: number;
+  priced_count: number;
+  unpriced_count: number;
 }
 
 export interface EpdRecommendation {
