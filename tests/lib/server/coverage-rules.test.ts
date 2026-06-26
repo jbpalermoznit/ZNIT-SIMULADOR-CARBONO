@@ -55,6 +55,40 @@ describe("geometricRecipe — madeira linear → massa", () => {
   });
 });
 
+describe("geometricRecipe — ferro fundido por área → massa", () => {
+  it("deriva m²→kg para tampa de canaleta em ferro fundido", () => {
+    const r = geometricRecipe("TAMPA DE CANALETA EM FERRO FUNDIDO", "m2");
+    expect(r?.baseUnit).toBe("kg");
+    expect(r?.multiplier).toBe(85); // CAST_IRON_AREAL_MASS_KG_M2
+  });
+
+  it("aceita o sinônimo 'fofo'", () => {
+    expect(geometricRecipe("GRELHA FOFO", "m2")?.baseUnit).toBe("kg");
+  });
+
+  it("não dispara fora de m²", () => {
+    expect(geometricRecipe("TAMPA EM FERRO FUNDIDO", "un")).toBeNull();
+  });
+});
+
+describe("geometricRecipe — forma metálica amortizada", () => {
+  it("deriva m²→kg de aço dividido pelas reutilizações", () => {
+    const r = geometricRecipe("FORMA METALICA QUICKJET", "m2");
+    expect(r?.baseUnit).toBe("kg");
+    // 40 kg/m² ÷ 50 usos = 0,8 kg/m²
+    expect(r?.multiplier).toBeCloseTo(0.8, 6);
+  });
+
+  it("casa 'painel metalico' e 'quickjet'", () => {
+    expect(geometricRecipe("PAINEL METALICO DE FORMA", "m2")).not.toBeNull();
+    expect(geometricRecipe("QUICKJET", "m2")).not.toBeNull();
+  });
+
+  it("não confunde forma de madeira/comum", () => {
+    expect(geometricRecipe("FORMA DE MADEIRA PARA VIGA", "m2")).toBeNull();
+  });
+});
+
 describe("geometricRecipe — sem aplicação", () => {
   it("retorna null para descrição/unidade não reconhecidas", () => {
     expect(geometricRecipe("ACO CA-50", "kg")).toBeNull();

@@ -40,6 +40,7 @@ import {
   searchGhg,
   searchCecarbon,
 } from "@/lib/server/supabase-emission";
+import { resolveConversion } from "@/lib/server/calculator";
 
 type FactorRow = Record<string, unknown>;
 interface Catalog {
@@ -143,4 +144,62 @@ describe("paridade — regressão de match (autoMatchItem vs catálogo curado)",
       }
     });
   }
+});
+
+// ===========================================================================
+// Paridade do TOTAL (PLANO §6) — pipeline completo: fator atribuído →
+// resolveConversion (inclui receitas §5) → emissão → soma do cenário.
+// ===========================================================================
+//
+// Não reproduz o total do simulador antigo (1245,6 — exige os dados reais de
+// produção, não versionados). É um ÂNCORA de regressão do pipeline NOVO:
+// trava a emissão por item e o total do cenário, incluindo os 4 itens de
+// receita (que sem a conversão geométrica zerariam).
+
+interface ScenarioTotalItem {
+  id: string;
+  description: string;
+  unit: string;
+  quantity: number;
+  factor_value: number;
+  factor_unit: string;
+  recipe?: boolean;
+  expected_kg: number;
+}
+const scenario = loadFixture<{
+  items: ScenarioTotalItem[];
+  expected_total_kg: number;
+  expected_total_t: number;
+}>("scenario-total.json");
+
+// Mesma fórmula de calcItemEmission (calculator.ts), via resolveConversion.
+function emissionKg(row: ScenarioTotalItem): number {
+  const conv = resolveConversion(row.description, row.unit, row.factor_unit);
+  return row.quantity * row.factor_value * conv;
+}
+
+describe("paridade — total do cenário (pipeline completo)", () => {
+  for (const row of scenario.items) {
+    it(`${row.id}: emissão = qty × fator × conversão${row.recipe ? " (receita §5)" : ""}`, () => {
+      const kg = emissionKg(row);
+      expect(kg).toBeCloseTo(row.expected_kg, 3);
+      // Itens de receita: sem a conversão geométrica cairiam para 0.
+      if (row.recipe) expect(kg).toBeGreaterThan(0);
+    });
+  }
+
+  it("soma do cenário bate o total esperado (âncora de regressão)", () => {
+    const totalKg = scenario.items.reduce((s, row) => s + emissionKg(row), 0);
+    expect(totalKg).toBeCloseTo(scenario.expected_total_kg, 2);
+    expect(totalKg / 1000).toBeCloseTo(scenario.expected_total_t, 4);
+  });
+
+  it("os 4 itens de receita (§5) contribuem com emissão > 0", () => {
+    // Guarda explícita: prova que m²/m com fator de massa/volume NÃO zeram.
+    const recipeItems = scenario.items.filter((i) => i.recipe);
+    expect(recipeItems).toHaveLength(4);
+    for (const row of recipeItems) {
+      expect(emissionKg(row), `${row.id} zerou — receita não aplicou`).toBeGreaterThan(0);
+    }
+  });
 });

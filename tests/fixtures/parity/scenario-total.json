@@ -1,0 +1,74 @@
+{
+  "_comment": "Mini-cenário para regressão do TOTAL absoluto (PLANO §6). Cada item já tem o fator ATRIBUÍDO (como um mapping) + quantidade; o harness computa a emissão com a MESMA fórmula do calculator (qty × factor_value × resolveConversion) e soma. Inclui os 4 itens de receita §5 (concreto piso m², pontalete m, tampa FoFo m², forma metálica m²) — sem as receitas eles zerariam. NÃO é o total do simulador antigo (1245,6): isso exige os dados reais de produção (não versionados). É um ÂNCORA de regressão do pipeline novo (match→conversão→soma).",
+  "items": [
+    {
+      "id": "concreto-40",
+      "description": "CONCRETO 40 MPA USINADO ESTRUTURAL",
+      "unit": "m3",
+      "quantity": 120,
+      "factor_value": 274,
+      "factor_unit": "kgCO₂/m3",
+      "expected_kg": 32880
+    },
+    {
+      "id": "armadura-aco",
+      "description": "ACO CA-50 - BITOLA MEDIA",
+      "unit": "kg",
+      "quantity": 18000,
+      "factor_value": 2.21,
+      "factor_unit": "kgCO₂/kg",
+      "expected_kg": 39780
+    },
+    {
+      "id": "oleo-diesel",
+      "description": "OLEO DIESEL",
+      "unit": "L",
+      "quantity": 5000,
+      "factor_value": 2.68,
+      "factor_unit": "kgCO₂/L",
+      "expected_kg": 13400
+    },
+    {
+      "id": "concreto-piso",
+      "description": "CONCRETO MAGRO PARA PISO 15CM",
+      "unit": "m2",
+      "quantity": 200,
+      "factor_value": 180,
+      "factor_unit": "kgCO₂/m3",
+      "recipe": true,
+      "expected_kg": 5400
+    },
+    {
+      "id": "pontalete",
+      "description": "PONTALETE 7,5X7,5",
+      "unit": "m",
+      "quantity": 300,
+      "factor_value": 90,
+      "factor_unit": "kgCO₂/t",
+      "recipe": true,
+      "expected_kg": 91.125
+    },
+    {
+      "id": "tampa-fofo",
+      "description": "TAMPA DE CANALETA EM FERRO FUNDIDO",
+      "unit": "m2",
+      "quantity": 40,
+      "factor_value": 1.9,
+      "factor_unit": "kgCO₂/kg",
+      "recipe": true,
+      "expected_kg": 6460
+    },
+    {
+      "id": "forma-metalica",
+      "description": "FORMA METALICA QUICKJET",
+      "unit": "m2",
+      "quantity": 500,
+      "factor_value": 2.5,
+      "factor_unit": "kgCO₂/kg",
+      "recipe": true,
+      "expected_kg": 1000
+    }
+  ],
+  "expected_total_kg": 99011.125,
+  "expected_total_t": 99.011125
+}

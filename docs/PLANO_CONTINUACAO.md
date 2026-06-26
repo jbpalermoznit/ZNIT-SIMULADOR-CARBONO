@@ -132,14 +132,16 @@ descrições reconhecidas (null caso contrário → zero impacto no resto).
 - `PONTALETE / SARRAFO` (m) — ✅ **feito**: m→kg pela **seção da descrição**
   (`7,5x7,5`) × densidade de madeira (`WOOD_DENSITY_KG_M3 = 600`, padrão de
   primeira-passada — revisar como a Fase 0).
-- `TAMPA DE CANALETA EM FERRO FUNDIDO` (m²) — ⏳ mecanismo pronto, falta a
-  constante massa/m² do ferro fundido (decisão de produto).
-- `FORMA METALICA QUICKJET` (m²) — ⏳ falta política de **amortização** (massa de
-  aço/m² ÷ nº de reutilizações).
+- `TAMPA DE CANALETA EM FERRO FUNDIDO` (m²) — ✅ **feito**: m²→kg via
+  `CAST_IRON_AREAL_MASS_KG_M2 = 85` (faixa real 50–120; **revisar**).
+- `FORMA METALICA QUICKJET` (m²) — ✅ **feito**: m²→kg de aço **amortizado**
+  (`STEEL_FORM_AREAL_MASS_KG_M2 = 40` ÷ `STEEL_FORM_REUSES = 50` = 0,8 kg/m²/uso;
+  **revisar** ambos — são decisão de produto/contabilidade).
 
-> Os itens ✅ derivam o número da própria descrição (espessura/seção); a densidade
-> da madeira é o único valor a validar. Os ⏳ precisam de constante de produto
-> antes de entrar no total.
+> Itens com **constante de produto** (`WOOD_DENSITY`, `CAST_IRON_AREAL_MASS`,
+> `STEEL_FORM_*`) usam padrões de primeira-passada — ajuste com a ficha real,
+> como a Fase 0. Concreto/madeira derivam o número da própria descrição
+> (espessura/seção). Todos são nomeados e centralizados em `coverage-rules.ts`.
 
 ---
 
@@ -158,9 +160,19 @@ mockados espelhando o `ilike` real; reranker/vetorial ficam off → determiníst
 Cada item de `items.json` valida tier/fator escolhido e rejeição de armadilha
 (`expected.json`).
 
-> **Por que não o total 1245,6/504,1:** a base completa de fatores e as planilhas
-> dos cenários não estão versionadas. Quando os exports reais forem versionados,
-> dá para estender o harness para o total absoluto do cenário.
+**Total do cenário (§6) — ✅ adicionado.** Além do match, o harness agora trava o
+**total absoluto do pipeline** (`scenario-total.json`): cada item tem fator
+atribuído + quantidade, e o teste computa `qty × fator × resolveConversion`
+(incluindo as receitas §5) e soma — espelhando `calcItemEmission`. Inclui os 4
+itens de receita (concreto piso, pontalete, tampa FoFo, forma metálica) com uma
+guarda explícita de que **contribuem > 0** (sem a conversão geométrica zerariam).
+Âncora de regressão: trava emissão por item + total do cenário.
+
+> **Por que não o total 1245,6/504,1 do antigo:** a base completa de fatores e as
+> planilhas dos cenários reais não estão versionadas (e o antigo tem erros
+> conhecidos). O harness ancora o total do pipeline **novo** contra um cenário
+> curado — pega regressões em match, conversão e soma. Para bater o número
+> literal do antigo, é preciso versionar os dados reais de produção (separado).
 
 ---
 
