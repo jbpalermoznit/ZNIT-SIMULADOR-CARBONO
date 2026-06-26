@@ -786,8 +786,17 @@ export async function autoMatchItem(
   // Tier 4 (opcional): recall semântico via embeddings (RAG).
   // Desligado por padrão (FACTOR_VECTOR_SEARCH_ENABLED + VOYAGE_API_KEY).
   // Soma candidatos ao pool; eles passam pelos mesmos filtros/guardas.
-  // ---------------------------------------------------------------
-  if (isVectorSearchEnabled()) {
+  //
+  // O vetor ENRIQUECE, não RESGATA: só entra no pool se o determinístico
+  // (keyword: GHG/CECarbon/Ecoinvent) já encontrou ALGUM candidato — ou seja,
+  // o item tem sinal de material. Sem essa guarda, itens de serviço/mão-de-obra
+  // sem material (ANDAIME, PINTURA PROTETIVA, APLICACAO DE ENDURECEDOR) casavam
+  // por similaridade um fator absurdo (ANDAIME m³ → "madeira laminada colada";
+  // PINTURA t → "alkyd paint") e, multiplicados por quantidades enormes,
+  // inflavam o total em centenas/milhares de t. Esses itens o determinístico
+  // (corretamente) deixa sem fator; o vetor não deve sozinho cravar um.
+  // Ver investigação em docs/PARIDADE_SIMULADOR.md.
+  if (isVectorSearchEnabled() && allCandidates.length > 0) {
     const vec = await vectorSearchCandidates(description);
     allCandidates.push(...vec);
   }
