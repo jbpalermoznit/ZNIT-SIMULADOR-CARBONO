@@ -33,11 +33,16 @@ bateria→aço; concreto por resistência) e cravou o cenário **Novo** (503,5 v
 
 | Fase | O quê | Status |
 |---|---|---|
-| 0 | `supabase/fix-factor-scale.sql` (óleos lubrif. 2758→2,758; alumínio 912→9,12; aço gerdau kg→t) | ⏳ **aplicar no Supabase** (revisar valores antes) |
+| 0 | `supabase/fix-factor-scale.sql` (óleos lubrif. 2758→2,758; alumínio 912→9,12; aço gerdau kg→t) | ✅ **aplicada** (verificado: id 6=2.758, 7=9.12, 119 unidade `t`) |
 | 1 | `supabase/migration-pgvector-factor-embeddings.sql` | ✅ **aplicada** |
-| 1 | backfill `scripts/backfill-factor-embeddings.mjs` (popula embeddings via Voyage) | ⏳ **rodar local** |
-| 1 | `FACTOR_VECTOR_SEARCH_ENABLED=true` | ⏳ ligar **após** o backfill |
-| 2 | reranker Claude (`FACTOR_RERANKER_ENABLED=true` + `ANTHROPIC_API_KEY`) | ✅ testado ao vivo, funcionando |
+| 1 | backfill `scripts/backfill-factor-embeddings.mjs` (popula embeddings via Voyage) | ✅ **completo: 4491 embeddings**. Corrigido bug de paginação (PostgREST cap 1000 truncava o Ecoinvent em ~16%) |
+| 1 | `FACTOR_VECTOR_SEARCH_ENABLED=true` | ⚠️ ligar **no Vercel** (env de runtime; local já está `true`) |
+| 2 | reranker Claude (`FACTOR_RERANKER_ENABLED=true` + `ANTHROPIC_API_KEY`) | ✅ validado ao vivo — caso `PARABOLT`→`-1` (decisão #2). ⚠️ ligar a flag **no Vercel** |
+
+> **Validação ao vivo (Fase 1+2):** recall semântico OK (concreto 40 MPa → CECarbon
+> 274/m³; diesel → 2,64/L) e reranker rejeitando o `PARABOLT`→overflow. As **flags
+> de runtime** (`FACTOR_VECTOR_SEARCH_ENABLED`, `FACTOR_RERANKER_ENABLED`) precisam
+> estar setadas no **projeto do Vercel** — o `.env.local` só vale para rodar local.
 
 ---
 

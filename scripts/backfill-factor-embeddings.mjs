@@ -26,6 +26,23 @@ if (!VOYAGE_KEY) throw new Error("Configure VOYAGE_API_KEY");
 
 const db = createClient(SUPA_URL, SUPA_KEY, { db: { schema: "backend" } });
 
+// PostgREST devolve no máximo 1000 linhas por requisição. Sem paginar, o
+// Ecoinvent (6157 linhas) e o GHG (1049) eram truncados em 1000 — só ~16% do
+// Ecoinvent virava embedding. Pagina via .range() até esgotar.
+async function fetchAll(table) {
+  const out = [];
+  const page = 1000;
+  let from = 0;
+  for (;;) {
+    const { data, error } = await db.from(table).select("*").range(from, from + page - 1);
+    if (error) throw error;
+    out.push(...(data ?? []));
+    if (!data || data.length < page) break;
+    from += page;
+  }
+  return out;
+}
+
 async function embedBatch(texts) {
   const res = await fetch("https://api.voyageai.com/v1/embeddings", {
     method: "POST",
@@ -43,8 +60,7 @@ async function loadRows() {
 
   // CECarbon
   {
-    const { data, error } = await db.from("produtos_cecarbon_dev").select("*");
-    if (error) throw error;
+    const data = await fetchAll("produtos_cecarbon_dev");
     for (const r of data ?? []) {
       const desc = r["Descrição fator de emissao"];
       const f = parseFloat(r["fator de emissão (kgCO2)"]);
@@ -59,8 +75,7 @@ async function loadRows() {
   }
   // GHG
   {
-    const { data, error } = await db.from("fatores_ghg_dev").select("*");
-    if (error) throw error;
+    const data = await fetchAll("fatores_ghg_dev");
     for (const r of data ?? []) {
       if (!r.produto) continue;
       const co2e = (parseFloat(r.co2) || 0) + (parseFloat(r.ch4) || 0) * 28 + (parseFloat(r.n2o) || 0) * 265;
@@ -74,8 +89,7 @@ async function loadRows() {
   }
   // Ecoinvent
   {
-    const { data, error } = await db.from("ecoinvent_dev").select("*");
-    if (error) throw error;
+    const data = await fetchAll("ecoinvent_dev");
     for (const r of data ?? []) {
       const f = parseFloat(r.impact_score);
       if (!r.product_name || !(f > 0)) continue;
