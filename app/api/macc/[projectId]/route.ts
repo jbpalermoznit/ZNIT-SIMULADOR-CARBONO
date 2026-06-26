@@ -495,13 +495,19 @@ export async function GET(
         source_url: null, as_of: null, confidence: "high", is_estimate: false,
       };
     } else {
-      const materialKey = normalizeKeyword(String(bar.alternative_name ?? ""));
+      // Precificar pela CATEGORIA do material (descrição do item, em PT), não
+      // pelo título do EPD em inglês ("Low-carbon ready-mix concrete C30...") —
+      // a busca web não acha preço de mercado para o nome específico do produto
+      // e devolvia price=null → "custo a confirmar". A descrição do item
+      // ("CONCRETO 30 MPA") é uma categoria BR real e precificável (SINAPI/mercado).
+      const priceDesc = String(bar.item_description ?? bar.alternative_name ?? "");
+      const materialKey = normalizeKeyword(priceDesc);
       const itemUnit = String(bar.item_unit ?? "");
       if (materialKey && itemUnit) {
         let est = await getCachedPriceEstimate(materialKey, region, itemUnit, period);
         if (!est && isPriceEstimationEnabled()) {
           const live = await estimateMarketPrice({
-            materialDesc: String(bar.alternative_name ?? ""), unit: itemUnit, region,
+            materialDesc: priceDesc, unit: itemUnit, region,
           });
           if (live) {
             await upsertPriceEstimate({
