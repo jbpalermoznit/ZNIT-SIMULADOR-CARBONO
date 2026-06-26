@@ -148,3 +148,32 @@ recomendação oficial é a Voyage (voyage-3.5, 1024d).
 > recorrentes devem ser fixados como **Factor Rule** (camada 0) para virarem
 > determinísticos e baratos. Custo/latência sobem (1 chamada Claude + 1 Voyage
 > por material) — aceitável quando a prioridade é precisão.
+
+## Investigação do overshoot do vetor (re-match ao vivo)
+
+Re-rodando o `autoMatchItem` atual sobre os cenários reais (Estaca Hélice/Prancha)
+com o RAG ligado, o total **disparou** (Padrão 2587 vs antigo 1245; Novo 2663 vs
+504) — e o reranker quase não conteve (2580 sem reranker, 2587 com). O diagnóstico
+item a item apontou a causa: **o vetor "resgatava" itens que o determinístico
+deixa sem fator** (serviço/mão-de-obra), casando por similaridade um fator absurdo:
+
+| Item | det | vetor casou | Δ |
+|---|---|---|---|
+| `ANDAIME TUBULAR` (m³×4660) | — (0t) | "madeira laminada colada" 183/m³ | +856t |
+| `PINTURA PROTETIVA` (t×397) | — (0t) | "alkyd paint" 4,76/kg | +1892t |
+| `CANTONEIRA` (aço, m) | — (0t) | "sawlog" 203 *kg CO2-Eq* (adimensional → conv 1.0) | +67t |
+
+Em **todos** os casos catastróficos o determinístico tinha `best = null`.
+
+**Correção aplicada:** o **vetor enriquece, não resgata** — só entra no pool se o
+determinístico já achou algum candidato (`emission-mapper.ts`; teste em
+`tests/lib/server/vector-gating.test.ts`). Itens sem sinal de material ficam sem
+fator (como no determinístico), em vez de receber um número absurdo.
+
+**Pendências relacionadas** (PRs separados): excluir serviços (ANDAIME/PINTURA/
+APLICACAO) via cost-code/Tipo F; fechar o gap do fator adimensional `kg CO2-Eq`
+(conversão 1.0); investigar dados suspeitos (`PINTURA PROTETIVA 397 TON`).
+
+> **Sobre paridade:** com a decisão #1 = *correção* (não paridade com o antigo, que
+> tem erros conhecidos), o alvo realista pós-fix é o total **determinístico** (~1654
+> Padrão / ~619 Novo), não o 1245,6/504,1 do simulador antigo.
