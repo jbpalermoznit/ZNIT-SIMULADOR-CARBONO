@@ -2,26 +2,15 @@ import { NextRequest } from "next/server";
 import { supabase, supabaseEmission } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import { getConversionFactor } from "@/lib/server/calculator";
-import { normalizeKeyword } from "@/lib/server/keyword";
-
-// Com PRICE_ESTIMATION_ENABLED, a rota faz 1 busca web + LLM por recomendação
-// (sequencial) na 1ª vez (depois cacheia). Sobe o teto do Vercel para não
-// estourar o timeout default (~60s). Determinístico/cacheado roda rápido.
-export const maxDuration = 300;
-import {
-  estimateMarketPrice,
-  isPriceEstimationEnabled,
-} from "@/lib/server/factor-search/price-estimator";
-import {
-  getCachedPriceEstimate,
-  upsertPriceEstimate,
-} from "@/lib/server/supabase-emission";
+import { getCompanyEpdPrices } from "@/lib/server/epd-prices";
 import {
   abatementCostPerTco2e,
   costCategory,
   compareByAbatementCost,
 } from "@/lib/macc-economics";
 import type { AuthUser } from "@/lib/server/auth";
+
+export const maxDuration = 60;
 
 /** Classe de resistência fck (MPa) a partir do texto ("fck 30", "C30", "fck=40"). */
 function parseFckClass(text: string): number | null {
@@ -474,59 +463,38 @@ export async function GET(
   }
 
   // -------------------------------------------------------------------------
-  // Resolver o PREÇO da alternativa e computar o custo de abatimento por bar.
-  // Ordem: preço semeado no EPD > cache de estimativa > estimativa nova (IA,
-  // só se PRICE_ESTIMATION_ENABLED) > nenhum ("custo a confirmar").
+  // Resolver o PREÇO da alternativa (CADASTRO MANUAL, sem IA) e computar o
+  // custo de abatimento por bar. Ordem: preço cadastrado pela EMPRESA >
+  // preço global no EPD > nenhum ("custo a confirmar"). O usuário cadastra os
+  // preços em /epd-prices (public.epd_prices).
   // -------------------------------------------------------------------------
-  const period = new Date().toISOString().slice(0, 7); // YYYY-MM
-  const region = "BR";
+  const epdIds = uniqueBars
+    .map((b) => Number(b.epd_id))
+    .filter((n) => Number.isFinite(n));
+  const companyPrices = await getCompanyEpdPrices(user.company_id, epdIds);
+
   for (const bar of uniqueBars) {
     const qty = Number(bar.item_quantity ?? 0);
     const baselineLineCost = Number(bar.item_unit_cost ?? 0) * qty;
     let altUnitPerItem: number | null = null;
     let priceMeta: Record<string, unknown> | null = null;
 
-    const seeded = bar.price_per_declared_unit as number | null;
-    if (seeded != null && seeded > 0) {
-      // Preço por unidade declarada → por unidade do item via a conversão.
-      altUnitPerItem = seeded * Number(bar.alt_conv ?? 0);
+    // preço cadastrado pela empresa > preço global no EPD (ambos por unidade
+    // declarada → convertidos para a unidade do item via alt_conv).
+    const cp = companyPrices.get(Number(bar.epd_id));
+    const declaredPrice =
+      cp?.price_per_declared_unit ?? (bar.price_per_declared_unit as number | null);
+    if (declaredPrice != null && declaredPrice > 0) {
+      altUnitPerItem = declaredPrice * Number(bar.alt_conv ?? 0);
       priceMeta = {
-        value: seeded, unit: bar.declared_unit, source_name: "EPD (cadastro)",
-        source_url: null, as_of: null, confidence: "high", is_estimate: false,
+        value: declaredPrice,
+        unit: bar.declared_unit,
+        source_name: cp ? "Preço cadastrado" : "EPD (global)",
+        source_url: null,
+        as_of: cp?.updated_at ?? null,
+        confidence: "high",
+        is_estimate: false,
       };
-    } else {
-      // Precificar pela CATEGORIA do material (descrição do item, em PT), não
-      // pelo título do EPD em inglês ("Low-carbon ready-mix concrete C30...") —
-      // a busca web não acha preço de mercado para o nome específico do produto
-      // e devolvia price=null → "custo a confirmar". A descrição do item
-      // ("CONCRETO 30 MPA") é uma categoria BR real e precificável (SINAPI/mercado).
-      const priceDesc = String(bar.item_description ?? bar.alternative_name ?? "");
-      const materialKey = normalizeKeyword(priceDesc);
-      const itemUnit = String(bar.item_unit ?? "");
-      if (materialKey && itemUnit) {
-        let est = await getCachedPriceEstimate(materialKey, region, itemUnit, period);
-        if (!est && isPriceEstimationEnabled()) {
-          const live = await estimateMarketPrice({
-            materialDesc: priceDesc, unit: itemUnit, region,
-          });
-          if (live) {
-            await upsertPriceEstimate({
-              material_key: materialKey, region, unit: itemUnit, period,
-              price: live.price, currency: live.currency, source_name: live.source_name,
-              source_url: live.source_url, as_of: live.as_of, confidence: live.confidence,
-            });
-            est = { ...live };
-          }
-        }
-        if (est) {
-          altUnitPerItem = est.price; // estimativa já é por unidade do item
-          priceMeta = {
-            value: est.price, unit: itemUnit, source_name: est.source_name,
-            source_url: est.source_url, as_of: est.as_of, confidence: est.confidence,
-            is_estimate: true,
-          };
-        }
-      }
     }
 
     let deltaCost: number | null = null;

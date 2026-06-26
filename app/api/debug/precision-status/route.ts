@@ -37,15 +37,5 @@ export async function GET(req: NextRequest) {
       model: process.env.FACTOR_RERANKER_MODEL ?? "claude-haiku-4-5-20251001",
       effective: isRerankerEnabled(),
     },
-    // Estimador de preço por IA (Recomendações de redução). `effective` =
-    // flag && chave, idêntico ao isPriceEstimationEnabled() do estimador.
-    price_estimation: {
-      enabled_flag: process.env.PRICE_ESTIMATION_ENABLED === "true",
-      anthropic_key_present: !!process.env.ANTHROPIC_API_KEY,
-      model: process.env.FACTOR_PRICE_MODEL ?? "claude-haiku-4-5-20251001",
-      effective:
-        process.env.PRICE_ESTIMATION_ENABLED === "true" &&
-        !!process.env.ANTHROPIC_API_KEY,
-    },
   });
 }

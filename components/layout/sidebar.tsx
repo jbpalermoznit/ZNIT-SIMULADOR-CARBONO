@@ -19,6 +19,7 @@ import {
   BarChart3,
   Scale,
   Layers,
+  DollarSign,
 } from "lucide-react";
 
 const navItems = [
@@ -32,6 +33,7 @@ const projectMenuItems = [
   { label: "Cenários",          path: "scenarios",   icon: GitCompare },
   { label: "Regras Salvas",     path: "rules",       icon: BookOpen },
   { label: "Recomendações",     path: "macc",        icon: BarChart3 },
+  { label: "Preços de EPD",      path: "epd-prices",  icon: DollarSign },
   { label: "Simulação Carbono", path: "simulation",  icon: Scale },
   { label: "Relatórios",        path: "reports",     icon: FileText },
   { label: "Agente IA",         path: "agent",       icon: MessageSquare, comingSoon: true },
