@@ -152,6 +152,14 @@ const TYPE_BY_KEYWORD: [string, string][] = [
   // contagem e o casamento espúrio com "concreto").
   ["acabamento", "F"],
   ["fabricacao e montagem", "F"],
+  // Serviços de revestimento/aplicação — sem fator de material bruto
+  // confiável; com a busca vetorial ligada casavam fatores absurdos por
+  // similaridade ("PINTURA PROTETIVA" → "alkyd paint" 4,76/kg → +1892t;
+  // "APLICACAO DE ..." → fator de material). Tratados como serviço (Tipo F)
+  // para não entrarem no loop de match. Ver docs/PARIDADE_SIMULADOR.md.
+  ["pintura", "F"],
+  ["aplicacao de", "F"],
+  ["impermeabiliza", "F"],
   // Administrativo
   ["ensaio", "F"],
   ["controle de concreto", "F"],
@@ -161,7 +169,7 @@ const TYPE_BY_KEYWORD: [string, string][] = [
 
 const EQUIPMENT_UNITS = new Set(["h", "hora", "horas", "hrs", "hr"]);
 
-function classifyType(
+export function classifyType(
   costCode: string,
   description: string,
   unit: string

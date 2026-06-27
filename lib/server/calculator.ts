@@ -69,7 +69,16 @@ export function getConversionFactor(
   const iu = normalizeUnit(itemUnit);
   const fu = normalizeUnit(factorUnit);
 
-  if (!iu || !fu) return 1.0;
+  // Item unit unknown → we can't validate the pair; assume the integrator
+  // matched units upstream (permissive fallback for legacy unit_factor=null).
+  if (!iu) return 1.0;
+  // Item HAS a real unit but the factor unit is empty/dimensionless — e.g. a
+  // bare Ecoinvent "kg CO2-Eq" with no per-denominator (product_unit missing).
+  // Treating that as 1:1 silently applies an adimensional factor to a metre /
+  // m² / unit quantity. That is the "sawlog 203 kg CO2-Eq" inflation
+  // documented in docs/PARIDADE_SIMULADOR.md (CANTONEIRA +67t). Refuse it: a
+  // factor we can't dimension must not contribute emissions.
+  if (!fu) return 0.0;
   if (iu === fu) return 1.0;
 
   const MASS_TO_KG: Record<string, number> = { kg: 1.0, t: 1000.0, g: 0.001 };

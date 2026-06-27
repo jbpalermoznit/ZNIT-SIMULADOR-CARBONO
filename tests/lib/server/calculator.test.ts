@@ -97,19 +97,28 @@ describe("getConversionFactor", () => {
     });
   });
 
-  // Edge cases (null/undefined/empty) default to 1 — the calculator treats
-  // these as "factor unit unknown, assume the integrator did the unit
-  // matching upstream". That's a permissive fallback; it matters because
-  // some legacy items have unit_factor=null.
-  describe("missing unit information defaults to 1", () => {
+  // Unknown ITEM unit stays permissive (→ 1): some legacy items have no unit
+  // and we assume the integrator matched units upstream.
+  describe("unknown item unit defaults to 1 (permissive)", () => {
     it.each([
       [null, "kg", 1.0],
-      ["kg", null, 1.0],
       [undefined, undefined, 1.0],
       ["", "kg", 1.0],
-      ["kg", "", 1.0],
     ])("(%j, %j) → %f", (item, factor, expected) => {
       expect(getConversionFactor(item, factor)).toBe(expected);
+    });
+  });
+
+  // A KNOWN item unit paired with an empty/dimensionless factor unit must
+  // REFUSE (→ 0). Previously this fell through the permissive fallback and
+  // returned 1, silently applying an adimensional factor (e.g. bare
+  // "kg CO2-Eq") to a metre/m²/unit quantity — the inflation closed here.
+  describe("known item unit + dimensionless factor unit refuses (→ 0)", () => {
+    it.each([
+      ["kg", null],
+      ["kg", ""],
+    ])("(%j, %j) → 0", (item, factor) => {
+      expect(getConversionFactor(item, factor)).toBe(0);
     });
   });
 
@@ -140,33 +149,34 @@ describe("getConversionFactor", () => {
       expect(getConversionFactor("vb", "kgCO₂/kg")).toBe(0);
       expect(getConversionFactor("vb", "kgCO₂/m³")).toBe(0);
     });
-    it("kg steel with Ecoinvent 'kg CO2-Eq' factor → 1 (permissive fallback)", () => {
+    it("kg steel with bare Ecoinvent 'kg CO2-Eq' factor → 0 (refuse)", () => {
       // Ecoinvent stores the unit denom in product_unit; the factor_unit
-      // alone is just "kg CO2-Eq". The normaliser strips the whole string,
-      // and the empty-fu fallback returns 1 — only correct when the caller
-      // has already ensured product_unit matches the item.
-      expect(getConversionFactor("kg", "kg CO2-Eq")).toBe(1);
+      // alone is just "kg CO2-Eq", which the normaliser collapses to "".
+      // A dimensioned item paired with that dimensionless factor must refuse
+      // rather than assume 1:1 — the caller (calculator) never re-checks
+      // product_unit, so the old permissive 1 was the inflation bug.
+      expect(getConversionFactor("kg", "kg CO2-Eq")).toBe(0);
     });
   });
 
   // ===========================================================================
-  // KNOWN GAPS — todos documenting bugs surfaced by these tests
+  // Ecoinvent 'kg CO2-Eq' unit-validation gap — CLOSED
   // ===========================================================================
   //
-  // The Ecoinvent factor_unit "kg CO2-Eq" (no per-denominator) is collapsed
-  // to "" by the normaliser. Combined with the !fu → 1.0 fallback in
-  // getConversionFactor, ANY item unit paired with "kg CO2-Eq" comes out
-  // with conversion=1. That allows incompatible pairs (vb vs kg, m³ vs kg
-  // without density) to slip through as if they were valid.
-  //
-  // The right behaviour: the unit-validation logic should consult the
-  // factor's product_unit field instead of trusting factor_unit alone, OR
-  // the empty-fu fallback should be tightened to return 0 (refuse) for
-  // non-empty iu pairs.
-  describe.todo("Ecoinvent 'kg CO2-Eq' unit-validation gap", () => {
-    it.todo("vb item with bare 'kg CO2-Eq' factor → 0 (currently 1)");
-    it.todo("m³ item with bare 'kg CO2-Eq' factor → 0 (currently 1)");
-    it.todo("un item with bare 'kg CO2-Eq' factor → 0 (currently 1)");
+  // The Ecoinvent factor_unit "kg CO2-Eq" (no per-denominator) collapses to
+  // "" in the normaliser. Previously the !fu → 1.0 fallback let ANY item unit
+  // paired with it convert at 1, slipping incompatible pairs (vb/m³/un vs a
+  // dimensionless factor) through as valid. getConversionFactor now refuses
+  // (→ 0) when the item unit is known but the factor unit is dimensionless.
+  describe("Ecoinvent 'kg CO2-Eq' unit-validation gap (closed)", () => {
+    it.each([
+      ["vb", "kg CO2-Eq"],
+      ["m³", "kg CO2-Eq"],
+      ["un", "kg CO2-Eq"],
+      ["m", "kg CO2-Eq"],
+    ])("%j item with bare '%s' factor → 0", (item, factor) => {
+      expect(getConversionFactor(item, factor)).toBe(0);
+    });
   });
 });
 

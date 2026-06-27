@@ -170,9 +170,22 @@ determinístico já achou algum candidato (`emission-mapper.ts`; teste em
 `tests/lib/server/vector-gating.test.ts`). Itens sem sinal de material ficam sem
 fator (como no determinístico), em vez de receber um número absurdo.
 
-**Pendências relacionadas** (PRs separados): excluir serviços (ANDAIME/PINTURA/
-APLICACAO) via cost-code/Tipo F; fechar o gap do fator adimensional `kg CO2-Eq`
-(conversão 1.0); investigar dados suspeitos (`PINTURA PROTETIVA 397 TON`).
+**Pendências resolvidas** (para usar RAG com segurança):
+
+1. **Serviços de revestimento/aplicação → Tipo F** (`parser.ts`, `classifyType`):
+   `pintura`, `aplicacao de`, `impermeabiliza` agora classificam como Tipo F e
+   ficam fora do loop de match — não recebem fator de material. Mata o
+   `PINTURA → "alkyd paint"` (+1892t) e o `APLICACAO → fator de material`.
+   ANDAIME já era Tipo E. Teste: `tests/lib/server/parser.test.ts`.
+2. **Gap do fator adimensional `kg CO2-Eq` (conversão 1.0)** (`calculator.ts`,
+   `getConversionFactor`): item com unidade conhecida + fator sem denominador
+   (normaliza para vazio) agora **recusa (→ 0)** em vez de aplicar 1:1. Mata o
+   `CANTONEIRA → "sawlog 203 kg CO2-Eq"` (+67t). A permissividade só permanece
+   quando a **unidade do item** é desconhecida. Testes em
+   `tests/lib/server/calculator.test.ts`.
+
+**Pendência remanescente:** investigar dados suspeitos na origem
+(`PINTURA PROTETIVA 397 TON`) — qualidade do orçamento, não do match.
 
 > **Sobre paridade:** com a decisão #1 = *correção* (não paridade com o antigo, que
 > tem erros conhecidos), o alvo realista pós-fix é o total **determinístico** (~1654
