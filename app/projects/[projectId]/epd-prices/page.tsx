@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Search, Loader2, Check, Trash2, DollarSign } from "lucide-react";
+import { Search, Loader2, Check, Trash2, DollarSign, ExternalLink } from "lucide-react";
 import {
   searchEpdPrices,
-  setEpdPrice,
+  saveEpd,
   clearEpdPrice,
   type EpdPriceItem,
 } from "@/lib/api/epd-prices";
@@ -16,11 +16,14 @@ export default function EpdPricesPage() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const [gwpDrafts, setGwpDrafts] = useState<Record<number, string>>({});
+  const [unitDrafts, setUnitDrafts] = useState<Record<number, string>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const runSearch = useCallback(async () => {
-    if (!query.trim()) return;
+    // Sem termo + "Só Brasil" → lista todos os EPDs do Brasil.
+    if (!query.trim() && !brazilOnly) return;
     setLoading(true);
     setError(null);
     try {
@@ -36,22 +39,47 @@ export default function EpdPricesPage() {
   }, [query, brazilOnly]);
 
   const save = async (item: EpdPriceItem) => {
-    const raw = drafts[item.epd_id] ?? String(item.price ?? "");
-    const price = parseFloat(raw.replace(",", "."));
-    if (!Number.isFinite(price) || price <= 0) {
-      setError("Informe um preço válido (> 0).");
+    const priceRaw = drafts[item.epd_id];
+    const gwpRaw = gwpDrafts[item.epd_id];
+    const fields: { price?: number; price_unit?: string; gwp_a1a3?: number; declaredUnit?: string } = {
+      declaredUnit: item.declared_unit,
+    };
+    if (priceRaw != null && priceRaw !== "") {
+      const price = parseFloat(priceRaw.replace(",", "."));
+      if (!Number.isFinite(price) || price <= 0) { setError("Preço inválido (> 0)."); return; }
+      fields.price = price;
+      fields.price_unit = unitDrafts[item.epd_id] ?? item.price_unit ?? item.declared_unit;
+    }
+    if (gwpRaw != null && gwpRaw !== "") {
+      const gwp = parseFloat(gwpRaw.replace(",", "."));
+      if (!Number.isFinite(gwp) || gwp <= 0) { setError("GWP inválido (> 0)."); return; }
+      fields.gwp_a1a3 = gwp;
+    }
+    if (fields.price == null && fields.gwp_a1a3 == null) {
+      setError("Informe preço e/ou GWP.");
       return;
     }
     setSavingId(item.epd_id);
     setError(null);
     try {
-      await setEpdPrice(item.epd_id, price, item.declared_unit);
+      await saveEpd(item.epd_id, fields);
       setResults((prev) =>
         prev.map((r) =>
-          r.epd_id === item.epd_id ? { ...r, price, updated_at: new Date().toISOString() } : r
+          r.epd_id === item.epd_id
+            ? {
+                ...r,
+                price: fields.price ?? r.price,
+                price_unit: fields.price_unit ?? r.price_unit,
+                gwp_a1a3: fields.gwp_a1a3 ?? r.gwp_a1a3,
+                gwp_manual: fields.gwp_a1a3 != null ? true : r.gwp_manual,
+                updated_at: new Date().toISOString(),
+              }
+            : r
         )
       );
       setDrafts((d) => { const n = { ...d }; delete n[item.epd_id]; return n; });
+      setGwpDrafts((d) => { const n = { ...d }; delete n[item.epd_id]; return n; });
+      setUnitDrafts((d) => { const n = { ...d }; delete n[item.epd_id]; return n; });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao salvar");
     } finally {
@@ -75,6 +103,9 @@ export default function EpdPricesPage() {
 
   return (
     <div className="p-7">
+      <datalist id="epd-units">
+        {["m3", "m2", "kg", "t", "un", "L", "m"].map((u) => <option key={u} value={u} />)}
+      </datalist>
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-[#030304] mb-1">Cadastro de preços de EPD</h1>
@@ -103,12 +134,17 @@ export default function EpdPricesPage() {
           </label>
           <button
             onClick={runSearch}
-            disabled={loading || !query.trim()}
+            disabled={loading || (!query.trim() && !brazilOnly)}
             className="h-10 px-4 rounded-lg bg-[#56B7A5] text-white text-sm font-semibold hover:bg-[#469385] disabled:opacity-40"
           >
-            {loading ? <Loader2 size={16} className="animate-spin" /> : "Buscar"}
+            {loading ? <Loader2 size={16} className="animate-spin" /> : query.trim() ? "Buscar" : "Listar Brasil"}
           </button>
         </div>
+        <p className="text-[11px] text-[#BDBDBC] mt-2">
+          Preencha o <strong>GWP (A1-A3)</strong> do PDF do EPD para ele virar alternativa nas
+          Recomendações (GWP é do produto, compartilhado). O <strong>preço</strong> é por empresa.
+          EPDs sem GWP ficam destacados.
+        </p>
       </div>
 
       {error && (
@@ -141,13 +177,43 @@ export default function EpdPricesPage() {
                 return (
                   <tr key={item.epd_id} className="border-b border-[#F0F4F3] hover:bg-[#F8FAF9]">
                     <td className="px-4 py-3 max-w-[340px]">
-                      <p className="font-semibold text-[#030304] truncate" title={item.titulo}>{item.titulo}</p>
+                      {item.link ? (
+                        <a
+                          href={item.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-semibold text-[#030304] truncate hover:text-[#56B7A5] hover:underline inline-flex items-center gap-1 max-w-full"
+                          title={`Abrir EPD: ${item.titulo}`}
+                        >
+                          <span className="truncate">{item.titulo}</span>
+                          <ExternalLink size={11} className="shrink-0 text-[#BDBDBC]" />
+                        </a>
+                      ) : (
+                        <p className="font-semibold text-[#030304] truncate" title={item.titulo}>{item.titulo}</p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-[#808181]">
                       {item.manufacturer || "—"}<span className="text-[#BDBDBC]"> · {item.country || "—"}</span>
                     </td>
-                    <td className="px-4 py-3 text-right text-[#404040]">
-                      {item.gwp_a1a3 != null ? `${item.gwp_a1a3} /${item.declared_unit || "?"}` : "—"}
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <input
+                          type="number"
+                          step="0.0001"
+                          min="0"
+                          value={gwpDrafts[item.epd_id] ?? (item.gwp_a1a3 ?? "")}
+                          onChange={(e) => setGwpDrafts((d) => ({ ...d, [item.epd_id]: e.target.value }))}
+                          placeholder="—"
+                          className={`w-20 h-8 px-2 text-right rounded border focus:outline-none focus:border-[#56B7A5] ${item.gwp_a1a3 == null ? "border-[#FECACA] bg-[#FEF2F2]" : "border-[#E0E4E3]"}`}
+                          title="GWP A1-A3 (kgCO₂e por unidade declarada). Do PDF do EPD."
+                        />
+                        <span className="text-[#BDBDBC] text-[10px]">/{item.declared_unit || "?"}</span>
+                      </div>
+                      {item.gwp_a1a3 == null ? (
+                        <p className="text-[9px] text-[#EF4444] mt-0.5">sem GWP</p>
+                      ) : item.gwp_manual ? (
+                        <p className="text-[9px] text-[#7c3aed] mt-0.5">manual da organização</p>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -161,7 +227,15 @@ export default function EpdPricesPage() {
                           placeholder="—"
                           className="w-24 h-8 px-2 text-right rounded border border-[#E0E4E3] focus:outline-none focus:border-[#56B7A5]"
                         />
-                        <span className="text-[#BDBDBC] text-[10px]">/{item.declared_unit || "?"}</span>
+                        <span className="text-[#BDBDBC] text-[10px]">/</span>
+                        <input
+                          list="epd-units"
+                          value={unitDrafts[item.epd_id] ?? item.price_unit ?? item.declared_unit ?? ""}
+                          onChange={(e) => setUnitDrafts((d) => ({ ...d, [item.epd_id]: e.target.value }))}
+                          placeholder="unid."
+                          className="w-14 h-8 px-1 text-center rounded border border-[#E0E4E3] focus:outline-none focus:border-[#56B7A5] text-[11px]"
+                          title="Unidade do preço (m3, m2, kg, t, un, L, m...). Pode diferir da unidade declarada do EPD."
+                        />
                       </div>
                       {item.updated_at && !dirty && (
                         <p className="text-[9px] text-[#16A34A] mt-0.5">cadastrado</p>
@@ -200,7 +274,8 @@ export default function EpdPricesPage() {
       {!searched && (
         <div className="bg-white rounded-xl border border-[#E0E4E3] p-10 text-center text-sm text-[#808181]">
           <DollarSign size={24} className="mx-auto mb-2 text-[#BDBDBC]" />
-          Busque um material para cadastrar o preço dos EPDs.
+          Clique em <strong>Listar Brasil</strong> para ver todos os EPDs do Brasil,
+          ou busque um material específico.
         </div>
       )}
     </div>

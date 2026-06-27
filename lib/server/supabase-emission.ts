@@ -122,3 +122,26 @@ export async function getCecarbonById(rowId: number) {
   if (error) return null;
   return data;
 }
+
+/** Lista todos os EPDs do Brasil (country contém Brazil/Brasil). Pool pequeno (~90). */
+export async function listBrazilEpds(limit = 500) {
+  const { data, error } = await supabaseEmission
+    .from("epd_dev")
+    .select("*")
+    .or("country.ilike.%brazil%,country.ilike.%brasil%")
+    .order("titulo")
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Busca EPDs do catálogo por ids (para aplicar o GWP manual por empresa). */
+export async function getEpdsByIds(ids: number[]) {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabaseEmission
+    .from("epd_dev")
+    .select("*")
+    .in("id", ids);
+  if (error) return [];
+  return data ?? [];
+}
