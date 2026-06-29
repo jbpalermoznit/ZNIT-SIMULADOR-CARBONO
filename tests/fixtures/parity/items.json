@@ -42,6 +42,12 @@
       "description": "ESCAVACAO MECANIZADA DE SOLO",
       "unit": "m3",
       "quantity": 800
+    },
+    {
+      "id": "cimento-portland",
+      "description": "CIMENTO PORTLAND (EMB 50KG)",
+      "unit": "kg",
+      "quantity": 1295
     }
   ]
 }

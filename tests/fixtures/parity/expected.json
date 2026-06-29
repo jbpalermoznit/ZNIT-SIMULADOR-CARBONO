@@ -39,5 +39,11 @@
     "expectTier": "ecoinvent",
     "expectNameIncludes": "excavation",
     "expectValue": 3.5
+  },
+  "cimento-portland": {
+    "why": "CIMENTO PORTLAND deve casar 'Cimento (genérico)' 654/t, NÃO 'argamassa de terra estabilizada com cimento' 35/t — o boost de substring achatava os dois; a penalidade de produto-composto desempata pelo casamento mais justo.",
+    "expectTier": "cecarbon",
+    "expectNameIncludes": "Cimento (gen",
+    "expectValue": 654.53
   }
 }
