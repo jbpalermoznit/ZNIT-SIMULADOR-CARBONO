@@ -35,6 +35,17 @@ export interface GeometricRecipe {
 // primeira-passada — varia ~500 (pinus) a ~700 (eucalipto). Revisar.
 const WOOD_DENSITY_KG_M3 = 600;
 
+// Densidade de concreto (estrutural/pré-moldado) para converter itens medidos
+// em m³ que casaram um fator por massa (kgCO₂/t ou /kg). Concreto simples
+// ~2400, armado ~2500 kg/m³; usamos 2400 (conservador). Revisar. Premissa: o
+// fator casado é de concreto/massa — se um fator de aço for casado por engano,
+// revisar (mesma filosofia das demais densidades deste módulo).
+const CONCRETE_DENSITY_KG_M3 = 2400;
+
+// Massa padrão do saco de cimento Portland no Brasil (NBR) = 50 kg. Usada
+// quando o item está em "sc" e a descrição não traz a massa explícita.
+const CEMENT_BAG_KG = 50;
+
 // ⚠️ CONSTANTES DE PRODUTO — primeira-passada, REVISAR antes de confiar no
 // total (igual à Fase 0). Valores típicos de mercado; ajuste com a ficha real.
 
@@ -75,6 +86,15 @@ function parseThicknessM(desc: string): number | null {
   const cm = parseFloat(m[1].replace(",", "."));
   if (!Number.isFinite(cm) || cm <= 0) return null;
   return cm / 100;
+}
+
+/** Massa do saco (kg) a partir de "EMB 50KG", "50 KG", "SACO 25KG". Null se ausente. */
+function parseBagMassKg(desc: string): number | null {
+  const m = desc.match(/(\d+(?:[.,]\d+)?)\s*kg\b/i);
+  if (!m) return null;
+  const kg = parseFloat(m[1].replace(",", "."));
+  if (!Number.isFinite(kg) || kg <= 0) return null;
+  return kg;
 }
 
 /** Área de seção (m²) a partir de "7,5x7,5", "2,5 X 10", "5x10cm". Null se ausente. */
@@ -156,6 +176,34 @@ export function geometricRecipe(
       multiplier: kgPerM2,
       note: `forma de aço amortizada: ${STEEL_FORM_AREAL_MASS_KG_M2} kg/m² ÷ ${STEEL_FORM_REUSES} usos = ${kgPerM2.toFixed(3)} kg/m² (revisar)`,
     };
+  }
+
+  // --- Concreto/pré-moldado por VOLUME → massa (densidade) -------------------
+  // Item em m³ que casou um fator por massa (kgCO₂/t ou /kg) — ex.: "ESTRUTURA
+  // PRE-MOLDADA" 301 m³ contra fator por tonelada. Sem isto o par m³↔t é
+  // cross-family e zera. Só dispara para concreto/pré-moldado (premissa: o
+  // material é concreto). Itens já em m³ com fator por m³ não chegam aqui
+  // (getConversionFactor direto já devolve 1 — recipe não é chamada).
+  if (u === "m3" && /\bconcreto\b|pre[\s-]?moldad/.test(d)) {
+    return {
+      baseUnit: "kg",
+      multiplier: CONCRETE_DENSITY_KG_M3,
+      note: `concreto: ${CONCRETE_DENSITY_KG_M3} kg/m³ (revisar)`,
+    };
+  }
+
+  // --- Saco (sc) → massa -----------------------------------------------------
+  // Cimento/argamassa/cal em "sc" contra fator por massa. A massa vem da
+  // descrição ("EMB 50KG"); se ausente e for cimento, usa o saco-padrão 50kg.
+  if (u === "sc") {
+    const kg = parseBagMassKg(d) ?? (/\bcimento\b/.test(d) ? CEMENT_BAG_KG : null);
+    if (kg) {
+      return {
+        baseUnit: "kg",
+        multiplier: kg,
+        note: `saco = ${kg} kg`,
+      };
+    }
   }
 
   return null;
