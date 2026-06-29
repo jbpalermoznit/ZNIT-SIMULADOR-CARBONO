@@ -558,6 +558,9 @@ function scoreCecarbon(
   const s1 = fuzz.token_set_ratio(descLower, descCecarbon);
   const s2 = fuzz.partial_ratio(descLower, descCecarbon);
   let best = Math.max(s1, s2);
+  // Similaridade textual genuína (antes dos boosts de substring/overlap). A
+  // penalidade de produto-composto abaixo nunca empurra o score abaixo disto.
+  const rawFuzz = best;
 
   if (searchQueries) {
     for (const q of searchQueries) {
@@ -580,6 +583,19 @@ function scoreCecarbon(
   );
   if (overlap.size >= 1) best = Math.max(best, 78);
   if (overlap.size >= 2) best = Math.max(best, 85);
+
+  // Penalidade de produto-composto/diferente: o boost de substring (82) achata
+  // TODOS os fatores que contêm a palavra-chave no mesmo score — então
+  // "argamassa de terra estabilizada com cimento" (35/t) empatava com
+  // "cimento (genérico)" (654/t) e o vencedor virava ordem de inserção. Aqui
+  // descontamos por palavra de conteúdo do CANDIDATO que o item NÃO tem: um
+  // produto mais específico/diferente perde para o casamento mais justo. Só
+  // corrói o boost — nunca derruba abaixo da similaridade textual real.
+  const candidateExtra = [...cecarbonWords].filter(
+    (w) => !descWords.has(w) && !STOPWORDS.has(w) && w.length > 2
+  ).length;
+  const compoundPenalty = Math.min(18, candidateExtra * 6);
+  best = Math.max(rawFuzz, best - compoundPenalty);
 
   return Math.min(best, 100);
 }

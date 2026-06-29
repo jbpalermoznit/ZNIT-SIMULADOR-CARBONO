@@ -76,6 +76,22 @@
       "Unidade": "un",
       "densidade": 2400,
       "Referencia": "CECARBON 2024"
+    },
+    {
+      "id": 7,
+      "Descrição fator de emissao": "Cimento (genérico)",
+      "fator de emissão (kgCO2)": 654.53,
+      "Unidade": "t",
+      "densidade": 1,
+      "Referencia": "CECARBON 2024"
+    },
+    {
+      "id": 8,
+      "Descrição fator de emissao": "Argamassa de terra estabilizada com cimento",
+      "fator de emissão (kgCO2)": 35.29,
+      "Unidade": "t",
+      "densidade": 1,
+      "Referencia": "CECARBON 2024"
     }
   ],
   "ecoinvent": [
