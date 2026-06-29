@@ -10,10 +10,15 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import { supabase } from "@/lib/server/supabase";
-import { parseAbcFile } from "@/lib/server/parser";
+import { parseAbcFile, classifyType } from "@/lib/server/parser";
 import { parseInsumoFile } from "@/lib/server/parser-insumos";
 import { autoMatchItem } from "@/lib/server/emission-mapper";
 import { createBaseScenario } from "@/lib/server/calculator";
+import {
+  shouldAutoExcludeType,
+  autoExclusionReason,
+  type ItemType,
+} from "@/lib/server/cost-code-classifier";
 
 export const maxDuration = 300;
 
@@ -130,6 +135,25 @@ export async function POST(
       return DIRECT_MATERIAL_KEYWORDS.some((kw) => descNorm.includes(kw));
     }
 
+    // Servi\u00e7os/m\u00e3o-de-obra/montagem/equipamento (Tipo B/D/E/F via classifyType)
+    // N\u00c3O s\u00e3o materiais: n\u00e3o devem casar um fator de material bruto. Sem isto,
+    // itens como "FABRICACAO E MONTAGEM DE PRE-MOLDADO" (material j\u00e1 contado em
+    // linhas pr\u00f3prias de a\u00e7o/concreto) ou "PINTURA"/"APLICACAO DE ..." casavam
+    // fator de concreto/tinta e inflavam/duplicavam o total. Marcamos como
+    // exclu\u00eddo \u2192 o calculador os ignora. Ver docs/PARIDADE_SIMULADOR.md.
+    function serviceExclusion(
+      costCode: string,
+      description: string,
+      unit: string
+    ): { item_type: ItemType; note: string } | null {
+      const [t] = classifyType(costCode, description, unit);
+      const type = t as ItemType;
+      if (type !== "A" && shouldAutoExcludeType(type)) {
+        return { item_type: type, note: autoExclusionReason(type) };
+      }
+      return null;
+    }
+
     const parentItems: Array<Record<string, unknown>> = [];
     const childItems: Array<Record<string, unknown>> = [];
     let itemOrder = 0;
@@ -170,6 +194,11 @@ export async function POST(
           if (childQty <= 0) continue;
 
           itemOrder++;
+          const childSvc = serviceExclusion(
+            insumo.codigo,
+            insumo.descricao,
+            insumo.unidade
+          );
           childItems.push({
             id: `${curve.id}-c${itemOrder}`,
             abc_curve_id: curve.id,
@@ -182,15 +211,19 @@ export async function POST(
             cost_pct: 0,
             cumulative_pct: 0,
             abc_class: item.abc_class,
-            item_type: "A", // material → auto-map candidate
+            item_type: childSvc ? childSvc.item_type : "A", // material → auto-map candidate
             item_order: itemOrder,
-            mapping_status: "pending",
+            mapping_status: childSvc ? "excluded" : "pending",
             parent_item_id: parentId,
-            classification_note: `Insumo de ${item.description} (${qty} ${item.unit} x ${insumo.indice} ${insumo.unidade})`,
+            classification_note: childSvc
+              ? childSvc.note
+              : `Insumo de ${item.description} (${qty} ${item.unit} x ${insumo.indice} ${insumo.unidade})`,
           });
         }
       } else {
-        // No recipe → keep as direct item for auto-mapping
+        // No recipe → direct item. Classify first: serviços/montagem/
+        // equipamento (Tipo B/D/E/F) são excluídos do match de material.
+        const svc = serviceExclusion(item.cost_code, item.description, item.unit);
         parentItems.push({
           id: parentId,
           abc_curve_id: curve.id,
@@ -203,11 +236,12 @@ export async function POST(
           cost_pct: item.cost_pct,
           cumulative_pct: item.cumulative_pct,
           abc_class: item.abc_class,
-          item_type: "A",
+          item_type: svc ? svc.item_type : "A",
           item_order: itemOrder,
-          mapping_status: "pending",
-          classification_note:
-            "Item direto (sem receita na Planilha de Insumos)",
+          mapping_status: svc ? "excluded" : "pending",
+          classification_note: svc
+            ? svc.note
+            : "Item direto (sem receita na Planilha de Insumos)",
         });
       }
       itemOrder++;
