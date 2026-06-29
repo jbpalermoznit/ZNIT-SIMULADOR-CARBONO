@@ -26,8 +26,12 @@ describe("geometricRecipe — concreto por área → volume", () => {
     expect(geometricRecipe("CONCRETO PARA PISO ACABADO", "m2")).toBeNull();
   });
 
-  it("não dispara para concreto já em m³ (não precisa de receita)", () => {
-    expect(geometricRecipe("CONCRETO USINADO 40MPA", "m3")).toBeNull();
+  it("concreto em m³ retorna receita de densidade (só aplicada p/ fator por massa)", () => {
+    // A receita existe, mas resolveConversion só a consulta quando a conversão
+    // direta m³ falha (fator por massa). Para fator por m³, a direta vence.
+    const r = geometricRecipe("CONCRETO USINADO 40MPA", "m3");
+    expect(r?.baseUnit).toBe("kg");
+    expect(r?.multiplier).toBe(2400);
   });
 
   it("não confunde resistência (40MPA) com espessura", () => {
@@ -86,6 +90,49 @@ describe("geometricRecipe — forma metálica amortizada", () => {
 
   it("não confunde forma de madeira/comum", () => {
     expect(geometricRecipe("FORMA DE MADEIRA PARA VIGA", "m2")).toBeNull();
+  });
+});
+
+describe("geometricRecipe — concreto/pré-moldado por volume → massa", () => {
+  it("deriva m³→kg para estrutura pré-moldada (densidade do concreto)", () => {
+    const r = geometricRecipe("ESTRUTURA PRE-MOLDADA", "m³");
+    expect(r?.baseUnit).toBe("kg");
+    expect(r?.multiplier).toBe(2400); // CONCRETE_DENSITY_KG_M3
+  });
+
+  it("casa 'concreto' e variações de pré-moldado", () => {
+    expect(geometricRecipe("CONCRETO ESTRUTURAL", "m3")?.multiplier).toBe(2400);
+    expect(geometricRecipe("VIGA PREMOLDADA", "m3")?.multiplier).toBe(2400);
+    expect(geometricRecipe("PILAR PRE MOLDADO", "m3")?.multiplier).toBe(2400);
+  });
+
+  it("não dispara fora de m³ (m² já tem regra de espessura própria)", () => {
+    expect(geometricRecipe("ESTRUTURA PRE-MOLDADA", "m2")).toBeNull();
+  });
+
+  it("não dispara para outros materiais em m³ (escavação, areia)", () => {
+    expect(geometricRecipe("ESCAVACAO MECANIZADA", "m3")).toBeNull();
+    expect(geometricRecipe("AREIA MEDIA LAVADA", "m3")).toBeNull();
+  });
+});
+
+describe("geometricRecipe — saco (sc) → massa", () => {
+  it("usa a massa da descrição (EMB 50KG)", () => {
+    const r = geometricRecipe("CIMENTO PORTLAND (EMB 50KG)", "sc");
+    expect(r?.baseUnit).toBe("kg");
+    expect(r?.multiplier).toBe(50);
+  });
+
+  it("respeita massa diferente na descrição (25 KG)", () => {
+    expect(geometricRecipe("ARGAMASSA COLANTE SACO 25 KG", "sc")?.multiplier).toBe(25);
+  });
+
+  it("cai no saco-padrão 50kg para cimento sem massa explícita", () => {
+    expect(geometricRecipe("CIMENTO PORTLAND CP-II", "sc")?.multiplier).toBe(50);
+  });
+
+  it("retorna null para sc não-cimento sem massa na descrição (não chuta)", () => {
+    expect(geometricRecipe("ADITIVO EM SACO", "sc")).toBeNull();
   });
 });
 
