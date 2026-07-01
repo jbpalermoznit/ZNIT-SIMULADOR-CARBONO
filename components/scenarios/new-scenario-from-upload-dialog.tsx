@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { uploadAbc, uploadScenario } from "@/lib/api/projects";
-import { X, Upload, Loader2, FileSpreadsheet } from "lucide-react";
+import { X, Upload, Loader2, FileSpreadsheet, CheckCircle2 } from "lucide-react";
 
 type UploadMode = "abc" | "complete";
 
@@ -97,6 +97,7 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
   const [busy, setBusy] = useState(false);
   const [busyStep, setBusyStep] = useState("");
   const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
 
   if (!open) return null;
 
@@ -144,8 +145,9 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
       );
 
       onCreated(newScenarioId);
-      setBusyStep("Pronto. Abrindo Itens…");
-      setTimeout(() => router.push(`/projects/${projectId}/items`), 400);
+      setDone(true);
+      setBusyStep("Cenário criado com sucesso! Abrindo Itens…");
+      setTimeout(() => router.push(`/projects/${projectId}/items`), 1400);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro ao criar cenário");
       setBusy(false);
@@ -280,12 +282,17 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
             </p>
           )}
 
-          {busy && (
+          {done ? (
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#1d7a6b] bg-[#E6F3EE] border border-[#A9D7CD] rounded-lg px-3 py-2">
+              <CheckCircle2 size={14} className="text-[#56B7A5]" />
+              {busyStep}
+            </div>
+          ) : busy ? (
             <div className="flex items-center gap-2 text-xs text-[#56B7A5]">
               <Loader2 size={14} className="animate-spin" />
               {busyStep}
             </div>
-          )}
+          ) : null}
         </div>
 
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-[#E0E4E3] bg-[#F8FAF9] rounded-b-xl">
@@ -293,7 +300,12 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
             Cancelar
           </Button>
           <Button size="sm" disabled={!canSubmit} onClick={handleSubmit}>
-            {busy ? (
+            {done ? (
+              <>
+                <CheckCircle2 size={14} />
+                Criado!
+              </>
+            ) : busy ? (
               <>
                 <Loader2 size={14} className="animate-spin" />
                 Processando…

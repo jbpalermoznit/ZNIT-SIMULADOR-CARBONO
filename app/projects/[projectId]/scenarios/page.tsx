@@ -96,9 +96,12 @@ function ScenarioCard({
         {totalTco2e.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
         <span className="text-sm font-normal text-[#808181] ml-1">tCO₂e</span>
       </div>
-      <p className="text-xs text-[#808181] mb-3">
+      <p className="text-xs text-[#808181] mb-1">
         {intensity} kgCO₂e/m² · {coverage.toFixed(0)}% cobertura
         {scen.items_count != null && ` · ${scen.items_count} itens`}
+      </p>
+      <p className="text-[10px] text-[#BDBDBC] mb-3">
+        Criado em {new Date(scen.created_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
       </p>
 
       {!isBase && baseTco2e > 0 && delta > 0 && (
