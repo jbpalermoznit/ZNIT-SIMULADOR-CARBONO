@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
@@ -98,8 +98,14 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
   const [busyStep, setBusyStep] = useState("");
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Abort any in-flight upload when the dialog unmounts.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   if (!open) return null;
+
+  const isAbortError = (e: unknown) => e instanceof DOMException && e.name === "AbortError";
 
   const canSubmit =
     name.trim().length > 0 &&
@@ -110,6 +116,8 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
     if (!canSubmit) return;
     setError("");
     setBusy(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       let newScenarioId: string | null = null;
 
@@ -124,12 +132,13 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
           asScenario: true,
           costCodesFile: costCodesFile ?? undefined,
           proofFile: proofFile ?? undefined,
+          signal: controller.signal,
         });
         newScenarioId = res.base_scenario_id;
         if (res.base_scenario_error) throw new Error(res.base_scenario_error);
       } else if (mode === "complete" && itemsFile && insumosFile) {
         setBusyStep("Enviando arquivos e calculando…");
-        const res = await uploadScenario(projectId, itemsFile, insumosFile, name.trim());
+        const res = await uploadScenario(projectId, itemsFile, insumosFile, name.trim(), controller.signal);
         newScenarioId = res.scenario_id;
       }
 
@@ -149,6 +158,7 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
       setBusyStep("Cenário criado com sucesso! Abrindo Itens…");
       setTimeout(() => router.push(`/projects/${projectId}/items`), 1400);
     } catch (e) {
+      if (isAbortError(e)) { setBusy(false); setBusyStep(""); return; }
       setError(e instanceof Error ? e.message : "Erro ao criar cenário");
       setBusy(false);
       setBusyStep("");

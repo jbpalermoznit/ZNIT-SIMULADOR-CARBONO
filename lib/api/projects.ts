@@ -111,6 +111,8 @@ export function uploadAbc(
     costCodesFile?: File;
     /** Optional Relatório Proof for assemblies-per-cost-code. */
     proofFile?: File;
+    /** Abort in-flight upload (e.g. user cancels or leaves the page). */
+    signal?: AbortSignal;
   }
 ) {
   const form = new FormData();
@@ -119,7 +121,7 @@ export function uploadAbc(
   if (opts?.asScenario) form.append("as_scenario", "true");
   if (opts?.costCodesFile) form.append("cost_codes_file", opts.costCodesFile);
   if (opts?.proofFile) form.append("proof_file", opts.proofFile);
-  return api.postForm<UploadResult>(`/api/projects/${projectId}/upload-abc`, form);
+  return api.postForm<UploadResult>(`/api/projects/${projectId}/upload-abc`, form, opts?.signal);
 }
 
 export interface ScenarioUploadResult {
@@ -151,7 +153,8 @@ export function uploadScenario(
   projectId: string,
   itemsFile: File,
   insumosFile: File,
-  scenarioName: string
+  scenarioName: string,
+  signal?: AbortSignal
 ) {
   const form = new FormData();
   form.append("items_file", itemsFile);
@@ -159,7 +162,8 @@ export function uploadScenario(
   form.append("scenario_name", scenarioName);
   return api.postForm<ScenarioUploadResult>(
     `/api/projects/${projectId}/upload-scenario`,
-    form
+    form,
+    signal
   );
 }
 

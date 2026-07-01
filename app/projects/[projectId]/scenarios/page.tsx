@@ -76,7 +76,7 @@ function ScenarioCard({
             <p className="text-[11px] text-[#808181] mt-0.5 leading-relaxed line-clamp-2">{scen.description}</p>
           )}
         </div>
-        {onDelete && (
+        {onDelete && !isBase && (
           <button
             onClick={(e) => {
               e.stopPropagation();

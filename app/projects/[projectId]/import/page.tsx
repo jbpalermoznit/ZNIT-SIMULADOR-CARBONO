@@ -94,6 +94,7 @@ export default function ImportPage() {
   const [error, setError] = useState("");
   const [projectName, setProjectName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Scenario mode state
   const [itemsFile, setItemsFile] = useState<File | null>(null);
@@ -124,6 +125,16 @@ export default function ImportPage() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [step]);
 
+  // Abort any in-flight upload when the page unmounts.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const isAbortError = (e: unknown) => e instanceof DOMException && e.name === "AbortError";
+  const cancelUpload = () => {
+    abortRef.current?.abort();
+    setStep("upload");
+    setError("");
+  };
+
   const handleFile = (f: File) => { setFile(f); setError(""); };
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); setDragging(false);
@@ -135,10 +146,13 @@ export default function ImportPage() {
   const handleUpload = async () => {
     if (!file) return;
     setStep("processing"); setError("");
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const data = await uploadAbc(projectId, file, {
         costCodesFile: costCodesFile ?? undefined,
         proofFile: proofFile ?? undefined,
+        signal: controller.signal,
       });
       setResult(data); setStep("preview");
       // The upload route now runs auto-map + base scenario + calculation
@@ -152,6 +166,7 @@ export default function ImportPage() {
         setTimeout(() => router.push(`/projects/${projectId}/items`), 600);
       }
     } catch (e: unknown) {
+      if (isAbortError(e)) return;
       setError(e instanceof Error ? e.message : "Erro ao processar arquivo"); setStep("upload");
     }
   };
@@ -159,10 +174,13 @@ export default function ImportPage() {
   const handleScenarioUpload = async () => {
     if (!itemsFile || !insumosFile || !scenarioName) return;
     setStep("processing"); setError("");
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const data = await uploadScenario(projectId, itemsFile, insumosFile, scenarioName);
+      const data = await uploadScenario(projectId, itemsFile, insumosFile, scenarioName, controller.signal);
       setScenarioResult(data); setStep("preview");
     } catch (e: unknown) {
+      if (isAbortError(e)) return;
       setError(e instanceof Error ? e.message : "Erro ao processar cenário"); setStep("upload");
     }
   };
@@ -548,6 +566,9 @@ export default function ImportPage() {
             <p className="text-sm text-[#808181]">{file?.name ?? scenarioName}</p>
             <p className="text-xs text-[#BDBDBC] mt-2">Detectando colunas, classificando itens e calculando Curva de Pareto...</p>
             <p className="text-xs font-semibold text-[#F59E0B] mt-4">Não feche nem saia desta tela — o processamento é interrompido se você sair.</p>
+            <div className="mt-5">
+              <Button variant="outline" onClick={cancelUpload}>Cancelar</Button>
+            </div>
           </div>
         )}
 
