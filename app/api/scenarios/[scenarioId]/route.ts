@@ -186,6 +186,21 @@ export async function DELETE(
     throw e;
   }
 
+  // The base scenario is the reference for every comparison — refuse to delete
+  // it so users can't accidentally orphan their project. They must promote
+  // another scenario to Base first.
+  const { data: scen } = await supabase
+    .from("scenarios")
+    .select("is_base")
+    .eq("id", scenarioId)
+    .single();
+  if (scen?.is_base) {
+    return Response.json(
+      { detail: "O cenário Base não pode ser excluído. Defina outro cenário como Base antes de excluí-lo." },
+      { status: 400 }
+    );
+  }
+
   // Foreign keys aren't ON DELETE CASCADE everywhere, so clean children
   // first to keep the operation safe regardless of schema state.
   await supabase.from("scenario_results").delete().eq("scenario_id", scenarioId);

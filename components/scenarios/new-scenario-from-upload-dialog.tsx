@@ -1,12 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { uploadAbc, uploadScenario } from "@/lib/api/projects";
-import { X, Upload, Loader2, FileSpreadsheet } from "lucide-react";
+import { X, Upload, Loader2, FileSpreadsheet, CheckCircle2 } from "lucide-react";
 
 type UploadMode = "abc" | "complete";
 
@@ -97,8 +97,15 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
   const [busy, setBusy] = useState(false);
   const [busyStep, setBusyStep] = useState("");
   const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Abort any in-flight upload when the dialog unmounts.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   if (!open) return null;
+
+  const isAbortError = (e: unknown) => e instanceof DOMException && e.name === "AbortError";
 
   const canSubmit =
     name.trim().length > 0 &&
@@ -109,6 +116,8 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
     if (!canSubmit) return;
     setError("");
     setBusy(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       let newScenarioId: string | null = null;
 
@@ -123,12 +132,13 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
           asScenario: true,
           costCodesFile: costCodesFile ?? undefined,
           proofFile: proofFile ?? undefined,
+          signal: controller.signal,
         });
         newScenarioId = res.base_scenario_id;
         if (res.base_scenario_error) throw new Error(res.base_scenario_error);
       } else if (mode === "complete" && itemsFile && insumosFile) {
         setBusyStep("Enviando arquivos e calculando…");
-        const res = await uploadScenario(projectId, itemsFile, insumosFile, name.trim());
+        const res = await uploadScenario(projectId, itemsFile, insumosFile, name.trim(), controller.signal);
         newScenarioId = res.scenario_id;
       }
 
@@ -144,9 +154,11 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
       );
 
       onCreated(newScenarioId);
-      setBusyStep("Pronto. Abrindo Itens…");
-      setTimeout(() => router.push(`/projects/${projectId}/items`), 400);
+      setDone(true);
+      setBusyStep("Cenário criado com sucesso! Abrindo Itens…");
+      setTimeout(() => router.push(`/projects/${projectId}/items`), 1400);
     } catch (e) {
+      if (isAbortError(e)) { setBusy(false); setBusyStep(""); return; }
       setError(e instanceof Error ? e.message : "Erro ao criar cenário");
       setBusy(false);
       setBusyStep("");
@@ -280,12 +292,17 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
             </p>
           )}
 
-          {busy && (
+          {done ? (
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#1d7a6b] bg-[#E6F3EE] border border-[#A9D7CD] rounded-lg px-3 py-2">
+              <CheckCircle2 size={14} className="text-[#56B7A5]" />
+              {busyStep}
+            </div>
+          ) : busy ? (
             <div className="flex items-center gap-2 text-xs text-[#56B7A5]">
               <Loader2 size={14} className="animate-spin" />
               {busyStep}
             </div>
-          )}
+          ) : null}
         </div>
 
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-[#E0E4E3] bg-[#F8FAF9] rounded-b-xl">
@@ -293,7 +310,12 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
             Cancelar
           </Button>
           <Button size="sm" disabled={!canSubmit} onClick={handleSubmit}>
-            {busy ? (
+            {done ? (
+              <>
+                <CheckCircle2 size={14} />
+                Criado!
+              </>
+            ) : busy ? (
               <>
                 <Loader2 size={14} className="animate-spin" />
                 Processando…

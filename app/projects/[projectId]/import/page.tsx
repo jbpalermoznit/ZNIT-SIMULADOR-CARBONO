@@ -94,10 +94,13 @@ export default function ImportPage() {
   const [error, setError] = useState("");
   const [projectName, setProjectName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Scenario mode state
   const [itemsFile, setItemsFile] = useState<File | null>(null);
   const [insumosFile, setInsumosFile] = useState<File | null>(null);
+  const [draggingItems, setDraggingItems] = useState(false);
+  const [draggingInsumos, setDraggingInsumos] = useState(false);
   const [scenarioName, setScenarioName] = useState("");
   const [scenarioResult, setScenarioResult] = useState<ScenarioUploadResult | null>(null);
   const insumosInputRef = useRef<HTMLInputElement>(null);
@@ -113,6 +116,25 @@ export default function ImportPage() {
 
   useEffect(() => { getProject(projectId).then((p) => setProjectName(p.name)).catch(() => {}); }, [projectId]);
 
+  // Warn the user before they leave/refresh while a file is still processing —
+  // navigating away unmounts the page and aborts the in-flight upload silently.
+  useEffect(() => {
+    if (step !== "processing") return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [step]);
+
+  // Abort any in-flight upload when the page unmounts.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const isAbortError = (e: unknown) => e instanceof DOMException && e.name === "AbortError";
+  const cancelUpload = () => {
+    abortRef.current?.abort();
+    setStep("upload");
+    setError("");
+  };
+
   const handleFile = (f: File) => { setFile(f); setError(""); };
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); setDragging(false);
@@ -124,10 +146,13 @@ export default function ImportPage() {
   const handleUpload = async () => {
     if (!file) return;
     setStep("processing"); setError("");
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const data = await uploadAbc(projectId, file, {
         costCodesFile: costCodesFile ?? undefined,
         proofFile: proofFile ?? undefined,
+        signal: controller.signal,
       });
       setResult(data); setStep("preview");
       // The upload route now runs auto-map + base scenario + calculation
@@ -141,6 +166,7 @@ export default function ImportPage() {
         setTimeout(() => router.push(`/projects/${projectId}/items`), 600);
       }
     } catch (e: unknown) {
+      if (isAbortError(e)) return;
       setError(e instanceof Error ? e.message : "Erro ao processar arquivo"); setStep("upload");
     }
   };
@@ -148,10 +174,13 @@ export default function ImportPage() {
   const handleScenarioUpload = async () => {
     if (!itemsFile || !insumosFile || !scenarioName) return;
     setStep("processing"); setError("");
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const data = await uploadScenario(projectId, itemsFile, insumosFile, scenarioName);
+      const data = await uploadScenario(projectId, itemsFile, insumosFile, scenarioName, controller.signal);
       setScenarioResult(data); setStep("preview");
     } catch (e: unknown) {
+      if (isAbortError(e)) return;
       setError(e instanceof Error ? e.message : "Erro ao processar cenário"); setStep("upload");
     }
   };
@@ -245,9 +274,12 @@ export default function ImportPage() {
               <div
                 className={cn(
                   "border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer",
-                  itemsFile ? "border-[#56B7A5] bg-[#E6F3EE]" : "border-[#BDBDBC] bg-white hover:border-[#81C8B9] hover:bg-[#F8FAF9]"
+                  itemsFile ? "border-[#56B7A5] bg-[#E6F3EE]" : draggingItems ? "border-[#56B7A5] bg-[#E6F3EE]" : "border-[#BDBDBC] bg-white hover:border-[#81C8B9] hover:bg-[#F8FAF9]"
                 )}
                 onClick={() => itemsInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); setDraggingItems(true); }}
+                onDragLeave={() => setDraggingItems(false)}
+                onDrop={(e) => { e.preventDefault(); setDraggingItems(false); const f = e.dataTransfer.files[0]; if (f) { setItemsFile(f); setError(""); } }}
               >
                 <input ref={itemsInputRef} type="file" accept=".xlsx,.xlsm" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setItemsFile(f); setError(""); } }} />
                 <div className="w-10 h-10 bg-[#E6F3EE] rounded-lg flex items-center justify-center mx-auto mb-3">
@@ -262,7 +294,7 @@ export default function ImportPage() {
                     <button onClick={(e) => { e.stopPropagation(); setItemsFile(null); }} className="text-[#808181] hover:text-red-500"><X size={12} /></button>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-[#BDBDBC]">Clique para selecionar</p>
+                  <p className="text-[11px] text-[#BDBDBC]">Arraste o arquivo ou clique</p>
                 )}
               </div>
 
@@ -270,9 +302,12 @@ export default function ImportPage() {
               <div
                 className={cn(
                   "border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer",
-                  insumosFile ? "border-[#56B7A5] bg-[#E6F3EE]" : "border-[#BDBDBC] bg-white hover:border-[#81C8B9] hover:bg-[#F8FAF9]"
+                  insumosFile ? "border-[#56B7A5] bg-[#E6F3EE]" : draggingInsumos ? "border-[#56B7A5] bg-[#E6F3EE]" : "border-[#BDBDBC] bg-white hover:border-[#81C8B9] hover:bg-[#F8FAF9]"
                 )}
                 onClick={() => insumosInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); setDraggingInsumos(true); }}
+                onDragLeave={() => setDraggingInsumos(false)}
+                onDrop={(e) => { e.preventDefault(); setDraggingInsumos(false); const f = e.dataTransfer.files[0]; if (f) { setInsumosFile(f); setError(""); } }}
               >
                 <input ref={insumosInputRef} type="file" accept=".xlsx,.xlsm" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setInsumosFile(f); setError(""); } }} />
                 <div className="w-10 h-10 bg-[#E6F3EE] rounded-lg flex items-center justify-center mx-auto mb-3">
@@ -287,7 +322,7 @@ export default function ImportPage() {
                     <button onClick={(e) => { e.stopPropagation(); setInsumosFile(null); }} className="text-[#808181] hover:text-red-500"><X size={12} /></button>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-[#BDBDBC]">Clique para selecionar</p>
+                  <p className="text-[11px] text-[#BDBDBC]">Arraste o arquivo ou clique</p>
                 )}
               </div>
             </div>
@@ -528,8 +563,12 @@ export default function ImportPage() {
               <Loader2 size={28} className="text-[#56B7A5] animate-spin" />
             </div>
             <h3 className="text-base font-bold text-[#030304] mb-1">Processando arquivo...</h3>
-            <p className="text-sm text-[#808181]">{file?.name}</p>
+            <p className="text-sm text-[#808181]">{file?.name ?? scenarioName}</p>
             <p className="text-xs text-[#BDBDBC] mt-2">Detectando colunas, classificando itens e calculando Curva de Pareto...</p>
+            <p className="text-xs font-semibold text-[#F59E0B] mt-4">Não feche nem saia desta tela — o processamento é interrompido se você sair.</p>
+            <div className="mt-5">
+              <Button variant="outline" onClick={cancelUpload}>Cancelar</Button>
+            </div>
           </div>
         )}
 
