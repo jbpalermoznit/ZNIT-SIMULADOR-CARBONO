@@ -86,4 +86,26 @@ describe("ImportPage — cancelar durante o processamento (#2)", () => {
       screen.getByRole("heading", { name: "Planilha de Itens" })
     ).toBeInTheDocument();
   });
+
+  it("mostra mensagem clara (não silêncio) quando a requisição estoura o tempo", async () => {
+    // O timer do cliente aborta com TimeoutError — simulamos a rejeição.
+    vi.mocked(uploadScenario).mockRejectedValue(
+      new DOMException("timeout", "TimeoutError")
+    );
+
+    const user = userEvent.setup();
+    const { container } = render(<ImportPage />);
+
+    await user.type(screen.getByPlaceholderText(/Estaca Helice/i), "Cenário X");
+    const fileInputs = container.querySelectorAll('input[type="file"]');
+    await user.upload(fileInputs[0] as HTMLInputElement, xlsx("itens.xlsx"));
+    await user.upload(fileInputs[1] as HTMLInputElement, xlsx("insumos.xlsx"));
+    await user.click(screen.getByRole("button", { name: /Processar Cenário/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/passou de 5 minutos/i)).toBeInTheDocument()
+    );
+    // Voltou para a tela de envio (não ficou preso no spinner).
+    expect(screen.queryByText(/Processando arquivo/i)).not.toBeInTheDocument();
+  });
 });

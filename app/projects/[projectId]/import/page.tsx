@@ -135,6 +135,30 @@ export default function ImportPage() {
     setError("");
   };
 
+  // Client-side safety net: the server caps at maxDuration=300s and returns its
+  // own error on failure, but a dropped/stalled connection leaves the fetch
+  // hanging forever — the user sees an eternal spinner and no message. Abort
+  // just above the server budget with a TimeoutError so a stall becomes a
+  // clear, retryable message instead of silence.
+  const UPLOAD_TIMEOUT_MS = 320_000;
+  const armUpload = () => {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const timer = setTimeout(
+      () => controller.abort(new DOMException("timeout", "TimeoutError")),
+      UPLOAD_TIMEOUT_MS
+    );
+    return { signal: controller.signal, clear: () => clearTimeout(timer) };
+  };
+  // Message to show on failure, or null when the abort was user-initiated
+  // (Cancelar / saiu da página) and should stay silent.
+  const uploadErrorMessage = (e: unknown, fallback: string): string | null => {
+    if (e instanceof DOMException && e.name === "TimeoutError")
+      return "O processamento passou de 5 minutos sem resposta e foi interrompido. Verifique sua conexão e tente novamente.";
+    if (isAbortError(e)) return null;
+    return e instanceof Error ? e.message : fallback;
+  };
+
   const handleFile = (f: File) => { setFile(f); setError(""); };
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); setDragging(false);
@@ -146,13 +170,12 @@ export default function ImportPage() {
   const handleUpload = async () => {
     if (!file) return;
     setStep("processing"); setError("");
-    const controller = new AbortController();
-    abortRef.current = controller;
+    const { signal, clear } = armUpload();
     try {
       const data = await uploadAbc(projectId, file, {
         costCodesFile: costCodesFile ?? undefined,
         proofFile: proofFile ?? undefined,
-        signal: controller.signal,
+        signal,
       });
       setResult(data); setStep("preview");
       // The upload route now runs auto-map + base scenario + calculation
@@ -166,22 +189,27 @@ export default function ImportPage() {
         setTimeout(() => router.push(`/projects/${projectId}/items`), 600);
       }
     } catch (e: unknown) {
-      if (isAbortError(e)) return;
-      setError(e instanceof Error ? e.message : "Erro ao processar arquivo"); setStep("upload");
+      const msg = uploadErrorMessage(e, "Erro ao processar arquivo");
+      if (msg === null) return;
+      setError(msg); setStep("upload");
+    } finally {
+      clear();
     }
   };
 
   const handleScenarioUpload = async () => {
     if (!itemsFile || !insumosFile || !scenarioName) return;
     setStep("processing"); setError("");
-    const controller = new AbortController();
-    abortRef.current = controller;
+    const { signal, clear } = armUpload();
     try {
-      const data = await uploadScenario(projectId, itemsFile, insumosFile, scenarioName, controller.signal);
+      const data = await uploadScenario(projectId, itemsFile, insumosFile, scenarioName, signal);
       setScenarioResult(data); setStep("preview");
     } catch (e: unknown) {
-      if (isAbortError(e)) return;
-      setError(e instanceof Error ? e.message : "Erro ao processar cenário"); setStep("upload");
+      const msg = uploadErrorMessage(e, "Erro ao processar cenário");
+      if (msg === null) return;
+      setError(msg); setStep("upload");
+    } finally {
+      clear();
     }
   };
 
