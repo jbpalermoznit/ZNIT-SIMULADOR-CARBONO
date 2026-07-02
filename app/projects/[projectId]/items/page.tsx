@@ -1669,7 +1669,7 @@ export default function ItemsPage() {
                 // parents — other expandable items just get a chevron.
                 type Asm = NonNullable<AbcItem["assemblies"]>[number];
                 type Row =
-                  | { kind: "item"; item: AbcItem; isParent: boolean; isChild: boolean; childCount: number; expandable: boolean }
+                  | { kind: "item"; item: AbcItem; isParent: boolean; isChild: boolean; childCount: number; expandable: boolean; insumoCount: number; coveredCount: number }
                   | { kind: "asm"; parentId: string; asm: Asm; index: number };
                 const renderRows: Row[] = [];
 
@@ -1699,6 +1699,11 @@ export default function ItemsPage() {
                   const children = childrenByParent.get(item.id) ?? [];
                   const assemblies = item.assemblies ?? [];
                   const expandable = children.length > 0 || assemblies.length > 0;
+                  // Coverage of a composition = how many of its insumos (DB
+                  // children) actually carry an emission factor. Surfaces that a
+                  // Σ=0 parent is decomposed but its insumos are unmapped —
+                  // not that the whole composition was ignored.
+                  const coveredCount = children.filter((c) => (c.emissionTco2e ?? 0) > 0).length;
                   let display = item;
                   if (isParent && children.length > 0) {
                     const sum = children.reduce(
@@ -1714,6 +1719,8 @@ export default function ItemsPage() {
                     isChild: false,
                     childCount: children.length + assemblies.length,
                     expandable,
+                    insumoCount: children.length,
+                    coveredCount,
                   });
                   if (expandable && expandedComps.has(item.id)) {
                     for (const child of children) {
@@ -1724,6 +1731,8 @@ export default function ItemsPage() {
                         isChild: true,
                         childCount: 0,
                         expandable: false,
+                        insumoCount: 0,
+                        coveredCount: 0,
                       });
                     }
                     assemblies.forEach((asm, index) => {
@@ -1772,7 +1781,7 @@ export default function ItemsPage() {
                       </tr>
                     );
                   }
-                  const { item, isParent, isChild, childCount, expandable } = row;
+                  const { item, isParent, isChild, childCount, expandable, insumoCount, coveredCount } = row;
                   const typeMeta = itemTypeMeta[item.itemType];
                   const statusMeta = mappingStatusMeta[item.mappingStatus];
                   const isOpen = openItem?.id === item.id;
@@ -1828,7 +1837,20 @@ export default function ItemsPage() {
                               {item.description}
                             </div>
                             {isParent && (
-                              <div className="text-[10px] text-[#808181] mt-0.5">{childCount} insumo{childCount !== 1 ? "s" : ""}</div>
+                              <div className="text-[10px] mt-0.5">
+                                {insumoCount > 0 ? (
+                                  <span className={cn(
+                                    "font-semibold",
+                                    coveredCount === insumoCount ? "text-[#1d7a6b]"
+                                      : coveredCount > 0 ? "text-[#b45309]"
+                                      : "text-[#DC2626]",
+                                  )}>
+                                    {coveredCount}/{insumoCount} insumos com fator
+                                  </span>
+                                ) : (
+                                  <span className="text-[#808181]">{childCount} insumo{childCount !== 1 ? "s" : ""}</span>
+                                )}
+                              </div>
                             )}
                             {!isParent && expandable && !item.epd && (
                               <div className="text-[10px] text-[#9333EA] mt-0.5">
@@ -1879,7 +1901,9 @@ export default function ItemsPage() {
                           ? <span className={cn("font-bold", isParent ? "text-[#1d7a6b]" : "text-[#030304]")}>
                               {item.emissionTco2e.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
                             </span>
-                          : <span className="text-[#BDBDBC] text-xs">{isParent ? "Σ" : "pendente"}</span>}
+                          : isParent && insumoCount > 0
+                            ? <span className="text-[#DC2626] text-[10px] font-semibold" title="Composição decomposta, mas nenhum insumo tem fator de emissão">insumos sem fator</span>
+                            : <span className="text-[#BDBDBC] text-xs">{isParent ? "Σ" : "pendente"}</span>}
                       </td>
                     </tr>
                   );
