@@ -120,11 +120,13 @@ export function geometricRecipe(
   const d = norm(description);
   const u = normUnit(itemUnit);
 
-  // --- Concreto medido por área → volume (espessura da descrição) -----------
-  // "CONCRETO PARA PISO ... 15CM", contrapiso, lastro, regularização.
+  // --- Material medido por área → volume (espessura da descrição) -----------
+  // "CONCRETO PARA PISO ... 15CM", contrapiso, lastro, regularização, e camadas
+  // como taipa ("TAIPA ESP 2,5CM") cujo fator é por m³ — sem isto o par m²↔m³
+  // é cross-family e zera.
   if (
     u === "m2" &&
-    /\b(concreto|contrapiso|lastro|regulariza|sub-?base|enchimento)\b/.test(d)
+    /\b(concreto|contrapiso|lastro|regulariza|sub-?base|enchimento|taipa)\b/.test(d)
   ) {
     const thickness = parseThicknessM(d);
     if (thickness) {

@@ -38,6 +38,12 @@ describe("geometricRecipe — concreto por área → volume", () => {
     // 40MPA não tem 'cm' → sem espessura → null (não vira 0,40 m).
     expect(geometricRecipe("CONCRETO 40MPA PARA LAJE", "m2")).toBeNull();
   });
+
+  it("deriva m²→m³ para taipa pela espessura (ESP 2,5CM)", () => {
+    const r = geometricRecipe("TAIPA ESP 2,5CM X LARGURA", "m2");
+    expect(r?.baseUnit).toBe("m3");
+    expect(r?.multiplier).toBeCloseTo(0.025, 6);
+  });
 });
 
 describe("geometricRecipe — madeira linear → massa", () => {
