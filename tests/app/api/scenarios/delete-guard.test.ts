@@ -77,7 +77,7 @@ beforeEach(() => {
   h.state.scenarioRow = { is_base: false };
   h.state.deletes = [];
   vi.mocked(getCurrentUser).mockResolvedValue(fakeUser);
-  vi.mocked(assertScenarioOwnership).mockResolvedValue(undefined);
+  vi.mocked(assertScenarioOwnership).mockResolvedValue({ projectId: "proj-1" });
 });
 
 describe("DELETE scenario — guard do cenário Base", () => {
