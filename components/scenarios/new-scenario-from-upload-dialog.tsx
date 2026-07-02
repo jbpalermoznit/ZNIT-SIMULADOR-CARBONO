@@ -107,6 +107,11 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
 
   const isAbortError = (e: unknown) => e instanceof DOMException && e.name === "AbortError";
 
+  // Safety net for a stalled/dropped connection: abort just above the server's
+  // 300s budget with a TimeoutError so the user gets a clear, retryable message
+  // instead of an eternal spinner. User cancel / unmount stay silent.
+  const UPLOAD_TIMEOUT_MS = 320_000;
+
   const canSubmit =
     name.trim().length > 0 &&
     !busy &&
@@ -118,6 +123,10 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
     setBusy(true);
     const controller = new AbortController();
     abortRef.current = controller;
+    const timer = setTimeout(
+      () => controller.abort(new DOMException("timeout", "TimeoutError")),
+      UPLOAD_TIMEOUT_MS
+    );
     try {
       let newScenarioId: string | null = null;
 
@@ -158,10 +167,18 @@ export function NewScenarioFromUploadDialog({ projectId, open, onClose, onCreate
       setBusyStep("Cenário criado com sucesso! Abrindo Itens…");
       setTimeout(() => router.push(`/projects/${projectId}/items`), 1400);
     } catch (e) {
+      if (e instanceof DOMException && e.name === "TimeoutError") {
+        setError("O processamento passou de 5 minutos sem resposta e foi interrompido. Verifique sua conexão e tente novamente.");
+        setBusy(false);
+        setBusyStep("");
+        return;
+      }
       if (isAbortError(e)) { setBusy(false); setBusyStep(""); return; }
       setError(e instanceof Error ? e.message : "Erro ao criar cenário");
       setBusy(false);
       setBusyStep("");
+    } finally {
+      clearTimeout(timer);
     }
   };
 
