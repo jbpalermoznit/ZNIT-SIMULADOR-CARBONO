@@ -20,6 +20,7 @@ export default function ReportsPage() {
   const [branding, setBranding] = useState<BrandingSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState<string | null>(null);
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>("");
 
   useEffect(() => {
     setBranding(loadSettings());
@@ -28,7 +29,10 @@ export default function ReportsPage() {
       listScenarios(projectId),
     ]).then(([proj, scens]) => {
       setProjectName(proj.name);
-      setScenarios(scens.filter((s) => s.result));
+      const withResult = scens.filter((s) => s.result);
+      setScenarios(withResult);
+      const preferred = withResult.find((s) => s.is_base) ?? withResult[0];
+      if (preferred) setSelectedScenarioId(preferred.id);
     }).catch(() => {})
       .finally(() => setLoading(false));
   }, [projectId]);
@@ -36,7 +40,8 @@ export default function ReportsPage() {
   const handleExcelDownload = async () => {
     setGenerating("excel");
     try {
-      const resp = await fetch(`/api/projects/${projectId}/export-items`, {
+      const q = selectedScenarioId ? `?scenario_id=${selectedScenarioId}` : "";
+      const resp = await fetch(`/api/projects/${projectId}/export-items${q}`, {
         credentials: "include",
       });
       const blob = await resp.blob();
@@ -54,7 +59,10 @@ export default function ReportsPage() {
   const handleCsvDownload = async () => {
     setGenerating("csv");
     try {
-      const resp = await fetch(`/api/projects/${projectId}/export-items?format=csv`, {
+      const q = selectedScenarioId
+        ? `?scenario_id=${selectedScenarioId}&format=csv`
+        : "?format=csv";
+      const resp = await fetch(`/api/projects/${projectId}/export-items${q}`, {
         credentials: "include",
       });
       const blob = await resp.blob();
@@ -342,6 +350,29 @@ export default function ReportsPage() {
               Importar cenário →
             </Link>
           </p>
+        </div>
+      )}
+
+      {/* Scenario selector for item exports (Excel/CSV) */}
+      {scenarios.length > 0 && (
+        <div className="bg-white border border-[#E0E4E3] rounded-xl p-4 mb-4 flex items-center gap-3">
+          <FileSpreadsheet size={16} className="text-[#56B7A5] shrink-0" />
+          <label htmlFor="export-scenario" className="text-xs font-semibold text-[#404040] shrink-0">
+            Cenário para exportação de itens (Excel/CSV):
+          </label>
+          <select
+            id="export-scenario"
+            value={selectedScenarioId}
+            onChange={(e) => setSelectedScenarioId(e.target.value)}
+            className="flex-1 min-w-0 text-xs border border-[#E0E4E3] rounded-lg px-2 py-1.5 text-[#030304] bg-white focus:outline-none focus:ring-2 focus:ring-[#56B7A5]/30 focus:border-[#56B7A5]"
+          >
+            {scenarios.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}{s.is_base ? " (Base)" : ""}
+                {s.result ? ` — ${s.result.total_tco2e.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} tCO₂e` : ""}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 
