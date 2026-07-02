@@ -22,6 +22,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { MatchCandidate } from "@/lib/server/emission-mapper";
 import { getConversionFactor } from "@/lib/server/calculator";
+import {
+  candidateSig,
+  rerankCacheKey,
+  getCachedRerank,
+  putCachedRerank,
+} from "@/lib/server/factor-search/reranker-cache";
 
 // Default Haiku (barato). Override por FACTOR_RERANKER_MODEL se quiser mais
 // qualidade de julgamento (Sonnet/Opus) ao custo de mais $$.
@@ -115,7 +121,7 @@ Escolha o melhor índice.`;
  * Reranqueia os candidatos com Claude. Retorna null quando desabilitado,
  * sem candidatos, ou em qualquer falha (o chamador mantém o determinístico).
  */
-export async function rerankWithClaude(
+async function callRerankLLM(
   description: string,
   unit: string | null | undefined,
   candidates: MatchCandidate[]
@@ -182,4 +188,47 @@ export async function rerankWithClaude(
     console.warn(`[factor-reranker] falhou, mantendo match determinístico: ${e instanceof Error ? e.message : e}`);
     return null;
   }
+}
+
+/**
+ * Entrada pública: memoiza a decisão do LLM por (modelo + descrição + unidade +
+ * candidatos) para que re-subir o mesmo arquivo dê SEMPRE o mesmo resultado.
+ * Cache miss cai no LLM e grava; qualquer falha de cache é transparente.
+ */
+export async function rerankWithClaude(
+  description: string,
+  unit: string | null | undefined,
+  candidates: MatchCandidate[]
+): Promise<RerankResult | null> {
+  if (!isRerankerEnabled()) return null;
+  if (!candidates || candidates.length === 0) return null;
+
+  const pool = candidates.slice(0, MAX_CANDIDATES);
+  const key = rerankCacheKey(MODEL, description, unit, pool);
+
+  // Cache hit → escolha reproduzível, sem chamar o LLM.
+  const cached = await getCachedRerank(key);
+  if (cached) {
+    if (cached.chosenSig === null) {
+      return { bestIndex: null, confidence: cached.confidence, reason: cached.reason };
+    }
+    const idx = pool.findIndex((c) => candidateSig(c) === cached.chosenSig);
+    if (idx >= 0) {
+      return { bestIndex: idx, confidence: cached.confidence, reason: cached.reason };
+    }
+    // Assinatura ausente no pool atual (não deveria acontecer, pois a chave
+    // inclui o conjunto de candidatos) → trata como miss.
+  }
+
+  const result = await callRerankLLM(description, unit, pool);
+  if (result) {
+    const chosenSig =
+      result.bestIndex !== null ? candidateSig(pool[result.bestIndex]) : null;
+    await putCachedRerank(key, {
+      chosenSig,
+      confidence: result.confidence,
+      reason: result.reason,
+    });
+  }
+  return result;
 }
