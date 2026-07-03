@@ -1,0 +1,1424 @@
+{
+ "targets": {
+  "Padrão": 1245.56,
+  "Novo": 504.12
+ },
+ "factors": {
+  "concreto usinado de 40mpa com silica ativa": {
+   "factor_value": 280.999963,
+   "unit": "m³"
+  },
+  "cimento portland emb 50kg": {
+   "factor_value": 28.398268,
+   "unit": "SC"
+  },
+  "concreto usinado 40mpa slump 22 com silica ativa": {
+   "factor_value": 281.00015,
+   "unit": "m³"
+  },
+  "oleo diesel": {
+   "factor_value": 2.643002,
+   "unit": "L"
+  },
+  "aco ca 50 bitola media": {
+   "factor_value": 1.820002,
+   "unit": "KG"
+  },
+  "arame recozido fio 18 bwg": {
+   "factor_value": 0.993966,
+   "unit": "KG"
+  },
+  "pontalete 8x8cm": {
+   "factor_value": 58.752044,
+   "unit": "M"
+  },
+  "chapa compensada plastificada 14mm": {
+   "factor_value": 63.102626,
+   "unit": "FL"
+  },
+  "taipa esp 2 5cm x largura": {
+   "factor_value": 3.434999,
+   "unit": "m²"
+  },
+  "prego preco medio das bitolas": {
+   "factor_value": 0.99358,
+   "unit": "KG"
+  },
+  "desmoldante para formas": {
+   "factor_value": 64.315353,
+   "unit": "BD"
+  },
+  "caibro 7x5cm": {
+   "factor_value": 4.122495,
+   "unit": "M"
+  },
+  "tubo de pvc rigido soldavel 20mm 6m": {
+   "factor_value": 9.239966,
+   "unit": "PC"
+  },
+  "ca 50 s ar 1 pol 25mm": {
+   "factor_value": 1.820035,
+   "unit": "KG"
+  },
+  "ca 50 s ar 1 pol 20mm": {
+   "factor_value": 1.820011,
+   "unit": "KG"
+  },
+  "grade de ferro fundido 1200x800mm": {
+   "factor_value": 250.968946,
+   "unit": "UN"
+  },
+  "grade de ferro fundido 600x800mm": {
+   "factor_value": 134.547994,
+   "unit": "UN"
+  },
+  "grade de ferro fundido 400x800mm": {
+   "factor_value": 28.080114,
+   "unit": "UN"
+  },
+  "grade de ferro fundido 1000x800mm": {
+   "factor_value": 145.667495,
+   "unit": "UN"
+  },
+  "grade de ferro fundido 800x800mm": {
+   "factor_value": 109.196676,
+   "unit": "UN"
+  },
+  "eletroduto de pvc flexivel corrugado 3 4 pol 25mm": {
+   "factor_value": 7.820019,
+   "unit": "M"
+  },
+  "sarrafo 2 5x8cm": {
+   "factor_value": 1.81393,
+   "unit": "M"
+  },
+  "tela soldada em aco ca 60": {
+   "factor_value": 1.820002,
+   "unit": "KG"
+  },
+  "trelica espacadora 8cm 0 735kg m": {
+   "factor_value": 1.337647,
+   "unit": "M"
+  },
+  "chapa compensada resinada 14mm": {
+   "factor_value": 30.543634,
+   "unit": "FL"
+  },
+  "concreto usinado magro": {
+   "factor_value": 228.000502,
+   "unit": "m³"
+  },
+  "aco ca 25 1 pol 25mm": {
+   "factor_value": 1.819981,
+   "unit": "KG"
+  },
+  "trelica espacadora 10cm 0 768kg m": {
+   "factor_value": 1.397724,
+   "unit": "M"
+  },
+  "combustivel para veiculos e equipamentos": {
+   "factor_value": 2.642934,
+   "unit": "L"
+  },
+  "fita crepe rolo de 50m": {
+   "factor_value": 15.550391,
+   "unit": "UN"
+  },
+  "selante elastico sikaflex pro 3 emb 600ml": {
+   "factor_value": 0.971955,
+   "unit": "UN"
+  },
+  "graxa": {
+   "factor_value": 1.710262,
+   "unit": "KG"
+  },
+  "tinta rica em zinco": {
+   "factor_value": 2.535211,
+   "unit": "GL"
+  },
+  "cantoneira l 2 1 2 x 3 8pol 8 78kg m c grapas galv a fogo": {
+   "factor_value": 17.12113,
+   "unit": "M"
+  },
+  "forma metalica quickjet incluindo frete": {
+   "factor_value": 6.915957,
+   "unit": "m²"
+  },
+  "aco ca 25 5 8 pol 16mm": {
+   "factor_value": 1.820009,
+   "unit": "KG"
+  },
+  "eletrodo": {
+   "factor_value": 0.997706,
+   "unit": "KG"
+  },
+  "tubo de pvc vinilfort 100mm 6m": {
+   "factor_value": 9.239899,
+   "unit": "PC"
+  },
+  "tubo pbv de pvc para esgoto serie reforcada 100 mm 6m": {
+   "factor_value": 12.6,
+   "unit": "PC"
+  },
+  "fita isolante": {
+   "factor_value": 6.222222,
+   "unit": "UN"
+  },
+  "curva 90 pvc vinilfort 100mm": {
+   "factor_value": 0.783333,
+   "unit": "UN"
+  },
+  "curva 90 longa de pvc esgoto 100mm serie reforcada": {
+   "factor_value": 0.211111,
+   "unit": "PC"
+  },
+  "brita graduada": {
+   "factor_value": 4.269903,
+   "unit": "TON"
+  },
+  "concreto usinado 40mpa auto adensavel com pedrisco": {
+   "factor_value": 280.955679,
+   "unit": "m³"
+  },
+  "isopor esp 2 0cm 1 00x0 50m": {
+   "factor_value": 3.638281,
+   "unit": "FL"
+  },
+  "arame galvanizado fio 18 bwg": {
+   "factor_value": 0.997706,
+   "unit": "KG"
+  },
+  "parabolt em aco inox para fixacao de guarda corpo": {
+   "factor_value": 0.18751,
+   "unit": "UN"
+  },
+  "parafuso": {
+   "factor_value": 0.021599,
+   "unit": "UN"
+  },
+  "inserto metalico em aco carbono": {
+   "factor_value": 1.82,
+   "unit": "KG"
+  },
+  "concreto usinado 40mpa 4 5mtrf com silica": {
+   "factor_value": 280.999159,
+   "unit": "m³"
+  },
+  "aditivo expansor a base de oxido de calcio supercalcinado dry d1": {
+   "factor_value": 2.839992,
+   "unit": "KG"
+  }
+ },
+ "lines": {
+  "Padrão": [
+   {
+    "desc": "CONCRETO USINADO DE 40MPA COM SILICA ATIVA",
+    "unit": "m³",
+    "qty": 1313.529,
+    "em_t": 369.1016
+   },
+   {
+    "desc": "CIMENTO PORTLAND (EMB 50KG)",
+    "unit": "SC",
+    "qty": 31.275,
+    "em_t": 0.8882
+   },
+   {
+    "desc": "CONCRETO USINADO 40MPA SLUMP 22 COM SILICA ATIVA",
+    "unit": "m³",
+    "qty": 811.462,
+    "em_t": 228.0208
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 2369.604,
+    "em_t": 6.2629
+   },
+   {
+    "desc": "CIMENTO PORTLAND (EMB 50KG)",
+    "unit": "SC",
+    "qty": 20.287,
+    "em_t": 0.5762
+   },
+   {
+    "desc": "CONCRETO USINADO DE 40MPA COM SILICA ATIVA",
+    "unit": "m³",
+    "qty": 272.286,
+    "em_t": 76.5124
+   },
+   {
+    "desc": "CIMENTO PORTLAND (EMB 50KG)",
+    "unit": "SC",
+    "qty": 6.483,
+    "em_t": 0.1841
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 25616.215,
+    "em_t": 67.7037
+   },
+   {
+    "desc": "CONCRETO USINADO 40MPA SLUMP 22 COM SILICA ATIVA",
+    "unit": "m³",
+    "qty": 226.486,
+    "em_t": 63.6426
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 535.668,
+    "em_t": 1.4158
+   },
+   {
+    "desc": "CIMENTO PORTLAND (EMB 50KG)",
+    "unit": "SC",
+    "qty": 5.662,
+    "em_t": 0.1608
+   },
+   {
+    "desc": "CONCRETO USINADO DE 40MPA COM SILICA ATIVA",
+    "unit": "m³",
+    "qty": 195.017,
+    "em_t": 54.7996
+   },
+   {
+    "desc": "CIMENTO PORTLAND (EMB 50KG)",
+    "unit": "SC",
+    "qty": 4.643,
+    "em_t": 0.1319
+   },
+   {
+    "desc": "ACO CA-50 - BITOLA MEDIA",
+    "unit": "KG",
+    "qty": 25911.092,
+    "em_t": 47.1582
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 308.465,
+    "em_t": 0.3066
+   },
+   {
+    "desc": "ACO CA-50 - BITOLA MEDIA",
+    "unit": "KG",
+    "qty": 24506.402,
+    "em_t": 44.6017
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 291.743,
+    "em_t": 0.29
+   },
+   {
+    "desc": "PONTALETE 8X8CM",
+    "unit": "M",
+    "qty": 565.38,
+    "em_t": 33.2172
+   },
+   {
+    "desc": "CHAPA COMPENSADA PLASTIFICADA 14MM",
+    "unit": "FL",
+    "qty": 98.942,
+    "em_t": 6.2435
+   },
+   {
+    "desc": "TAIPA ESP 2,5CM X LARGURA",
+    "unit": "m²",
+    "qty": 235.575,
+    "em_t": 0.8092
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 117.283,
+    "em_t": 0.31
+   },
+   {
+    "desc": "PREGO - PRECO MEDIO DAS BITOLAS",
+    "unit": "KG",
+    "qty": 75.384,
+    "em_t": 0.0749
+   },
+   {
+    "desc": "DESMOLDANTE PARA FORMAS",
+    "unit": "BD",
+    "qty": 1.037,
+    "em_t": 0.0668
+   },
+   {
+    "desc": "CHAPA COMPENSADA PLASTIFICADA 14MM",
+    "unit": "FL",
+    "qty": 238.701,
+    "em_t": 15.0628
+   },
+   {
+    "desc": "CAIBRO 7X5CM",
+    "unit": "M",
+    "qty": 2864.406,
+    "em_t": 11.8085
+   },
+   {
+    "desc": "TUBO DE PVC RIGIDO SOLDAVEL 20MM (6M)",
+    "unit": "PC",
+    "qty": 636.853,
+    "em_t": 5.8845
+   },
+   {
+    "desc": "TAIPA ESP 2,5CM X LARGURA",
+    "unit": "m²",
+    "qty": 238.701,
+    "em_t": 0.8199
+   },
+   {
+    "desc": "DESMOLDANTE PARA FORMAS",
+    "unit": "BD",
+    "qty": 10.503,
+    "em_t": 0.6768
+   },
+   {
+    "desc": "CA-50/S-AR 1 POL - 25MM",
+    "unit": "KG",
+    "qty": 11540.506,
+    "em_t": 21.0037
+   },
+   {
+    "desc": "CA-50/S-AR 1 POL - 20MM",
+    "unit": "KG",
+    "qty": 3994.79,
+    "em_t": 7.2705
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 1065.144,
+    "em_t": 2.8152
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 184.944,
+    "em_t": 0.1838
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 11744.513,
+    "em_t": 31.0407
+   },
+   {
+    "desc": "GRADE DE FERRO FUNDIDO 1200X800MM",
+    "unit": "UN",
+    "qty": 25.182,
+    "em_t": 6.3199
+   },
+   {
+    "desc": "GRADE DE FERRO FUNDIDO 600X800MM",
+    "unit": "UN",
+    "qty": 32.931,
+    "em_t": 4.4308
+   },
+   {
+    "desc": "GRADE DE FERRO FUNDIDO 400X800MM",
+    "unit": "UN",
+    "qty": 146.691,
+    "em_t": 4.1191
+   },
+   {
+    "desc": "GRADE DE FERRO FUNDIDO 1000X800MM",
+    "unit": "UN",
+    "qty": 19.723,
+    "em_t": 2.873
+   },
+   {
+    "desc": "GRADE DE FERRO FUNDIDO 800X800MM",
+    "unit": "UN",
+    "qty": 7.22,
+    "em_t": 0.7884
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 6.073,
+    "em_t": 0.0161
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 5062.744,
+    "em_t": 13.3808
+   },
+   {
+    "desc": "ELETRODUTO DE PVC FLEXIVEL CORRUGADO 3/4 POL - 25MM",
+    "unit": "M",
+    "qty": 1652.4,
+    "em_t": 12.9218
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 90.731,
+    "em_t": 0.2398
+   },
+   {
+    "desc": "PONTALETE 8X8CM",
+    "unit": "M",
+    "qty": 203.1,
+    "em_t": 11.9325
+   },
+   {
+    "desc": "SARRAFO 2,5X8CM",
+    "unit": "M",
+    "qty": 446.82,
+    "em_t": 0.8105
+   },
+   {
+    "desc": "PREGO - PRECO MEDIO DAS BITOLAS",
+    "unit": "KG",
+    "qty": 4.874,
+    "em_t": 0.0048
+   },
+   {
+    "desc": "TELA SOLDADA EM ACO CA-60",
+    "unit": "KG",
+    "qty": 6231.367,
+    "em_t": 11.3411
+   },
+   {
+    "desc": "TRELICA ESPACADORA 8CM (0,735KG/M)",
+    "unit": "M",
+    "qty": 637.225,
+    "em_t": 0.8524
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 27.093,
+    "em_t": 0.0269
+   },
+   {
+    "desc": "ACO CA-50 - BITOLA MEDIA",
+    "unit": "KG",
+    "qty": 6585.075,
+    "em_t": 11.9848
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 78.394,
+    "em_t": 0.0779
+   },
+   {
+    "desc": "PONTALETE 8X8CM",
+    "unit": "M",
+    "qty": 153.911,
+    "em_t": 9.0426
+   },
+   {
+    "desc": "CHAPA COMPENSADA RESINADA 14MM",
+    "unit": "FL",
+    "qty": 23.766,
+    "em_t": 0.7259
+   },
+   {
+    "desc": "TAIPA ESP 2,5CM X LARGURA",
+    "unit": "m²",
+    "qty": 28.293,
+    "em_t": 0.0972
+   },
+   {
+    "desc": "PREGO - PRECO MEDIO DAS BITOLAS",
+    "unit": "KG",
+    "qty": 18.107,
+    "em_t": 0.018
+   },
+   {
+    "desc": "DESMOLDANTE PARA FORMAS",
+    "unit": "BD",
+    "qty": 0.249,
+    "em_t": 0.016
+   },
+   {
+    "desc": "ACO CA-50 - BITOLA MEDIA",
+    "unit": "KG",
+    "qty": 4875.255,
+    "em_t": 8.873
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 58.039,
+    "em_t": 0.0577
+   },
+   {
+    "desc": "CONCRETO USINADO MAGRO",
+    "unit": "m³",
+    "qty": 31.784,
+    "em_t": 7.2466
+   },
+   {
+    "desc": "ACO CA-25 1 POL - 25MM",
+    "unit": "KG",
+    "qty": 2051.727,
+    "em_t": 3.7341
+   },
+   {
+    "desc": "TRELICA ESPACADORA 10CM (0,768KG/M)",
+    "unit": "M",
+    "qty": 709.94,
+    "em_t": 0.9923
+   },
+   {
+    "desc": "COMBUSTIVEL PARA VEICULOS E EQUIPAMENTOS",
+    "unit": "L",
+    "qty": 275.102,
+    "em_t": 0.7271
+   },
+   {
+    "desc": "FITA CREPE ROLO DE 50M",
+    "unit": "UN",
+    "qty": 14.199,
+    "em_t": 0.2208
+   },
+   {
+    "desc": "SELANTE ELASTICO SIKAFLEX PRO-3 (EMB 600ML)",
+    "unit": "UN",
+    "qty": 59.173,
+    "em_t": 0.0575
+   },
+   {
+    "desc": "GRAXA",
+    "unit": "KG",
+    "qty": 1.988,
+    "em_t": 0.0034
+   },
+   {
+    "desc": "TINTA RICA EM ZINCO",
+    "unit": "GL",
+    "qty": 0.355,
+    "em_t": 0.0009
+   },
+   {
+    "desc": "CANTONEIRA L 2 1/2 X 3/8POL - 8,78KG/M C/ GRAPAS GALV A FOGO",
+    "unit": "M",
+    "qty": 330.72,
+    "em_t": 5.6623
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 15.646,
+    "em_t": 0.0414
+   },
+   {
+    "desc": "FORMA METALICA QUICKJET INCLUINDO FRETE",
+    "unit": "m²",
+    "qty": 498.08,
+    "em_t": 3.4447
+   },
+   {
+    "desc": "ACO CA-50 - BITOLA MEDIA",
+    "unit": "KG",
+    "qty": 981.082,
+    "em_t": 1.7856
+   },
+   {
+    "desc": "TELA SOLDADA EM ACO CA-60",
+    "unit": "KG",
+    "qty": 2563.074,
+    "em_t": 4.6648
+   },
+   {
+    "desc": "TRELICA ESPACADORA 8CM (0,735KG/M)",
+    "unit": "M",
+    "qty": 262.102,
+    "em_t": 0.3506
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 11.144,
+    "em_t": 0.0111
+   },
+   {
+    "desc": "CONCRETO USINADO MAGRO",
+    "unit": "m³",
+    "qty": 15.939,
+    "em_t": 3.6341
+   },
+   {
+    "desc": "ACO CA-25 5/8 POL - 16MM",
+    "unit": "KG",
+    "qty": 1317.015,
+    "em_t": 2.397
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 25.086,
+    "em_t": 0.0249
+   },
+   {
+    "desc": "ELETRODO",
+    "unit": "KG",
+    "qty": 5.017,
+    "em_t": 0.005
+   },
+   {
+    "desc": "TUBO DE PVC VINILFORT 100MM (6M)",
+    "unit": "PC",
+    "qty": 198,
+    "em_t": 1.8295
+   },
+   {
+    "desc": "TUBO PBV DE PVC PARA ESGOTO SERIE REFORCADA 100 MM (6M)",
+    "unit": "PC",
+    "qty": 18,
+    "em_t": 0.2268
+   },
+   {
+    "desc": "FITA ISOLANTE",
+    "unit": "UN",
+    "qty": 18,
+    "em_t": 0.112
+   },
+   {
+    "desc": "CURVA 90 PVC VINILFORT 100MM",
+    "unit": "UN",
+    "qty": 18,
+    "em_t": 0.0141
+   },
+   {
+    "desc": "CURVA 90 LONGA DE PVC ESGOTO 100MM - SERIE REFORCADA",
+    "unit": "PC",
+    "qty": 18,
+    "em_t": 0.0038
+   },
+   {
+    "desc": "BRITA GRADUADA",
+    "unit": "TON",
+    "qty": 235.181,
+    "em_t": 1.0042
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 131.205,
+    "em_t": 0.3468
+   },
+   {
+    "desc": "COMBUSTIVEL PARA VEICULOS E EQUIPAMENTOS",
+    "unit": "L",
+    "qty": 6.585,
+    "em_t": 0.0174
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 440.636,
+    "em_t": 1.1646
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 417.31,
+    "em_t": 1.1029
+   },
+   {
+    "desc": "FORMA METALICA QUICKJET INCLUINDO FRETE",
+    "unit": "m²",
+    "qty": 89.815,
+    "em_t": 0.6212
+   },
+   {
+    "desc": "ACO CA-50 - BITOLA MEDIA",
+    "unit": "KG",
+    "qty": 176.911,
+    "em_t": 0.322
+   },
+   {
+    "desc": "CONCRETO USINADO 40MPA AUTO-ADENSAVEL COM PEDRISCO",
+    "unit": "m³",
+    "qty": 2.888,
+    "em_t": 0.8114
+   },
+   {
+    "desc": "ISOPOR ESP 2,0CM (1,00X0,50M)",
+    "unit": "FL",
+    "qty": 123.3,
+    "em_t": 0.4486
+   },
+   {
+    "desc": "FITA CREPE ROLO DE 50M",
+    "unit": "UN",
+    "qty": 9.864,
+    "em_t": 0.1534
+   },
+   {
+    "desc": "SELANTE ELASTICO SIKAFLEX PRO-3 (EMB 600ML)",
+    "unit": "UN",
+    "qty": 82.216,
+    "em_t": 0.0799
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 209.433,
+    "em_t": 0.5535
+   },
+   {
+    "desc": "ACO CA-25 5/8 POL - 16MM",
+    "unit": "KG",
+    "qty": 228.9,
+    "em_t": 0.4166
+   },
+   {
+    "desc": "ELETRODO",
+    "unit": "KG",
+    "qty": 8.72,
+    "em_t": 0.0087
+   },
+   {
+    "desc": "ARAME GALVANIZADO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 8.72,
+    "em_t": 0.0087
+   },
+   {
+    "desc": "CAIBRO 7X5CM",
+    "unit": "M",
+    "qty": 50.89,
+    "em_t": 0.2098
+   },
+   {
+    "desc": "CHAPA COMPENSADA RESINADA 14MM",
+    "unit": "FL",
+    "qty": 5.089,
+    "em_t": 0.1554
+   },
+   {
+    "desc": "DESMOLDANTE PARA FORMAS",
+    "unit": "BD",
+    "qty": 0.112,
+    "em_t": 0.0072
+   },
+   {
+    "desc": "PREGO - PRECO MEDIO DAS BITOLAS",
+    "unit": "KG",
+    "qty": 4.071,
+    "em_t": 0.004
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 135.464,
+    "em_t": 0.358
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 130.572,
+    "em_t": 0.3451
+   },
+   {
+    "desc": "PARABOLT EM ACO INOX PARA FIXACAO DE GUARDA-CORPO",
+    "unit": "UN",
+    "qty": 740.76,
+    "em_t": 0.1389
+   },
+   {
+    "desc": "PARAFUSO",
+    "unit": "UN",
+    "qty": 185.19,
+    "em_t": 0.004
+   },
+   {
+    "desc": "INSERTO METALICO EM ACO-CARBONO",
+    "unit": "KG",
+    "qty": 50,
+    "em_t": 0.091
+   },
+   {
+    "desc": "ELETRODO",
+    "unit": "KG",
+    "qty": 0.5,
+    "em_t": 0.0005
+   }
+  ],
+  "Novo": [
+   {
+    "desc": "CONCRETO USINADO DE 40MPA COM SILICA ATIVA",
+    "unit": "m³",
+    "qty": 272.286,
+    "em_t": 76.5124
+   },
+   {
+    "desc": "CIMENTO PORTLAND (EMB 50KG)",
+    "unit": "SC",
+    "qty": 6.483,
+    "em_t": 0.1841
+   },
+   {
+    "desc": "CONCRETO USINADO DE 40MPA COM SILICA ATIVA",
+    "unit": "m³",
+    "qty": 214.935,
+    "em_t": 60.3967
+   },
+   {
+    "desc": "CIMENTO PORTLAND (EMB 50KG)",
+    "unit": "SC",
+    "qty": 5.118,
+    "em_t": 0.1453
+   },
+   {
+    "desc": "CONCRETO USINADO 40MPA (4,5MTRF) COM SILICA",
+    "unit": "m³",
+    "qty": 181.913,
+    "em_t": 51.1174
+   },
+   {
+    "desc": "ADITIVO EXPANSOR A BASE DE OXIDO DE CALCIO SUPERCALCINADO DRY D1",
+    "unit": "KG",
+    "qty": 1819.125,
+    "em_t": 5.1663
+   },
+   {
+    "desc": "CIMENTO PORTLAND (EMB 50KG)",
+    "unit": "SC",
+    "qty": 4.62,
+    "em_t": 0.1312
+   },
+   {
+    "desc": "ACO CA-50 - BITOLA MEDIA",
+    "unit": "KG",
+    "qty": 24506.402,
+    "em_t": 44.6017
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 291.743,
+    "em_t": 0.29
+   },
+   {
+    "desc": "ACO CA-50 - BITOLA MEDIA",
+    "unit": "KG",
+    "qty": 22454.282,
+    "em_t": 40.8668
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 267.313,
+    "em_t": 0.2657
+   },
+   {
+    "desc": "PONTALETE 8X8CM",
+    "unit": "M",
+    "qty": 565.38,
+    "em_t": 33.2172
+   },
+   {
+    "desc": "CHAPA COMPENSADA PLASTIFICADA 14MM",
+    "unit": "FL",
+    "qty": 98.942,
+    "em_t": 6.2435
+   },
+   {
+    "desc": "TAIPA ESP 2,5CM X LARGURA",
+    "unit": "m²",
+    "qty": 235.575,
+    "em_t": 0.8092
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 117.283,
+    "em_t": 0.31
+   },
+   {
+    "desc": "PREGO - PRECO MEDIO DAS BITOLAS",
+    "unit": "KG",
+    "qty": 75.384,
+    "em_t": 0.0749
+   },
+   {
+    "desc": "DESMOLDANTE PARA FORMAS",
+    "unit": "BD",
+    "qty": 1.037,
+    "em_t": 0.0668
+   },
+   {
+    "desc": "CONCRETO USINADO 40MPA SLUMP 22 COM SILICA ATIVA",
+    "unit": "m³",
+    "qty": 117.632,
+    "em_t": 33.0545
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 193.174,
+    "em_t": 0.5106
+   },
+   {
+    "desc": "CIMENTO PORTLAND (EMB 50KG)",
+    "unit": "SC",
+    "qty": 2.941,
+    "em_t": 0.0835
+   },
+   {
+    "desc": "CONCRETO USINADO 40MPA SLUMP 22 COM SILICA ATIVA",
+    "unit": "m³",
+    "qty": 88.241,
+    "em_t": 24.7958
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 208.702,
+    "em_t": 0.5516
+   },
+   {
+    "desc": "CIMENTO PORTLAND (EMB 50KG)",
+    "unit": "SC",
+    "qty": 2.206,
+    "em_t": 0.0626
+   },
+   {
+    "desc": "GRADE DE FERRO FUNDIDO 1200X800MM",
+    "unit": "UN",
+    "qty": 25.182,
+    "em_t": 6.3199
+   },
+   {
+    "desc": "GRADE DE FERRO FUNDIDO 600X800MM",
+    "unit": "UN",
+    "qty": 32.931,
+    "em_t": 4.4308
+   },
+   {
+    "desc": "GRADE DE FERRO FUNDIDO 400X800MM",
+    "unit": "UN",
+    "qty": 146.691,
+    "em_t": 4.1191
+   },
+   {
+    "desc": "GRADE DE FERRO FUNDIDO 1000X800MM",
+    "unit": "UN",
+    "qty": 19.723,
+    "em_t": 2.873
+   },
+   {
+    "desc": "GRADE DE FERRO FUNDIDO 800X800MM",
+    "unit": "UN",
+    "qty": 7.22,
+    "em_t": 0.7884
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 6.073,
+    "em_t": 0.0161
+   },
+   {
+    "desc": "ACO CA-50 - BITOLA MEDIA",
+    "unit": "KG",
+    "qty": 6567.75,
+    "em_t": 11.9533
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 78.188,
+    "em_t": 0.0777
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 4445.382,
+    "em_t": 11.7491
+   },
+   {
+    "desc": "TELA SOLDADA EM ACO CA-60",
+    "unit": "KG",
+    "qty": 5738.04,
+    "em_t": 10.4432
+   },
+   {
+    "desc": "TRELICA ESPACADORA 8CM (0,735KG/M)",
+    "unit": "M",
+    "qty": 586.777,
+    "em_t": 0.7849
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 24.948,
+    "em_t": 0.0248
+   },
+   {
+    "desc": "ACO CA-50 - BITOLA MEDIA",
+    "unit": "KG",
+    "qty": 6063.75,
+    "em_t": 11.036
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 72.188,
+    "em_t": 0.0718
+   },
+   {
+    "desc": "PONTALETE 8X8CM",
+    "unit": "M",
+    "qty": 165.15,
+    "em_t": 9.7029
+   },
+   {
+    "desc": "SARRAFO 2,5X8CM",
+    "unit": "M",
+    "qty": 363.33,
+    "em_t": 0.659
+   },
+   {
+    "desc": "PREGO - PRECO MEDIO DAS BITOLAS",
+    "unit": "KG",
+    "qty": 3.964,
+    "em_t": 0.0039
+   },
+   {
+    "desc": "PONTALETE 8X8CM",
+    "unit": "M",
+    "qty": 148.675,
+    "em_t": 8.735
+   },
+   {
+    "desc": "CHAPA COMPENSADA RESINADA 14MM",
+    "unit": "FL",
+    "qty": 22.957,
+    "em_t": 0.7012
+   },
+   {
+    "desc": "TAIPA ESP 2,5CM X LARGURA",
+    "unit": "m²",
+    "qty": 27.33,
+    "em_t": 0.0939
+   },
+   {
+    "desc": "PREGO - PRECO MEDIO DAS BITOLAS",
+    "unit": "KG",
+    "qty": 17.491,
+    "em_t": 0.0174
+   },
+   {
+    "desc": "DESMOLDANTE PARA FORMAS",
+    "unit": "BD",
+    "qty": 0.241,
+    "em_t": 0.0155
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 2989.174,
+    "em_t": 7.9004
+   },
+   {
+    "desc": "CANTONEIRA L 2 1/2 X 3/8POL - 8,78KG/M C/ GRAPAS GALV A FOGO",
+    "unit": "M",
+    "qty": 330.72,
+    "em_t": 5.6623
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 15.646,
+    "em_t": 0.0414
+   },
+   {
+    "desc": "ACO CA-25 1 POL - 25MM",
+    "unit": "KG",
+    "qty": 1889.251,
+    "em_t": 3.4384
+   },
+   {
+    "desc": "TRELICA ESPACADORA 10CM (0,768KG/M)",
+    "unit": "M",
+    "qty": 653.72,
+    "em_t": 0.9137
+   },
+   {
+    "desc": "COMBUSTIVEL PARA VEICULOS E EQUIPAMENTOS",
+    "unit": "L",
+    "qty": 253.317,
+    "em_t": 0.6695
+   },
+   {
+    "desc": "FITA CREPE ROLO DE 50M",
+    "unit": "UN",
+    "qty": 13.074,
+    "em_t": 0.2033
+   },
+   {
+    "desc": "SELANTE ELASTICO SIKAFLEX PRO-3 (EMB 600ML)",
+    "unit": "UN",
+    "qty": 54.488,
+    "em_t": 0.053
+   },
+   {
+    "desc": "GRAXA",
+    "unit": "KG",
+    "qty": 1.83,
+    "em_t": 0.0031
+   },
+   {
+    "desc": "TINTA RICA EM ZINCO",
+    "unit": "GL",
+    "qty": 0.327,
+    "em_t": 0.0008
+   },
+   {
+    "desc": "CONCRETO USINADO MAGRO",
+    "unit": "m³",
+    "qty": 15.939,
+    "em_t": 3.6341
+   },
+   {
+    "desc": "CA-50/S-AR 1 POL - 25MM",
+    "unit": "KG",
+    "qty": 961.74,
+    "em_t": 1.7504
+   },
+   {
+    "desc": "CA-50/S-AR 1 POL - 20MM",
+    "unit": "KG",
+    "qty": 332.91,
+    "em_t": 0.6059
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 88.765,
+    "em_t": 0.2346
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 15.413,
+    "em_t": 0.0153
+   },
+   {
+    "desc": "ACO CA-25 5/8 POL - 16MM",
+    "unit": "KG",
+    "qty": 1212.75,
+    "em_t": 2.2072
+   },
+   {
+    "desc": "ARAME RECOZIDO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 23.1,
+    "em_t": 0.023
+   },
+   {
+    "desc": "ELETRODO",
+    "unit": "KG",
+    "qty": 4.62,
+    "em_t": 0.0046
+   },
+   {
+    "desc": "TUBO DE PVC VINILFORT 100MM (6M)",
+    "unit": "PC",
+    "qty": 198,
+    "em_t": 1.8295
+   },
+   {
+    "desc": "TUBO PBV DE PVC PARA ESGOTO SERIE REFORCADA 100 MM (6M)",
+    "unit": "PC",
+    "qty": 18,
+    "em_t": 0.2268
+   },
+   {
+    "desc": "FITA ISOLANTE",
+    "unit": "UN",
+    "qty": 18,
+    "em_t": 0.112
+   },
+   {
+    "desc": "CURVA 90 PVC VINILFORT 100MM",
+    "unit": "UN",
+    "qty": 18,
+    "em_t": 0.0141
+   },
+   {
+    "desc": "CURVA 90 LONGA DE PVC ESGOTO 100MM - SERIE REFORCADA",
+    "unit": "PC",
+    "qty": 18,
+    "em_t": 0.0038
+   },
+   {
+    "desc": "CONCRETO USINADO MAGRO",
+    "unit": "m³",
+    "qty": 9.135,
+    "em_t": 2.0828
+   },
+   {
+    "desc": "ELETRODUTO DE PVC FLEXIVEL CORRUGADO 3/4 POL - 25MM",
+    "unit": "M",
+    "qty": 244.8,
+    "em_t": 1.9143
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 13.442,
+    "em_t": 0.0355
+   },
+   {
+    "desc": "BRITA GRADUADA",
+    "unit": "TON",
+    "qty": 216.563,
+    "em_t": 0.9247
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 120.818,
+    "em_t": 0.3193
+   },
+   {
+    "desc": "COMBUSTIVEL PARA VEICULOS E EQUIPAMENTOS",
+    "unit": "L",
+    "qty": 6.064,
+    "em_t": 0.016
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 405.752,
+    "em_t": 1.0724
+   },
+   {
+    "desc": "FORMA METALICA QUICKJET INCLUINDO FRETE",
+    "unit": "m²",
+    "qty": 66.528,
+    "em_t": 0.4601
+   },
+   {
+    "desc": "ACO CA-50 - BITOLA MEDIA",
+    "unit": "KG",
+    "qty": 131.042,
+    "em_t": 0.2385
+   },
+   {
+    "desc": "ISOPOR ESP 2,0CM (1,00X0,50M)",
+    "unit": "FL",
+    "qty": 118.5,
+    "em_t": 0.4311
+   },
+   {
+    "desc": "FITA CREPE ROLO DE 50M",
+    "unit": "UN",
+    "qty": 9.48,
+    "em_t": 0.1474
+   },
+   {
+    "desc": "SELANTE ELASTICO SIKAFLEX PRO-3 (EMB 600ML)",
+    "unit": "UN",
+    "qty": 79.016,
+    "em_t": 0.0768
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 222.672,
+    "em_t": 0.5885
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 192.854,
+    "em_t": 0.5097
+   },
+   {
+    "desc": "ACO CA-25 5/8 POL - 16MM",
+    "unit": "KG",
+    "qty": 228.9,
+    "em_t": 0.4166
+   },
+   {
+    "desc": "ARAME GALVANIZADO FIO 18 BWG",
+    "unit": "KG",
+    "qty": 8.72,
+    "em_t": 0.0087
+   },
+   {
+    "desc": "ELETRODO",
+    "unit": "KG",
+    "qty": 8.72,
+    "em_t": 0.0087
+   },
+   {
+    "desc": "CAIBRO 7X5CM",
+    "unit": "M",
+    "qty": 48.98,
+    "em_t": 0.2019
+   },
+   {
+    "desc": "CHAPA COMPENSADA RESINADA 14MM",
+    "unit": "FL",
+    "qty": 4.898,
+    "em_t": 0.1496
+   },
+   {
+    "desc": "DESMOLDANTE PARA FORMAS",
+    "unit": "BD",
+    "qty": 0.108,
+    "em_t": 0.0069
+   },
+   {
+    "desc": "PREGO - PRECO MEDIO DAS BITOLAS",
+    "unit": "KG",
+    "qty": 3.918,
+    "em_t": 0.0039
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 124.74,
+    "em_t": 0.3297
+   },
+   {
+    "desc": "OLEO DIESEL",
+    "unit": "L",
+    "qty": 120.237,
+    "em_t": 0.3178
+   },
+   {
+    "desc": "PARABOLT EM ACO INOX PARA FIXACAO DE GUARDA-CORPO",
+    "unit": "UN",
+    "qty": 740.76,
+    "em_t": 0.1389
+   },
+   {
+    "desc": "PARAFUSO",
+    "unit": "UN",
+    "qty": 185.19,
+    "em_t": 0.004
+   },
+   {
+    "desc": "INSERTO METALICO EM ACO-CARBONO",
+    "unit": "KG",
+    "qty": 50,
+    "em_t": 0.091
+   },
+   {
+    "desc": "ELETRODO",
+    "unit": "KG",
+    "qty": 0.5,
+    "em_t": 0.0005
+   }
+  ]
+ }
+}
