@@ -24,7 +24,7 @@
 
 export interface GeometricRecipe {
   /** Unidade-base física para a qual a quantidade do item é convertida. */
-  baseUnit: "kg" | "m3";
+  baseUnit: "kg" | "m3" | "m";
   /** Multiplicador: qty_item (na unidade do item) × multiplier = qty em baseUnit. */
   multiplier: number;
   /** Explicação curta da derivação (auditoria/log). */
@@ -68,7 +68,17 @@ function normUnit(u: string | null | undefined): string {
   if (s === "m²" || s === "m2") return "m2";
   if (s === "m³" || s === "m3") return "m3";
   if (s === "ml" || s === "m") return "m";
+  if (s === "pç" || s === "pc" || s === "pca" || s === "peca" || s === "peça") return "pc";
   return s;
+}
+
+/** Comprimento em metros a partir de "(6M)", "(6 M)", "(0,5M)". Null se ausente. */
+function parseParenLengthM(desc: string): number | null {
+  const m = desc.match(/\((\d+(?:[.,]\d+)?)\s*m\)/i);
+  if (!m) return null;
+  const len = parseFloat(m[1].replace(",", "."));
+  if (!Number.isFinite(len) || len <= 0) return null;
+  return len;
 }
 
 // Remove acento e baixa caixa para casar descrições do iTwo (CAIXA ALTA, sem acento).
@@ -192,6 +202,22 @@ export function geometricRecipe(
       multiplier: CONCRETE_DENSITY_KG_M3,
       note: `concreto: ${CONCRETE_DENSITY_KG_M3} kg/m³ (revisar)`,
     };
+  }
+
+  // --- Peça (pç) de tubo/cano com comprimento → metros ----------------------
+  // Tubos/canos vendidos por PEÇA mas com o comprimento explícito na descrição
+  // ("TUBO DE PVC 20MM (6M)") e fator por metro (kgCO₂/m). Sem isto o par pç↔m
+  // é cross-family e zera. Só dispara com o comprimento explícito — não chuta
+  // conexões (curva, joelho, luva) nem barras sem medida.
+  if (u === "pc" && /\b(tubo|cano|eletroduto|pbv)\b/.test(d)) {
+    const lengthM = parseParenLengthM(d);
+    if (lengthM) {
+      return {
+        baseUnit: "m",
+        multiplier: lengthM,
+        note: `peça = ${lengthM} m (comprimento da descrição)`,
+      };
+    }
   }
 
   // --- Saco (sc) → massa -----------------------------------------------------

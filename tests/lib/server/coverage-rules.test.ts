@@ -142,6 +142,27 @@ describe("geometricRecipe — saco (sc) → massa", () => {
   });
 });
 
+describe("geometricRecipe — peça (pç) de tubo → metros", () => {
+  it("deriva pç→m pelo comprimento na descrição (6M)", () => {
+    const r = geometricRecipe("TUBO DE PVC RIGIDO SOLDAVEL 20MM (6M)", "PC");
+    expect(r?.baseUnit).toBe("m");
+    expect(r?.multiplier).toBe(6);
+  });
+
+  it("aceita variações de unidade peça (pç, peca)", () => {
+    expect(geometricRecipe("TUBO PVC ESGOTO 100MM (6M)", "pç")?.multiplier).toBe(6);
+    expect(geometricRecipe("CANO PVC (0,5M)", "peca")?.baseUnit).toBe("m");
+  });
+
+  it("não dispara sem comprimento explícito (conexão/curva)", () => {
+    expect(geometricRecipe("CURVA 90 LONGA DE PVC ESGOTO 100MM", "PC")).toBeNull();
+  });
+
+  it("não dispara fora de tubo/cano", () => {
+    expect(geometricRecipe("PARAFUSO SEXTAVADO (6M)", "PC")).toBeNull();
+  });
+});
+
 describe("geometricRecipe — sem aplicação", () => {
   it("retorna null para descrição/unidade não reconhecidas", () => {
     expect(geometricRecipe("ACO CA-50", "kg")).toBeNull();
