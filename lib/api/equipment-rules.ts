@@ -51,6 +51,7 @@ export interface EquipmentSuggestion {
 export interface DefaultProfiles {
   profiles: Record<string, { fuel: string; consumption: number; unit: string; scope: number }>;
   fuel_factors: Record<string, { value: number; unit: string; source: string; tier: string }>;
+  transport_factors: Record<string, { value: number; unit: string; source: string }>;
 }
 
 export function listEquipmentRules() {

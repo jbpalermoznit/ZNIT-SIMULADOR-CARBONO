@@ -68,9 +68,12 @@ export async function POST(
       agentResponse = result.text as string;
     }
   } catch {
+    const { getDieselFactor } = await import("@/lib/server/canonical-factors");
+    const diesel = await getDieselFactor();
     const result = resolveLocally(
       pending as Parameters<typeof resolveLocally>[0],
       message,
+      { dieselFactor: diesel.value },
     );
     agentResponse = result.agent_response;
     decisions = result.decisions;

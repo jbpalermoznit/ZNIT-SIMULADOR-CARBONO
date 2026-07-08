@@ -4,6 +4,7 @@
  */
 import { supabase } from "../supabase";
 import { normalizeKeyword } from "../keyword";
+import { getDieselFactor } from "../canonical-factors";
 
 interface Decision {
   item_id: string;
@@ -122,7 +123,8 @@ async function applyEquipment(itemId: string, item: Record<string, unknown>, dec
   const config = decision.equipment_config ?? {};
   const fuelType = config.fuel_type as string ?? "diesel";
   const consumption = config.consumption_per_hour as number ?? 0;
-  const emissionFactor = config.emission_factor as number ?? 2.643;
+  const emissionFactor =
+    (config.emission_factor as number) ?? (await getDieselFactor()).value;
   const factorPerHour = consumption * emissionFactor;
   const consumptionUnit = config.consumption_unit as string ?? "L/h";
 
@@ -172,7 +174,7 @@ async function saveRule(item: Record<string, unknown>, decision: Decision, userI
         fuel_type: config.fuel_type ?? "diesel",
         consumption_per_hour: config.consumption_per_hour ?? 0,
         consumption_unit: consumptionUnit,
-        emission_factor_value: config.emission_factor ?? 2.643,
+        emission_factor_value: config.emission_factor ?? (await getDieselFactor()).value,
         emission_factor_unit: `kgCO₂/${consumptionUnit.replace("/h", "")}`,
         emission_factor_source: "GHG Protocol BR",
         emission_factor_tier: "ghg_protocol",

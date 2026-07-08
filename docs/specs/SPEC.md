@@ -330,7 +330,7 @@ CREATE TABLE abc_items (
 
 CREATE TABLE emission_factors (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  source_tier           TEXT NOT NULL CHECK (source_tier IN ('epd','ghg_protocol','ecoinvent')),
+  source_tier           TEXT NOT NULL CHECK (source_tier IN ('rule','epd','ghg_protocol','cecarbon','ecoinvent')),
   material_name         TEXT NOT NULL,
   category              TEXT NOT NULL,           -- 'Concreto','Aço','Solo','Madeira',...
   variant_name          TEXT,                    -- 'com 30% cinza volante'
@@ -352,7 +352,7 @@ CREATE TABLE item_mappings (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   abc_item_id           UUID NOT NULL REFERENCES abc_items(id) ON DELETE CASCADE,
   emission_factor_id    UUID REFERENCES emission_factors(id),
-  source_tier_used      TEXT CHECK (source_tier_used IN ('epd','ghg_protocol','ecoinvent','user_custom','excluded')),
+  source_tier_used      TEXT CHECK (source_tier_used IN ('rule','epd','ghg_protocol','cecarbon','ecoinvent','user_custom','excluded')),
   confidence            TEXT CHECK (confidence IN ('high','medium','low')),
   similarity_score      NUMERIC,                 -- 0.0-1.0 do thefuzz
   mapped_by             TEXT DEFAULT 'auto',     -- 'auto' | user_id | 'user_custom' | 'excluded'
@@ -1211,26 +1211,34 @@ def calc_item_emission(item: AbcItem, mapping: ItemMapping) -> float:
         return 0.0
     return item.quantity * mapping.emission_factor.factor_kgco2e_per_unit  # kgCO2e
 
-def calc_scope3_logistics(mapping: ItemMapping) -> float:
-    """Scope 3 — transporte (tkm)"""
-    if not mapping.distance_km or not mapping.tonnage:
-        return 0.0
-    modal_factors = {
-        'truck': 0.096,   # kgCO2e/ton.km — GHG Protocol BR
-        'rail':  0.028,
-        'ship':  0.016,
-    }
-    factor = modal_factors.get(mapping.transport_modal, 0.096)
-    return mapping.distance_km * mapping.tonnage * factor  # kgCO2e
+def calc_scope3_logistics(item: AbcItem, mapping: ItemMapping) -> float:
+    """Scope 3 — transporte (t·km).
+
+    Fatores de modal (kgCO2e/t·km) NÃO são hardcoded: são resolvidos em
+    runtime das linhas de frete do Ecoinvent (`backend.ecoinvent_dev`,
+    product_unit 'metric ton*km') via lib/server/canonical-factors.ts —
+    caminhão: lorry 16-32t diesel EURO 5 (BR); trem: train fleet average;
+    navio: sea container ship heavy fuel oil.
+
+    A tonelagem é derivada da massa real do item: qty × conversão da
+    unidade do item para kg (resolveConversion, incluindo receitas
+    geométricas). Massa não derivável → contribuição 0 (nunca fabricar).
+    """
+    factor = canonical_transport_factors()[mapping.transport_modal or 'truck']
+    tonnage = item.quantity * resolve_conversion(item.description, item.unit, 'kg') / 1000
+    return mapping.distance_km * tonnage * factor  # kgCO2e
 
 def calc_equipment_emission(item: AbcItem, profile: EquipmentProfile) -> float:
-    """Scope 1 — combustão direta de combustível"""
-    fuel_factors = {
-        'diesel':   2.68,   # kgCO2e/L — GHG Protocol BR 2023
-        'gasoline': 2.27,
-        'electric': 0.10,   # kgCO2e/kWh — grid BR médio 2023
-    }
-    factor = profile.emission_factor_kgco2e or fuel_factors.get(profile.fuel_type, 2.68)
+    """Scope 1 — combustão direta de combustível.
+
+    Fatores de combustível NÃO são hardcoded: derivados de
+    `backend.fatores_ghg_dev` (GHG Protocol BR) com GWP AR5
+    (CH4×28, N2O×265) via lib/server/gwp.ts + canonical-factors.ts.
+    Ex.: Óleo Diesel (comercial) 2025 → 2,643 kgCO2e/L.
+    Exceção: grid elétrico (SIN) não tem tabela no banco — constante
+    documentada (0,0293 kgCO2e/kWh, SIN 2024).
+    """
+    factor = profile.emission_factor_kgco2e or canonical_fuel_factors()[profile.fuel_type]
     return item.quantity * profile.consumption_per_hour * factor  # kgCO2e
 
 def calc_scenario_totals(items: list[ScenarioItem]) -> ScenarioResult:

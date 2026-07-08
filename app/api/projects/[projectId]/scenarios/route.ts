@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { supabase } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import type { AuthUser } from "@/lib/server/auth";
+import { recalculateScenario } from "@/lib/server/calculator";
+import { assertProjectOwnership, ForbiddenError, forbidden } from "@/lib/server/access";
 
 // ---------------------------------------------------------------------------
 // GET /api/projects/[projectId]/scenarios — list scenarios with results
@@ -18,6 +20,15 @@ export async function GET(
   }
 
   const { projectId } = await params;
+
+  // Escopo por empresa: sem isto, qualquer usuário autenticado listava os
+  // cenários (com resultados completos) de qualquer projeto pelo id cru.
+  try {
+    await assertProjectOwnership(projectId, user);
+  } catch (e) {
+    if (e instanceof ForbiddenError) return forbidden(e.message);
+    throw e;
+  }
 
   const { data: scenarios } = await supabase
     .from("scenarios")
@@ -110,7 +121,24 @@ export async function POST(
     }
 
     // If duplicating from another scenario, copy items
+    let copiedItems = false;
     if (body.source_scenario_id) {
+      // O cenário-origem precisa pertencer a ESTE projeto (já validado como
+      // da empresa do usuário) — sem isto, um id de outro tenant era copiado.
+      const { data: srcScenario } = await supabase
+        .from("scenarios")
+        .select("id")
+        .eq("id", body.source_scenario_id)
+        .eq("project_id", projectId)
+        .single();
+      if (!srcScenario) {
+        await supabase.from("scenarios").delete().eq("id", scenario.id);
+        return Response.json(
+          { detail: "Cenário origem não encontrado neste projeto" },
+          { status: 404 }
+        );
+      }
+
       const { data: sourceItems } = await supabase
         .from("scenario_items")
         .select("*")
@@ -133,6 +161,18 @@ export async function POST(
         }));
 
         await supabase.from("scenario_items").insert(newItems);
+        copiedItems = true;
+      }
+    }
+
+    // O cenário duplicado precisa nascer com scenario_results — sem isto a
+    // lista mostrava totais em branco até alguém disparar /calculate.
+    let result: unknown = null;
+    if (copiedItems) {
+      try {
+        result = await recalculateScenario(scenario.id);
+      } catch (e) {
+        console.error("Recalc do cenário duplicado falhou:", e);
       }
     }
 
@@ -152,7 +192,7 @@ export async function POST(
         is_base: scenario.is_base,
         created_at: scenario.created_at,
         items_count: itemCount ?? 0,
-        result: null,
+        result,
       },
       { status: 201 }
     );

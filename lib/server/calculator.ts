@@ -4,15 +4,11 @@
  */
 import { supabase } from "./supabase";
 import { geometricRecipe } from "./coverage-rules";
-
-// --------------------------------------------------------------------------
-// Transport factors — kgCO2e per tonne-km (GHG Protocol BR)
-// --------------------------------------------------------------------------
-const TRANSPORT_FACTORS: Record<string, number> = {
-  truck: 0.062,
-  rail: 0.022,
-  ship: 0.008,
-};
+import {
+  getTransportFactors,
+  type CanonicalFactor,
+  type TransportModal,
+} from "./canonical-factors";
 
 // --------------------------------------------------------------------------
 // Unit normalisation / conversion
@@ -131,6 +127,44 @@ export function resolveConversion(
   return recipe.multiplier * compose;
 }
 
+export type ConversionStatus =
+  /** unidades iguais — 1:1 validado */
+  | "exact"
+  /** conversão direta na mesma família (kg→t, L→m³, …) */
+  | "converted"
+  /** via receita geométrica/densidade (coverage-rules) */
+  | "recipe"
+  /** unidade do item desconhecida → 1.0 permissivo, NÃO validado */
+  | "assumed"
+  /** sem conversão possível → contribuição 0 */
+  | "incompatible";
+
+/**
+ * Igual a resolveConversion, mas devolve também COMO a conversão foi
+ * obtida — para o diagnóstico ficar visível (notes/coverage) em vez de
+ * "assumed" (1.0 permissivo) e "incompatible" (0) serem indistinguíveis
+ * de conversões reais.
+ */
+export function getConversionStatus(
+  description: string | null | undefined,
+  itemUnit: string | null | undefined,
+  factorUnit: string | null | undefined
+): { factor: number; status: ConversionStatus } {
+  const iu = normalizeUnit(itemUnit);
+  if (!iu) return { factor: 1.0, status: "assumed" };
+
+  const direct = getConversionFactor(itemUnit, factorUnit);
+  if (direct !== 0.0) {
+    const fu = normalizeUnit(factorUnit);
+    return { factor: direct, status: iu === fu ? "exact" : "converted" };
+  }
+
+  const viaRecipe = resolveConversion(description, itemUnit, factorUnit);
+  if (viaRecipe !== 0.0) return { factor: viaRecipe, status: "recipe" };
+
+  return { factor: 0.0, status: "incompatible" };
+}
+
 // --------------------------------------------------------------------------
 // Item-level emission helpers
 // --------------------------------------------------------------------------
@@ -165,12 +199,45 @@ function calcItemEmission(item: AbcItemRow, mapping: MappingRow | null): number 
   return qty * mapping.factor_value * conversion;
 }
 
-function calcLogisticsEmission(mapping: MappingRow | null): number {
-  if (!mapping || !mapping.distance_km) return 0.0;
-  const factor =
-    TRANSPORT_FACTORS[mapping.transport_modal ?? "truck"] ?? 0.062;
-  const tonnage = 1.0; // placeholder
-  return mapping.distance_km * tonnage * factor;
+/**
+ * Emissão de logística (Escopo 3 — frete): distância × tonelagem × fator
+ * do modal (kgCO₂e/t·km, resolvido do Ecoinvent via canonical-factors).
+ *
+ * A tonelagem é derivada da massa real do item: qty × conversão da unidade
+ * do item para kg (mesma máquina de conversão/receitas do cálculo de
+ * materiais). Quando a massa não é derivável (conversão 0), o item NÃO
+ * contribui — devolvemos 0 em vez de fabricar um valor com tonelagem
+ * fictícia (o antigo placeholder tonnage=1.0).
+ */
+function calcLogisticsEmission(
+  item: AbcItemRow,
+  mapping: MappingRow | null,
+  transportFactors: Record<TransportModal, CanonicalFactor> | null
+): number {
+  if (!mapping || !mapping.distance_km || !transportFactors) return 0.0;
+  const modal = (mapping.transport_modal ?? "truck") as TransportModal;
+  const factor = transportFactors[modal] ?? transportFactors.truck;
+  const qty = item.quantity ?? 0;
+  const kgPerUnit = resolveConversion(
+    item.description as string | undefined,
+    item.unit,
+    "kg"
+  );
+  if (qty <= 0 || kgPerUnit <= 0) return 0.0;
+  const tonnage = (qty * kgPerUnit) / 1000;
+  return mapping.distance_km * tonnage * factor.value;
+}
+
+/**
+ * Busca os fatores de transporte só quando algum mapping tem distance_km —
+ * cenários sem logística não pagam a consulta nem dependem dela.
+ */
+async function loadTransportFactorsIfNeeded(
+  mappings: Array<MappingRow | null | undefined>
+): Promise<Record<TransportModal, CanonicalFactor> | null> {
+  const needed = mappings.some((m) => m && m.distance_km);
+  if (!needed) return null;
+  return getTransportFactors();
 }
 
 // --------------------------------------------------------------------------
@@ -397,6 +464,9 @@ export async function createBaseScenario(
   }
 
   // Create scenario items
+  const transportFactors = await loadTransportFactorsIfNeeded(
+    Object.values(mappingByItem)
+  );
   const scenarioItems = allItems.map((item) => {
     const mapping = mappingByItem[item.id] ?? null;
     const isExcluded =
@@ -404,7 +474,7 @@ export async function createBaseScenario(
       (mapping !== null && mapping.source_tier === "excluded");
 
     const emission = calcItemEmission(item, mapping);
-    const logistics = calcLogisticsEmission(mapping);
+    const logistics = calcLogisticsEmission(item, mapping, transportFactors);
 
     return {
       scenario_id: scenario.id,
@@ -461,11 +531,28 @@ export async function recalculateScenario(scenarioId: string) {
     .select("*")
     .eq("scenario_id", scenarioId);
 
+  // Mapeamentos atuais (distance_km/modal vivem em item_mappings) — para
+  // recomputar a logística junto com o material a cada recálculo.
+  const abcItemIds = (scenarioItems ?? []).map((si) => si.abc_item_id).filter(Boolean);
+  const mappingByItem: Record<string, MappingRow> = {};
+  if (abcItemIds.length > 0) {
+    const { data: mappings } = await supabase
+      .from("item_mappings")
+      .select("*")
+      .in("abc_item_id", abcItemIds);
+    for (const m of mappings ?? []) {
+      mappingByItem[(m as { abc_item_id: string }).abc_item_id] = m as MappingRow;
+    }
+  }
+  const transportFactors = await loadTransportFactorsIfNeeded(
+    Object.values(mappingByItem)
+  );
+
   for (const si of scenarioItems ?? []) {
     if (si.is_excluded) {
       await supabase
         .from("scenario_items")
-        .update({ emission_kgco2e: 0 })
+        .update({ emission_kgco2e: 0, emission_scope3_logistics_kgco2e: 0 })
         .eq("id", si.id);
       continue;
     }
@@ -476,19 +563,32 @@ export async function recalculateScenario(scenarioId: string) {
       .eq("id", si.abc_item_id)
       .single();
 
-    if (abcItem && si.factor_value) {
-      const qty = si.quantity_override ?? abcItem.quantity ?? 0;
+    if (!abcItem) continue;
+
+    const qty = si.quantity_override ?? abcItem.quantity ?? 0;
+    // Fator limpo/nulo/zero → zera a emissão em vez de manter o valor
+    // antigo persistido (staleness silenciosa).
+    let emission = 0;
+    if (si.factor_value && si.factor_value > 0) {
       const conversion = resolveConversion(
         abcItem.description,
         abcItem.unit,
         si.factor_unit
       );
-      const emission = qty * si.factor_value * conversion;
-      await supabase
-        .from("scenario_items")
-        .update({ emission_kgco2e: emission })
-        .eq("id", si.id);
+      emission = qty * si.factor_value * conversion;
     }
+    const logistics = calcLogisticsEmission(
+      abcItem as AbcItemRow,
+      mappingByItem[si.abc_item_id] ?? null,
+      transportFactors
+    );
+    await supabase
+      .from("scenario_items")
+      .update({
+        emission_kgco2e: emission,
+        emission_scope3_logistics_kgco2e: logistics,
+      })
+      .eq("id", si.id);
   }
 
   const result = await calculateScenarioResult(scenarioId, project);

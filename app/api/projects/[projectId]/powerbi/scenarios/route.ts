@@ -1,13 +1,13 @@
 import { NextRequest } from "next/server";
 import { supabase } from "@/lib/server/supabase";
+import { authenticatePowerBI, powerbiUnauthorized } from "@/lib/server/powerbi-auth";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
-  const apiKey = req.nextUrl.searchParams.get("api_key");
-  if (apiKey !== process.env.POWERBI_API_KEY) {
-    return Response.json({ detail: "API key inválida" }, { status: 401 });
+  if (!authenticatePowerBI(req)) {
+    return powerbiUnauthorized();
   }
 
   const { projectId } = await params;

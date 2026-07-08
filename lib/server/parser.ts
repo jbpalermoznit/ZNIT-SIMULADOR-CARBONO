@@ -229,7 +229,7 @@ export function classifyType(
   ) {
     return [
       "A",
-      "Diesel reclassificado para Tipo A — fator direto 2,68 kgCO₂e/L",
+      "Diesel reclassificado para Tipo A — fator direto GHG Protocol BR (Óleo Diesel comercial, resolvido do banco)",
     ];
   }
 

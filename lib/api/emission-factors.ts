@@ -138,6 +138,9 @@ export interface MappingResponse {
   /** Set when the server forked a new scenario (mode=fork). */
   new_scenario_id?: string | null;
   scenario_apply_error?: string | null;
+  /** Cenários que referenciam o item e NÃO foram atualizados (edição sem
+   *  scenario_id/mode) — mantêm o fator congelado até um recálculo. */
+  stale_scenarios?: Array<{ id: string; name: string | null }>;
 }
 
 export interface AutoMapResult {

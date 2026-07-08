@@ -13,7 +13,7 @@
  */
 import { supabase } from "./supabase";
 import { autoMatchItem, autoMatchEnriched } from "./emission-mapper";
-import { getConversionFactor } from "./calculator";
+import { getConversionStatus } from "./calculator";
 import type { CostCodeRecord } from "./parser-cost-codes";
 import { lookupCostCode } from "./parser-cost-codes";
 import type { ProofAssembly } from "./parser-proof";
@@ -76,19 +76,32 @@ export async function runAutoMapForCurve(
     );
     const best = match.best;
     const confidence = match.confidence;
-    const conversion = best
-      ? getConversionFactor(item.unit as string, best.factor_unit)
-      : 0;
+    // Mesma máquina de conversão do cálculo (inclui receitas geométricas):
+    // um fator por m³ para um item de piso em m² não é mais rebaixado para
+    // "incompatível" quando o calculador consegue converter via receita.
+    const conv = best
+      ? getConversionStatus(item.description as string, item.unit as string, best.factor_unit)
+      : { factor: 0, status: "incompatible" as const };
 
     const hasUsableMatch =
-      best != null && (best.factor_value ?? 0) > 0 && conversion > 0;
+      best != null && (best.factor_value ?? 0) > 0 && conv.factor > 0;
     const hasAnyCandidate = best != null && (best.factor_value ?? 0) > 0;
 
     if (hasAnyCandidate && best) {
-      const note = hasUsableMatch
-        ? null
-        : `unidade do fator (${best.factor_unit}) incompatível com a do item (${item.unit}) — verificar`;
-      const finalConfidence = hasUsableMatch ? confidence : "low";
+      const noteParts: string[] = [];
+      if (!hasUsableMatch) {
+        noteParts.push(
+          `unidade do fator (${best.factor_unit}) incompatível com a do item (${item.unit}) — verificar`
+        );
+      } else if (conv.status === "assumed") {
+        noteParts.push(
+          `unidade do item desconhecida — fator aplicado 1:1 sem validação dimensional — verificar`
+        );
+      } else if (conv.status === "recipe") {
+        noteParts.push("conversão via receita geométrica");
+      }
+      const note = noteParts.length > 0 ? noteParts.join(" · ") : null;
+      const finalConfidence = hasUsableMatch && conv.status !== "assumed" ? confidence : "low";
 
       await supabase.from("item_mappings").insert({
         abc_item_id: item.id,
@@ -357,9 +370,10 @@ export async function runEnrichedAutoMapForCurve(
     const best = match.best;
     const confidence = match.confidence;
 
-    const conversion = best
-      ? getConversionFactor(itemRow.unit as string, best.factor_unit)
-      : 0;
+    // Mesma máquina de conversão do cálculo (inclui receitas geométricas).
+    const conv = best
+      ? getConversionStatus(itemRow.description as string, itemRow.unit as string, best.factor_unit)
+      : { factor: 0, status: "incompatible" as const };
     const wasBlockedC =
       (itemRow.item_type as string) === "C" &&
       (itemRow.mapping_status as string) === "blocked";
@@ -375,7 +389,7 @@ export async function runEnrichedAutoMapForCurve(
     // compatible unit) before promoting to A.
     const itemTypeStr = itemRow.item_type as string;
     const hasUsableMatch =
-      best != null && (best.factor_value ?? 0) > 0 && conversion > 0;
+      best != null && (best.factor_value ?? 0) > 0 && conv.factor > 0;
     const hasAnyCandidate = best != null && (best.factor_value ?? 0) > 0;
 
     const shouldCommit = wasBlockedC ? hasUsableMatch
@@ -394,11 +408,19 @@ export async function runEnrichedAutoMapForCurve(
         notesParts.push(
           `unidade do fator (${best.factor_unit}) incompatível com a do item (${itemRow.unit}) — verificar`,
         );
+      } else if (conv.status === "assumed") {
+        notesParts.push(
+          "unidade do item desconhecida — fator aplicado 1:1 sem validação dimensional — verificar",
+        );
+      } else if (conv.status === "recipe") {
+        notesParts.push("conversão via receita geométrica");
       }
 
-      // Force "low" confidence when the unit is incompatible regardless of
-      // the matcher's score, so the drawer correctly flags it for review.
-      const finalConfidence = hasUsableMatch ? confidence : "low";
+      // Force "low" confidence when the unit is incompatible (or not
+      // dimensionally validated) regardless of the matcher's score, so the
+      // drawer correctly flags it for review.
+      const finalConfidence =
+        hasUsableMatch && conv.status !== "assumed" ? confidence : "low";
 
       await supabase.from("item_mappings").insert({
         abc_item_id: itemId,

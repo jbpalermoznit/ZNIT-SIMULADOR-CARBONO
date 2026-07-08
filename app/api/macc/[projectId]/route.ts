@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { supabase, supabaseEmission } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
-import { getConversionFactor } from "@/lib/server/calculator";
+import { resolveConversion } from "@/lib/server/calculator";
 import { getCompanyEpdRegistry } from "@/lib/server/epd-prices";
 import { getEpdsByIds } from "@/lib/server/supabase-emission";
 import {
@@ -391,7 +391,11 @@ export async function GET(
       (mapping.factor_source as string) ??
       "Baseline";
 
-    const baselineConv = getConversionFactor(
+    // Mesma máquina de conversão do calculador (inclui receitas geométricas)
+    // — antes, itens dependentes de receita (m²→m³ etc.) zeravam aqui e o
+    // baseline do MACC sub-reportava vs. o cenário persistido.
+    const baselineConv = resolveConversion(
+      item.description ?? "",
       item.unit ?? "",
       (mapping.factor_unit as string) ?? ""
     );
@@ -410,7 +414,8 @@ export async function GET(
       const altFactor = candidate.factor_value as number;
       if (altFactor <= 0) continue;
 
-      const altConv = getConversionFactor(
+      const altConv = resolveConversion(
+        item.description ?? "",
         item.unit ?? "",
         (candidate.declared_unit as string) ?? ""
       );
@@ -495,7 +500,7 @@ export async function GET(
     const reg = registry.get(Number(bar.epd_id));
     if (reg?.price != null && reg.price > 0) {
       const priceUnit = reg.price_unit ?? String(bar.declared_unit ?? "");
-      const conv = getConversionFactor(String(bar.item_unit ?? ""), priceUnit);
+      const conv = resolveConversion(String(bar.item_description ?? ""), String(bar.item_unit ?? ""), priceUnit);
       altUnitPerItem = reg.price * conv;
       priceMeta = {
         value: reg.price, unit: priceUnit, source_name: "Preço cadastrado",
@@ -544,7 +549,11 @@ export async function GET(
     if (!mapping || !mapping.factor_value) continue;
 
     const baselineFactor = mapping.factor_value as number;
-    const baselineConv = getConversionFactor(
+    // Mesma máquina de conversão do calculador (inclui receitas geométricas)
+    // — antes, itens dependentes de receita (m²→m³ etc.) zeravam aqui e o
+    // baseline do MACC sub-reportava vs. o cenário persistido.
+    const baselineConv = resolveConversion(
+      item.description ?? "",
       item.unit ?? "",
       (mapping.factor_unit as string) ?? ""
     );
