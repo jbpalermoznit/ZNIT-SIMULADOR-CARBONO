@@ -10,15 +10,11 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import { supabase } from "@/lib/server/supabase";
-import { parseAbcFile, classifyType } from "@/lib/server/parser";
+import { parseAbcFile } from "@/lib/server/parser";
 import { parseInsumoFile } from "@/lib/server/parser-insumos";
 import { autoMatchItem } from "@/lib/server/emission-mapper";
 import { createBaseScenario } from "@/lib/server/calculator";
-import {
-  shouldAutoExcludeType,
-  autoExclusionReason,
-  type ItemType,
-} from "@/lib/server/cost-code-classifier";
+import { expandScenarioItems } from "@/lib/server/scenario-expansion";
 
 export const maxDuration = 300;
 
@@ -115,137 +111,36 @@ export async function POST(
       );
     }
 
-    // 4. Insert parent items and expand via recipes
-    // Items that are DIRECT MATERIALS should NOT be expanded via recipe
-    // (the Solucao quantity is already the correct material amount)
-    // Items whose Solucao quantity IS the final material amount (no recipe expansion).
-    // Only pure material items — services like ARMADURA (supply+placement) get expanded.
-    const DIRECT_MATERIAL_KEYWORDS = [
-      "concreto usinado",
-      "concreto para piso",
-      "concreto auto",
-      "grouteamento",
-    ];
+    // 4. Insert parent items and expand via recipes — lógica compartilhada
+    // com o harness de validação (lib/server/scenario-expansion.ts).
+    const { parents, children } = expandScenarioItems(
+      parsedItems.items,
+      recipeMap
+    );
 
-    function isDirectMaterial(description: string): boolean {
-      const descNorm = description
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "");
-      return DIRECT_MATERIAL_KEYWORDS.some((kw) => descNorm.includes(kw));
-    }
+    const toDbRow = (it: (typeof parents)[number]) => ({
+      id: `${curve.id}-${it.key}`,
+      abc_curve_id: curve.id,
+      cost_code: it.cost_code,
+      description: it.description,
+      quantity: it.quantity,
+      unit: it.unit,
+      unit_cost: it.unit_cost,
+      total_cost: it.total_cost,
+      cost_pct: it.cost_pct,
+      cumulative_pct: it.cumulative_pct,
+      abc_class: it.abc_class,
+      item_type: it.item_type,
+      item_order: it.item_order,
+      mapping_status: it.mapping_status,
+      classification_note: it.classification_note,
+      ...(it.parent_key
+        ? { parent_item_id: `${curve.id}-${it.parent_key}` }
+        : {}),
+    });
 
-    // Servi\u00e7os/m\u00e3o-de-obra/montagem/equipamento (Tipo B/D/E/F via classifyType)
-    // N\u00c3O s\u00e3o materiais: n\u00e3o devem casar um fator de material bruto. Sem isto,
-    // itens como "FABRICACAO E MONTAGEM DE PRE-MOLDADO" (material j\u00e1 contado em
-    // linhas pr\u00f3prias de a\u00e7o/concreto) ou "PINTURA"/"APLICACAO DE ..." casavam
-    // fator de concreto/tinta e inflavam/duplicavam o total. Marcamos como
-    // exclu\u00eddo \u2192 o calculador os ignora. Ver docs/PARIDADE_SIMULADOR.md.
-    function serviceExclusion(
-      costCode: string,
-      description: string,
-      unit: string
-    ): { item_type: ItemType; note: string } | null {
-      const [t] = classifyType(costCode, description, unit);
-      const type = t as ItemType;
-      if (type !== "A" && shouldAutoExcludeType(type)) {
-        return { item_type: type, note: autoExclusionReason(type) };
-      }
-      return null;
-    }
-
-    const parentItems: Array<Record<string, unknown>> = [];
-    const childItems: Array<Record<string, unknown>> = [];
-    let itemOrder = 0;
-
-    for (const item of parsedItems.items) {
-      const qty = item.quantity;
-      if (qty <= 0) continue;
-
-      const parentId = `${curve.id}-p${itemOrder}`;
-      const recipe = recipeMap.recipes.get(item.cost_code);
-      const directMaterial = isDirectMaterial(item.description);
-
-      if (recipe && recipe.length > 0 && !directMaterial) {
-        // Service with recipe → expand via Σ(Qtd_Item × Índice × FE)
-        parentItems.push({
-          id: parentId,
-          abc_curve_id: curve.id,
-          cost_code: item.cost_code,
-          description: item.description,
-          quantity: qty,
-          unit: item.unit,
-          unit_cost: item.unit_cost,
-          total_cost: item.total_cost,
-          cost_pct: item.cost_pct,
-          cumulative_pct: item.cumulative_pct,
-          abc_class: item.abc_class,
-          item_type: "C", // blocked parent — children carry the emissions
-          item_order: itemOrder,
-          mapping_status: "blocked",
-          classification_note:
-            "Composição expandida via Planilha de Insumos — emissões nos itens-filho",
-        });
-
-        // Expand: qty_child = Qtd_Item × Índice_Composição
-        for (const insumo of recipe) {
-          const indice = insumo.indice;
-          const childQty = qty * indice;
-          if (childQty <= 0) continue;
-
-          itemOrder++;
-          const childSvc = serviceExclusion(
-            insumo.codigo,
-            insumo.descricao,
-            insumo.unidade
-          );
-          childItems.push({
-            id: `${curve.id}-c${itemOrder}`,
-            abc_curve_id: curve.id,
-            cost_code: insumo.codigo,
-            description: insumo.descricao,
-            quantity: childQty,
-            unit: insumo.unidade,
-            unit_cost: 0,
-            total_cost: 0,
-            cost_pct: 0,
-            cumulative_pct: 0,
-            abc_class: item.abc_class,
-            item_type: childSvc ? childSvc.item_type : "A", // material → auto-map candidate
-            item_order: itemOrder,
-            mapping_status: childSvc ? "excluded" : "pending",
-            parent_item_id: parentId,
-            classification_note: childSvc
-              ? childSvc.note
-              : `Insumo de ${item.description} (${qty} ${item.unit} x ${insumo.indice} ${insumo.unidade})`,
-          });
-        }
-      } else {
-        // No recipe → direct item. Classify first: serviços/montagem/
-        // equipamento (Tipo B/D/E/F) são excluídos do match de material.
-        const svc = serviceExclusion(item.cost_code, item.description, item.unit);
-        parentItems.push({
-          id: parentId,
-          abc_curve_id: curve.id,
-          cost_code: item.cost_code,
-          description: item.description,
-          quantity: qty,
-          unit: item.unit,
-          unit_cost: item.unit_cost,
-          total_cost: item.total_cost,
-          cost_pct: item.cost_pct,
-          cumulative_pct: item.cumulative_pct,
-          abc_class: item.abc_class,
-          item_type: svc ? svc.item_type : "A",
-          item_order: itemOrder,
-          mapping_status: svc ? "excluded" : "pending",
-          classification_note: svc
-            ? svc.note
-            : "Item direto (sem receita na Planilha de Insumos)",
-        });
-      }
-      itemOrder++;
-    }
+    const parentItems = parents.map(toDbRow);
+    const childItems = children.map(toDbRow);
 
     // Batch insert all items
     const allDbItems = [...parentItems, ...childItems];
