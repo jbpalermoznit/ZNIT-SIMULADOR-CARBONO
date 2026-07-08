@@ -59,6 +59,43 @@ export async function assertProjectOwnership(
   }
 }
 
+/**
+ * Verify the user's company owns the abc_item (via abc_curves → projects).
+ * Returns the item row so callers don't re-fetch it.
+ */
+export async function assertItemOwnership(
+  itemId: string,
+  user: AuthUser
+): Promise<Record<string, unknown>> {
+  const { data: item } = await supabase
+    .from("abc_items")
+    .select("*")
+    .eq("id", itemId)
+    .single();
+
+  if (!item) throw new ForbiddenError("Item não encontrado");
+
+  const { data: curve } = await supabase
+    .from("abc_curves")
+    .select("project_id")
+    .eq("id", item.abc_curve_id)
+    .single();
+
+  if (!curve) throw new ForbiddenError();
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("company_id")
+    .eq("id", curve.project_id)
+    .single();
+
+  if (!project || project.company_id !== user.company_id) {
+    throw new ForbiddenError();
+  }
+
+  return item;
+}
+
 /** Map ForbiddenError to a 403 response. */
 export function forbidden(message = "Acesso negado") {
   return Response.json({ detail: message }, { status: 403 });

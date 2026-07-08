@@ -526,8 +526,14 @@ function EditEpdView({
       }
 
       // Legacy path (no active scenario): plain confirmMapping
-      await confirmMapping(item.id, body);
+      const resp = await confirmMapping(item.id, body);
       await saveRule();
+      // Cenários existentes mantêm o fator congelado (fotografado ao salvar).
+      // Avisa quais ficaram desatualizados em vez de divergir em silêncio.
+      if (resp.stale_scenarios && resp.stale_scenarios.length > 0) {
+        const names = resp.stale_scenarios.map((s) => s.name ?? s.id).join(", ");
+        alert(`Fator atualizado. Os cenários a seguir mantêm o valor anterior até serem recalculados: ${names}`);
+      }
       onSaved?.();
       onBack();
     } catch (e) {

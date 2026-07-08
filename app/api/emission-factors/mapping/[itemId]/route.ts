@@ -13,7 +13,12 @@ import {
   getEpdById,
 } from "@/lib/server/supabase-emission";
 import { applyFactorToScenarioItem } from "@/lib/server/calculator";
-import { assertScenarioOwnership, ForbiddenError, forbidden } from "@/lib/server/access";
+import {
+  assertScenarioOwnership,
+  assertItemOwnership,
+  ForbiddenError,
+  forbidden,
+} from "@/lib/server/access";
 
 // PUT can fork a scenario + recalc, which adds latency on big scenarios.
 export const maxDuration = 60;
@@ -26,13 +31,23 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ itemId: string }> }
 ) {
+  let user;
   try {
-    await getCurrentUser(req);
+    user = await getCurrentUser(req);
   } catch {
     return unauthorized();
   }
 
   const { itemId } = await params;
+
+  // Escopo por empresa: sem isto, qualquer usuário autenticado lia o
+  // mapeamento de itens de outras empresas passando o id cru.
+  try {
+    await assertItemOwnership(itemId, user);
+  } catch (e) {
+    if (e instanceof ForbiddenError) return forbidden(e.message);
+    throw e;
+  }
 
   const { data: mapping } = await supabase
     .from("item_mappings")
@@ -107,15 +122,17 @@ export async function PUT(
   const { itemId } = await params;
   const body: MappingConfirmBody = await req.json();
 
-  // Check item exists
-  const { data: item, error: itemErr } = await supabase
-    .from("abc_items")
-    .select("id")
-    .eq("id", itemId)
-    .single();
-
-  if (itemErr || !item) {
-    return Response.json({ detail: "Item não encontrado" }, { status: 404 });
+  // Check item exists AND belongs to the caller's company (sem isto,
+  // qualquer usuário autenticado sobrescrevia mapeamentos de outra empresa).
+  try {
+    await assertItemOwnership(itemId, user);
+  } catch (e) {
+    if (e instanceof ForbiddenError) {
+      return e.message === "Item não encontrado"
+        ? Response.json({ detail: "Item não encontrado" }, { status: 404 })
+        : forbidden(e.message);
+    }
+    throw e;
   }
 
   // Remove existing mapping
@@ -348,6 +365,26 @@ export async function PUT(
     }
   }
 
+  // Sem contexto de cenário, o mapping mudou mas os cenários que referenciam
+  // este item mantêm o fator congelado (comportamento intencional — cenários
+  // fotografam o fator ao salvar). Devolve QUAIS cenários ficaram
+  // desatualizados para a UI avisar, em vez de divergir em silêncio.
+  let staleScenarios: Array<{ id: string; name: string | null }> = [];
+  if (!body.scenario_id || !body.mode) {
+    const { data: refs } = await supabase
+      .from("scenario_items")
+      .select("scenario_id")
+      .eq("abc_item_id", itemId);
+    const ids = [...new Set((refs ?? []).map((r) => r.scenario_id))];
+    if (ids.length > 0) {
+      const { data: scens } = await supabase
+        .from("scenarios")
+        .select("id, name")
+        .in("id", ids);
+      staleScenarios = (scens ?? []).map((s) => ({ id: s.id, name: s.name }));
+    }
+  }
+
   return Response.json({
     id: inserted.id,
     abc_item_id: inserted.abc_item_id,
@@ -362,5 +399,6 @@ export async function PUT(
     notes: inserted.notes,
     new_scenario_id: newScenarioId,
     scenario_apply_error: scenarioApplyError,
+    stale_scenarios: staleScenarios,
   });
 }

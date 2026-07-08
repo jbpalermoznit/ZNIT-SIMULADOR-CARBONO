@@ -664,7 +664,17 @@ export async function autoMatchItem(
       .eq("is_active", true);
 
     if (rules && rules.length > 0) {
-      for (const rule of rules) {
+      // Precedência determinística: keyword mais ESPECÍFICA (mais longa)
+      // primeiro, desempate por id. Sem isto, o first-match-wins seguia a
+      // ordem de retorno do banco e uma regra genérica curta ("parafuso")
+      // podia sombrear uma regra específica dependendo da ordem das linhas.
+      const orderedRules = [...rules].sort((a, b) => {
+        const la = normalizeKeyword(String(a.match_keyword ?? "")).length;
+        const lb = normalizeKeyword(String(b.match_keyword ?? "")).length;
+        if (lb !== la) return lb - la;
+        return String(a.id ?? "").localeCompare(String(b.id ?? ""));
+      });
+      for (const rule of orderedRules) {
         const keyword = normalizeKeyword(String(rule.match_keyword ?? ""));
         if (keyword && descNorm.includes(keyword)) {
           // Direct match via rule — highest priority

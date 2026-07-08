@@ -1,5 +1,7 @@
 -- Seed Factor Rules — alinhamento com v29 (pulper pit). Empresa Kaliny/HTB.
--- Gerado de simulation/relatorio_pulperpit_v29.xlsx. Fator EFETIVO por unidade
+-- Gerado de simulation/relatorio_pulperpit_v29.xlsx.
+-- source_tier registra a ORIGEM do fator no v29; 'rule' = origem não
+-- catalogada no relatório (ex.: ISOPOR) — valor curado sem proveniência. Fator EFETIVO por unidade
 -- do item (inclui conversões geométricas do v29). Idempotente.
 BEGIN;
 DELETE FROM public.factor_rules WHERE company_id='efb2ccda-4024-44fa-aee7-5889b316be26' AND source_description LIKE 'v29%';
@@ -54,5 +56,5 @@ INSERT INTO public.factor_rules (company_id,match_keyword,original_description,f
 ('efb2ccda-4024-44fa-aee7-5889b316be26','parafuso','PARAFUSO',0.021599,'kgCO₂/UN','PARAFUSO','cecarbon','v29 (relatorio pulperpit) — revisar','9e1f3e17-11cf-4f91-94d3-bca20f719957',true),
 ('efb2ccda-4024-44fa-aee7-5889b316be26','inserto metalico em aco carbono','INSERTO METALICO EM ACO-CARBONO',1.82,'kgCO₂/KG','INSERTO METALICO EM ACO-CARBONO','ecoinvent','v29 (relatorio pulperpit) — revisar','9e1f3e17-11cf-4f91-94d3-bca20f719957',true),
 ('efb2ccda-4024-44fa-aee7-5889b316be26','concreto usinado 40mpa 4 5mtrf com silica','CONCRETO USINADO 40MPA (4,5MTRF) COM SILICA',280.999159,'kgCO₂/m³','CONCRETO USINADO 40MPA (4,5MTRF) COM SILICA','ecoinvent','v29 (relatorio pulperpit) — revisar','9e1f3e17-11cf-4f91-94d3-bca20f719957',true),
-('efb2ccda-4024-44fa-aee7-5889b316be26','aditivo expansor a base de oxido de calcio supercalcinado dry d1','ADITIVO EXPANSOR A BASE DE OXIDO DE CALCIO SUPERCALCINADO DRY D1',2.839992,'kgCO₂/KG','ADITIVO EXPANSOR A BASE DE OXIDO DE CALCIO SUPERCALCINADO DR','ecoinvent','v29 (relatorio pulperpit) — revisar','9e1f3e17-11cf-4f91-94d3-bca20f719957',true);
+('efb2ccda-4024-44fa-aee7-5889b316be26','aditivo expansor a base de oxido de calcio supercalcinado dry d1','ADITIVO EXPANSOR A BASE DE OXIDO DE CALCIO SUPERCALCINADO DRY D1',2.839992,'kgCO₂/KG','ADITIVO EXPANSOR A BASE DE OXIDO DE CALCIO SUPERCALCINADO DRY D1','ecoinvent','v29 (relatorio pulperpit) — revisar','9e1f3e17-11cf-4f91-94d3-bca20f719957',true);
 COMMIT;
