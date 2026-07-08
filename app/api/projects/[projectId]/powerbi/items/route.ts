@@ -1,20 +1,14 @@
 import { NextRequest } from "next/server";
 import { supabase } from "@/lib/server/supabase";
-import { getConversionFactor } from "@/lib/server/calculator";
-
-function authenticatePowerBI(req: NextRequest): boolean {
-  const apiKey = req.nextUrl.searchParams.get("api_key");
-  if (apiKey === process.env.POWERBI_API_KEY) return true;
-  const auth = req.headers.get("authorization") ?? "";
-  return auth.startsWith("Bearer ");
-}
+import { resolveConversion } from "@/lib/server/calculator";
+import { authenticatePowerBI, powerbiUnauthorized } from "@/lib/server/powerbi-auth";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
   if (!authenticatePowerBI(req)) {
-    return Response.json({ detail: "API key inválida ou token expirado" }, { status: 401 });
+    return powerbiUnauthorized();
   }
 
   const { projectId } = await params;
@@ -37,7 +31,12 @@ export async function GET(
 
   const rows = items.map((item) => {
     const m = mMap.get(item.id);
-    const conv = m?.factor_unit ? getConversionFactor(item.unit, m.factor_unit) : 1;
+    // Mesma máquina de conversão do calculador (inclui receitas
+    // geométricas) — antes, itens que dependem de receita (m²→m³ etc.)
+    // zeravam aqui e o PowerBI sub-reportava vs. o cenário persistido.
+    const conv = m?.factor_unit
+      ? resolveConversion(item.description, item.unit, m.factor_unit)
+      : 1;
     const emission = m?.factor_value && conv > 0 ? (item.quantity ?? 0) * m.factor_value * conv : 0;
     return {
       projeto: project.name,
@@ -52,7 +51,9 @@ export async function GET(
       fator_nome: m?.factor_name ?? null,
       fator_valor: m?.factor_value ?? null,
       emissao_kgco2e: Math.round(emission * 100) / 100,
-      emissao_tco2e: Math.round(emission / 10) / 100,
+      // 4 casas em tCO₂e — mesma precisão do scenario_results.total_tco2e,
+      // para os somatórios do PowerBI baterem com o app.
+      emissao_tco2e: Math.round((emission / 1000) * 10000) / 10000,
     };
   });
 

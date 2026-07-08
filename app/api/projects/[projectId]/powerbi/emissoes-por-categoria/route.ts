@@ -1,13 +1,13 @@
 import { NextRequest } from "next/server";
 import { supabase } from "@/lib/server/supabase";
+import { authenticatePowerBI, powerbiUnauthorized } from "@/lib/server/powerbi-auth";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> },
 ) {
-  const apiKey = req.nextUrl.searchParams.get("api_key");
-  if (apiKey !== process.env.POWERBI_API_KEY) {
-    return Response.json({ detail: "API key inválida" }, { status: 401 });
+  if (!authenticatePowerBI(req)) {
+    return powerbiUnauthorized();
   }
 
   const { projectId } = await params;
@@ -44,7 +44,7 @@ export async function GET(
     const pct = (r.emissao_kgco2e / total) * 100;
     cum += pct;
     Object.assign(r, {
-      emissao_tco2e: Math.round(r.emissao_kgco2e / 10) / 100,
+      emissao_tco2e: Math.round((r.emissao_kgco2e / 1000) * 10000) / 10000,
       pct_total: Math.round(pct * 100) / 100,
       pct_acumulado: Math.round(cum * 100) / 100,
     });

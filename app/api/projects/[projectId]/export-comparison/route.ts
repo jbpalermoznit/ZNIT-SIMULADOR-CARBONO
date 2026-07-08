@@ -25,10 +25,12 @@ export async function GET(
     return Response.json({ detail: "Parâmetros scenario_a e scenario_b obrigatórios" }, { status: 400 });
   }
 
-  // Load both scenarios with items
+  // Load both scenarios with items — escopado ao projeto (já validado como
+  // da empresa do usuário); sem o .eq("project_id"), ids de cenários de
+  // outros projetos/tenants eram exportáveis.
   const loadScenario = async (scenId: string) => {
     const { data: scenario } = await supabase
-      .from("scenarios").select("*").eq("id", scenId).single();
+      .from("scenarios").select("*").eq("id", scenId).eq("project_id", projectId).single();
     if (!scenario) return null;
 
     const { data: result } = await supabase

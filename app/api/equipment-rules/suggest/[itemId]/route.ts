@@ -3,6 +3,7 @@ import { supabase } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import type { AuthUser } from "@/lib/server/auth";
 import { getFuelFactors } from "@/lib/server/canonical-factors";
+import { assertItemOwnership, ForbiddenError, forbidden } from "@/lib/server/access";
 
 // ---------------------------------------------------------------------------
 // Static data
@@ -106,17 +107,17 @@ export async function GET(
 
   const { itemId } = await params;
 
-  const { data: item } = await supabase
-    .from("abc_items")
-    .select("*")
-    .eq("id", itemId)
-    .single();
-
-  if (!item) {
-    return Response.json(
-      { detail: "Item não encontrado" },
-      { status: 404 }
-    );
+  // Item + escopo por empresa (id cru não pode vazar entre tenants)
+  let item: Record<string, unknown>;
+  try {
+    item = await assertItemOwnership(itemId, user);
+  } catch (e) {
+    if (e instanceof ForbiddenError) {
+      return e.message === "Item não encontrado"
+        ? Response.json({ detail: "Item não encontrado" }, { status: 404 })
+        : forbidden(e.message);
+    }
+    throw e;
   }
 
   const desc = item.description as string;

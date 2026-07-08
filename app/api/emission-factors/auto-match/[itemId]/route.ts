@@ -6,8 +6,8 @@
 
 import { NextRequest } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
-import { supabase } from "@/lib/server/supabase";
 import { autoMatchItem } from "@/lib/server/emission-mapper";
+import { assertItemOwnership, ForbiddenError, forbidden } from "@/lib/server/access";
 
 export async function GET(
   req: NextRequest,
@@ -22,15 +22,17 @@ export async function GET(
 
   const { itemId } = await params;
 
-  // Fetch item
-  const { data: item, error } = await supabase
-    .from("abc_items")
-    .select("id, description, unit")
-    .eq("id", itemId)
-    .single();
-
-  if (error || !item) {
-    return Response.json({ detail: "Item não encontrado" }, { status: 404 });
+  // Fetch item + escopo por empresa (id cru não pode vazar entre tenants)
+  let item: Record<string, unknown>;
+  try {
+    item = await assertItemOwnership(itemId, user);
+  } catch (e) {
+    if (e instanceof ForbiddenError) {
+      return e.message === "Item não encontrado"
+        ? Response.json({ detail: "Item não encontrado" }, { status: 404 })
+        : forbidden(e.message);
+    }
+    throw e;
   }
 
   const result = await autoMatchItem(
