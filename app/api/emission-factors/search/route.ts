@@ -13,6 +13,7 @@ import {
   searchEpdCatalog,
 } from "@/lib/server/supabase-emission";
 import { extractKeywords } from "@/lib/server/emission-mapper";
+import { computeCo2e } from "@/lib/server/gwp";
 
 // Build Ecoinvent search queries (inline simplified version)
 function buildSearchQueries(keywords: string[]): string[] {
@@ -78,7 +79,11 @@ export async function GET(req: NextRequest) {
   if (tiers.includes("ghg_protocol")) {
     try {
       const rows = await searchGhg(q, limit);
-      ghgResults.push(...rows);
+      // A tabela fatores_ghg não tem coluna co2e_total — o CO₂e é derivado
+      // (AR5) no servidor para o picker manual usar o MESMO valor que o
+      // auto-match calcula. Sem isto, o front lia um campo inexistente e o
+      // fator escolhido manualmente ficava undefined.
+      ghgResults.push(...rows.map((r) => ({ ...r, co2e_total: computeCo2e(r) })));
     } catch (e) {
       console.error("GHG search error:", e);
     }

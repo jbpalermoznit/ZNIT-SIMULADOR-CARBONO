@@ -2,41 +2,34 @@ import { NextRequest } from "next/server";
 import { supabase } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import type { AuthUser } from "@/lib/server/auth";
+import { getFuelFactors } from "@/lib/server/canonical-factors";
 
 // ---------------------------------------------------------------------------
 // Static data
 // ---------------------------------------------------------------------------
 
-const DEFAULT_FUEL_FACTORS: Record<
-  string,
-  { value: number; unit: string; source: string; tier: string }
-> = {
-  diesel: {
-    value: 2.643,
-    unit: "kgCO\u2082/L",
-    source: "BEN 2023",
-    tier: "ghg_protocol",
-  },
-  gasoline: {
-    value: 2.303,
-    unit: "kgCO\u2082/L",
-    source: "BEN 2023",
-    tier: "ghg_protocol",
-  },
-  electric: {
-    value: 0.0293,
-    unit: "kgCO\u2082/kWh",
-    source: "SIN 2024",
-    tier: "ghg_protocol",
-  },
-  glp: {
-    value: 1.536,
-    unit: "kgCO\u2082/kg",
-    source: "BEN 2023",
-    tier: "ghg_protocol",
-  },
-  none: { value: 0, unit: "-", source: "-", tier: "none" },
+// Combust\u00edveis v\u00eam das tabelas Supabase (canonical-factors). El\u00e9trico (SIN)
+// n\u00e3o tem tabela de grid no schema backend \u2014 constante documentada.
+const ELECTRIC_FACTOR = {
+  value: 0.0293,
+  unit: "kgCO\u2082/kWh",
+  source: "SIN 2024",
+  tier: "ghg_protocol",
 };
+const NONE_FACTOR = { value: 0, unit: "-", source: "-", tier: "none" };
+
+async function loadFuelFactors(): Promise<
+  Record<string, { value: number; unit: string; source: string; tier: string }>
+> {
+  const fuel = await getFuelFactors();
+  return {
+    diesel: { ...fuel.diesel, tier: "ghg_protocol" },
+    gasoline: { ...fuel.gasoline, tier: "ghg_protocol" },
+    glp: { ...fuel.glp, tier: "ghg_protocol" },
+    electric: ELECTRIC_FACTOR,
+    none: NONE_FACTOR,
+  };
+}
 
 const DEFAULT_EQUIPMENT_PROFILES: Record<
   string,
@@ -198,7 +191,17 @@ export async function GET(
   }
 
   const profile = DEFAULT_EQUIPMENT_PROFILES[matchedCat];
-  const fuel = DEFAULT_FUEL_FACTORS[profile.fuel] ?? DEFAULT_FUEL_FACTORS.diesel;
+  let fuelFactors: Awaited<ReturnType<typeof loadFuelFactors>>;
+  try {
+    fuelFactors = await loadFuelFactors();
+  } catch (e) {
+    console.error("equipment-rules/suggest: fatores canônicos indisponíveis:", e);
+    return Response.json(
+      { detail: e instanceof Error ? e.message : "Erro ao resolver fatores canônicos" },
+      { status: 502 }
+    );
+  }
+  const fuel = fuelFactors[profile.fuel] ?? fuelFactors.diesel;
 
   const consumption = profile.consumption;
   const factor = fuel.value;

@@ -692,7 +692,7 @@ function EditEpdView({
             {(search ? [
               ...(tierFilter.ghg_protocol ? (results?.ghg_protocol || []).map((r: FactorSearchRow) => ({ ...r, source_tier: "ghg_protocol", factor_name: r.produto, factor_value: r.co2e_total, factor_unit: "kgCO₂e", factor_source: r.versao_ghg || "GHG Protocol" })) : []),
               ...(tierFilter.cecarbon ? (results?.cecarbon || []).map((r: FactorSearchRow) => ({ ...r, source_tier: "cecarbon", factor_name: r["Descrição fator de emissao"] || r.description || "", factor_value: r["fator de emissão (kgCO2)"] || r.factor_value || 0, factor_unit: `kgCO₂/${r["Unidade"] || r.unit || "t"}`, factor_source: r["Referencia"] || r.reference || "CECarbon", product_unit: r["Unidade"] || r.unit || "", cecarbon_id: r.id })) : []),
-              ...(tierFilter.ecoinvent ? (results?.ecoinvent || []).map((r: FactorSearchRow) => ({ ...r, source_tier: "ecoinvent", factor_name: r.product_name, factor_value: r.impact_score, factor_unit: r.impact_unit, factor_source: r.activity_name, product_unit: r.product_unit })) : []),
+              ...(tierFilter.ecoinvent ? (results?.ecoinvent || []).map((r: FactorSearchRow) => ({ ...r, source_tier: "ecoinvent", factor_name: r.product_name, factor_value: r.impact_score, factor_unit: r.product_unit ? `kgCO2e/${r.product_unit}` : r.impact_unit, factor_source: r.activity_name, product_unit: r.product_unit })) : []),
             ] : autoMatch?.results)?.map((r: FactorSearchRow, i: number) => {
               const tier = r.source_tier || "ecoinvent";
               const name = r.factor_name || r.product_name || "";
@@ -904,6 +904,20 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
   const [eqSaving, setEqSaving] = useState(false);
   const [eqSaveAsRule, setEqSaveAsRule] = useState(true);
   const [eqLoading, setEqLoading] = useState(false);
+  // Fatores canônicos vindos do banco (via /api/equipment-rules/defaults) —
+  // sem valores hardcoded no front. Ver lib/server/canonical-factors.ts.
+  const [fuelFactors, setFuelFactors] = useState<Record<string, { value: number; unit: string; source: string }> | null>(null);
+  const [transportFactors, setTransportFactors] = useState<Record<string, { value: number; unit: string; source: string }> | null>(null);
+
+  // Load canonical factor defaults once (fuel + transport)
+  useEffect(() => {
+    import("@/lib/api/equipment-rules").then(({ getEquipmentDefaults }) => {
+      getEquipmentDefaults().then((d) => {
+        setFuelFactors(d.fuel_factors);
+        setTransportFactors(d.transport_factors);
+      }).catch(() => {});
+    });
+  }, []);
 
   // Load equipment suggestion on mount for Tipo E
   useEffect(() => {
@@ -928,18 +942,13 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
   // Update factor when fuel type changes
   const handleFuelChange = (fuel: string) => {
     setFuelType(fuel);
-    const factors: Record<string, { value: string; unit: string; source: string; scope: number }> = {
-      diesel: { value: "2.643", unit: "kgCO₂/L", source: "BEN 2023", scope: 1 },
-      gasoline: { value: "2.303", unit: "kgCO₂/L", source: "BEN 2023", scope: 1 },
-      electric: { value: "0.0293", unit: "kgCO₂/kWh", source: "SIN 2024", scope: 2 },
-      glp: { value: "1.536", unit: "kgCO₂/kg", source: "BEN 2023", scope: 1 },
-      none: { value: "0", unit: "-", source: "-", scope: 0 },
-    };
-    const f = factors[fuel] || factors.diesel;
-    setEqFactor(f.value);
+    const scopes: Record<string, number> = { diesel: 1, gasoline: 1, glp: 1, electric: 2, none: 0 };
+    const f = fuelFactors?.[fuel] ?? fuelFactors?.diesel;
+    if (!f) return; // defaults ainda carregando — mantém o valor atual
+    setEqFactor(String(f.value));
     setEqFactorUnit(f.unit);
     setEqFactorSource(f.source);
-    setEqScope(f.scope);
+    setEqScope(scopes[fuel] ?? 1);
   };
 
   const handleSaveEquipment = async () => {
@@ -999,9 +1008,9 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
                 <div>
                   <label className="block text-xs font-semibold text-[#404040] mb-1.5">Modal de transporte</label>
                   <select value={modal} onChange={(e) => setModal(e.target.value)} className={selectClass}>
-                    <option value="caminhao">Caminhão (0,062 kgCO₂e/t·km)</option>
-                    <option value="trem">Trem (0,011 kgCO₂e/t·km)</option>
-                    <option value="navio">Navio (0,008 kgCO₂e/t·km)</option>
+                    <option value="caminhao">Caminhão{transportFactors?.truck ? ` (${transportFactors.truck.value.toLocaleString("pt-BR")} ${transportFactors.truck.unit})` : ""}</option>
+                    <option value="trem">Trem{transportFactors?.rail ? ` (${transportFactors.rail.value.toLocaleString("pt-BR")} ${transportFactors.rail.unit})` : ""}</option>
+                    <option value="navio">Navio{transportFactors?.ship ? ` (${transportFactors.ship.value.toLocaleString("pt-BR")} ${transportFactors.ship.unit})` : ""}</option>
                   </select>
                 </div>
                 {distancia && (

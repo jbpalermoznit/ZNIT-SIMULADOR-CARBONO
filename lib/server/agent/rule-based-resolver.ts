@@ -27,19 +27,38 @@ interface Decision {
   equipment_config?: Record<string, unknown>;
 }
 
-const EQUIPMENT_PROFILES: Record<string, Record<string, unknown> | null> = {
-  retroescavadeira: { fuel_type: "diesel", consumption_per_hour: 12, consumption_unit: "L/h", emission_factor: 2.643, emission_factor_unit: "kgCO₂/L" },
-  escavadeira: { fuel_type: "diesel", consumption_per_hour: 20, consumption_unit: "L/h", emission_factor: 2.643, emission_factor_unit: "kgCO₂/L" },
-  caminhão: { fuel_type: "diesel", consumption_per_hour: 15, consumption_unit: "L/h", emission_factor: 2.643, emission_factor_unit: "kgCO₂/L" },
-  basculante: { fuel_type: "diesel", consumption_per_hour: 15, consumption_unit: "L/h", emission_factor: 2.643, emission_factor_unit: "kgCO₂/L" },
-  guindaste: { fuel_type: "diesel", consumption_per_hour: 25, consumption_unit: "L/h", emission_factor: 2.643, emission_factor_unit: "kgCO₂/L" },
-  solda: { fuel_type: "electric", consumption_per_hour: 8, consumption_unit: "kWh/h", emission_factor: 0.10, emission_factor_unit: "kgCO₂/kWh" },
-  andaime: null,
-};
+/**
+ * Perfis de equipamento: consumo/hora fixo por categoria; o fator de emissão
+ * do diesel é injetado pelo caller a partir das tabelas Supabase
+ * (canonical-factors.getDieselFactor) — não hardcoded aqui.
+ */
+function buildEquipmentProfiles(
+  dieselFactor: number
+): Record<string, Record<string, unknown> | null> {
+  const diesel = (consumption: number) => ({
+    fuel_type: "diesel",
+    consumption_per_hour: consumption,
+    consumption_unit: "L/h",
+    emission_factor: dieselFactor,
+    emission_factor_unit: "kgCO₂/L",
+  });
+  return {
+    retroescavadeira: diesel(12),
+    escavadeira: diesel(20),
+    caminhão: diesel(15),
+    basculante: diesel(15),
+    guindaste: diesel(25),
+    solda: { fuel_type: "electric", consumption_per_hour: 8, consumption_unit: "kWh/h", emission_factor: 0.10, emission_factor_unit: "kgCO₂/kWh" },
+    andaime: null,
+  };
+}
 
-function matchEquipmentProfile(description: string): Record<string, unknown> | null {
+function matchEquipmentProfile(
+  description: string,
+  profiles: Record<string, Record<string, unknown> | null>
+): Record<string, unknown> | null {
   const descLower = description.toLowerCase();
-  for (const [keyword, profile] of Object.entries(EQUIPMENT_PROFILES)) {
+  for (const [keyword, profile] of Object.entries(profiles)) {
     if (descLower.includes(keyword)) return profile;
   }
   return null;
@@ -48,9 +67,11 @@ function matchEquipmentProfile(description: string): Record<string, unknown> | n
 export function resolveLocally(
   pendingItems: PendingItem[],
   userMessage: string,
+  options: { dieselFactor: number },
 ): { agent_response: string; decisions: Decision[] } {
   const decisions: Decision[] = [];
   const msgLower = userMessage.toLowerCase();
+  const equipmentProfiles = buildEquipmentProfiles(options.dieselFactor);
 
   const resolveTypes = new Set<string>();
   if (msgLower.includes("tipo b") || msgLower.includes("mão de obra") || msgLower.includes("mao de obra")) resolveTypes.add("B");
@@ -79,7 +100,7 @@ export function resolveLocally(
         save_as_rule: true,
       });
     } else if (itemType === "E") {
-      const profile = matchEquipmentProfile(item.description);
+      const profile = matchEquipmentProfile(item.description, equipmentProfiles);
       if (!profile) {
         decisions.push({
           item_id: item.item_id, action: "exclude",
@@ -125,5 +146,3 @@ export function resolveLocally(
 
   return { agent_response: agentResponse, decisions };
 }
-
-export { EQUIPMENT_PROFILES };

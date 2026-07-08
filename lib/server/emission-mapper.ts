@@ -19,6 +19,7 @@ import {
   searchCecarbon,
 } from "@/lib/server/supabase-emission";
 import { resolveConversion } from "@/lib/server/calculator";
+import { computeCo2e } from "@/lib/server/gwp";
 import { normalizeKeyword } from "@/lib/server/keyword";
 import {
   vectorSearchCandidates,
@@ -630,6 +631,13 @@ export interface AutoMatchResult {
   results: MatchCandidate[];
   best: MatchCandidate | null;
   confidence: "high" | "medium" | "low" | null;
+  /**
+   * Erros de busca por tier (ex.: Supabase fora do ar). Permite distinguir
+   * "nenhum fator encontrado" de "a busca do tier falhou" — antes esses
+   * erros eram engolidos por catch vazio e o item ficava pending sem
+   * diagnóstico.
+   */
+  errors?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -692,6 +700,12 @@ export async function autoMatchItem(
   const cecarbonQueries = buildCecarbonQueries(keywords);
 
   const allCandidates: MatchCandidate[] = [];
+  const tierErrors: string[] = [];
+  const recordTierError = (tier: string, query: string, e: unknown) => {
+    const msg = `${tier}: falha na busca por '${query}' — ${e instanceof Error ? e.message : String(e)}`;
+    console.error(`[emission-mapper] ${msg}`);
+    tierErrors.push(msg);
+  };
 
   // ---------------------------------------------------------------
   // Tier 1: GHG Protocol (combustíveis e transporte — fonte BR)
@@ -702,14 +716,10 @@ export async function autoMatchItem(
         const rows = await searchGhg(kw, 5);
         for (const row of rows) {
           const score = scoreGhg(description, row, ecoinventQueries);
-          const co2 = parseFloat(String(row.co2 ?? 0));
-          const ch4 = parseFloat(String(row.ch4 ?? 0));
-          const n2o = parseFloat(String(row.n2o ?? 0));
-          const co2e = co2 + ch4 * 28 + n2o * 265;
           allCandidates.push({
             source_tier: "ghg_protocol",
             score,
-            factor_value: Math.round(co2e * 1000000) / 1000000,
+            factor_value: computeCo2e(row),
             factor_unit: "kgCO2e",
             product_unit: "",
             factor_name: (row.produto as string) ?? "",
@@ -718,7 +728,8 @@ export async function autoMatchItem(
             ghg_factor_id: row.id as number,
           });
         }
-      } catch {
+      } catch (e) {
+        recordTierError("ghg_protocol", kw, e);
         continue;
       }
     }
@@ -753,7 +764,8 @@ export async function autoMatchItem(
           density: density ? parseFloat(String(density)) : 1.0,
         });
       }
-    } catch {
+    } catch (e) {
+      recordTierError("cecarbon", q, e);
       continue;
     }
   }
@@ -793,7 +805,8 @@ export async function autoMatchItem(
           ecoinvent_activity_id: row.activity_id as string,
         });
       }
-    } catch {
+    } catch (e) {
+      recordTierError("ecoinvent", q, e);
       continue;
     }
   }
@@ -963,6 +976,7 @@ export async function autoMatchItem(
     results: unique.slice(0, 10),
     best,
     confidence,
+    ...(tierErrors.length > 0 ? { errors: tierErrors } : {}),
   };
 }
 
