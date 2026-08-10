@@ -3,6 +3,7 @@ import { supabase } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import type { AuthUser } from "@/lib/server/auth";
 import { assertScenarioOwnership, ForbiddenError, forbidden } from "@/lib/server/access";
+import { chunkArray } from "@/lib/server/db-utils";
 
 // ---------------------------------------------------------------------------
 // GET /api/scenarios/[scenarioId] — scenario detail with items
@@ -58,13 +59,15 @@ export async function GET(
   const abcItemsMap: Record<string, Record<string, unknown>> = {};
 
   if (abcItemIds.length > 0) {
-    const { data: abcItems } = await supabase
-      .from("abc_items")
-      .select("*")
-      .in("id", abcItemIds);
+    for (const chunk of chunkArray(abcItemIds)) {
+      const { data: abcItems } = await supabase
+        .from("abc_items")
+        .select("*")
+        .in("id", chunk);
 
-    for (const ai of abcItems ?? []) {
-      abcItemsMap[ai.id] = ai;
+      for (const ai of abcItems ?? []) {
+        abcItemsMap[ai.id] = ai;
+      }
     }
   }
 

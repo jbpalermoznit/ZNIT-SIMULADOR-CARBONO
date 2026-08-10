@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import { supabase } from "@/lib/server/supabase";
+import { chunkArray } from "@/lib/server/db-utils";
 import ExcelJS from "exceljs";
 
 export async function GET(
@@ -41,9 +42,9 @@ export async function GET(
 
     const abcIds = (scenItems ?? []).map((si) => si.abc_item_id);
     const abcMap: Record<string, Record<string, unknown>> = {};
-    if (abcIds.length > 0) {
+    for (const chunk of chunkArray(abcIds)) {
       const { data: abcItems } = await supabase
-        .from("abc_items").select("*").in("id", abcIds);
+        .from("abc_items").select("*").in("id", chunk);
       for (const ai of abcItems ?? []) abcMap[ai.id] = ai;
     }
 

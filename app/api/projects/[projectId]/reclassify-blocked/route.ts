@@ -18,6 +18,7 @@ import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import { supabase } from "@/lib/server/supabase";
 import { runEnrichedAutoMapForCurve } from "@/lib/server/auto-map";
 import { recalculateScenario } from "@/lib/server/calculator";
+import { chunkArray } from "@/lib/server/db-utils";
 
 export const maxDuration = 300;
 
@@ -80,21 +81,29 @@ export async function POST(
 
     let autoExcludedIds: string[] = [];
     if (excludedIds.length > 0) {
-      const { data: excludedMappings } = await supabase
-        .from("item_mappings")
-        .select("abc_item_id, mapped_by, exclusion_justification")
-        .in("abc_item_id", excludedIds);
+      const excludedMappings: Array<{
+        abc_item_id: string;
+        mapped_by: string | null;
+        exclusion_justification: string | null;
+      }> = [];
+      for (const chunk of chunkArray(excludedIds)) {
+        const { data } = await supabase
+          .from("item_mappings")
+          .select("abc_item_id, mapped_by, exclusion_justification")
+          .in("abc_item_id", chunk);
+        excludedMappings.push(...(data ?? []));
+      }
       const autoMarkers = [
         "classificação automática por código de custo",
         "decomposto pelo Relatório Proof",
       ];
-      autoExcludedIds = (excludedMappings ?? [])
+      autoExcludedIds = excludedMappings
         .filter((m) => {
           if (m.mapped_by !== "excluded") return false;
           const j = String(m.exclusion_justification ?? "");
           return autoMarkers.some((marker) => j.includes(marker));
         })
-        .map((m) => m.abc_item_id as string);
+        .map((m) => m.abc_item_id);
     }
 
     // === Pass B: legacy EPD auto-mappings ================================
@@ -122,37 +131,40 @@ export async function POST(
         if (typeById.get(id) === "C") cIds.push(id);
         else pendingIds.push(id);
       }
-      await supabase
-        .from("item_mappings")
-        .delete()
-        .in("abc_item_id", autoExcludedIds);
-      if (cIds.length > 0) {
+      for (const chunk of chunkArray(autoExcludedIds)) {
+        await supabase.from("item_mappings").delete().in("abc_item_id", chunk);
+      }
+      for (const chunk of chunkArray(cIds)) {
         await supabase
           .from("abc_items")
           .update({ mapping_status: "blocked" })
-          .in("id", cIds);
+          .in("id", chunk);
       }
-      if (pendingIds.length > 0) {
+      for (const chunk of chunkArray(pendingIds)) {
         await supabase
           .from("abc_items")
           .update({ mapping_status: "pending" })
-          .in("id", pendingIds);
+          .in("id", chunk);
       }
       revertedTotal += autoExcludedIds.length;
     }
 
     // Revert Pass B: drop EPD auto-mapping rows, mark items pending.
     if (epdAutoIds.length > 0) {
-      await supabase
-        .from("item_mappings")
-        .delete()
-        .in("abc_item_id", epdAutoIds)
-        .eq("mapped_by", "auto")
-        .eq("source_tier", "epd");
-      await supabase
-        .from("abc_items")
-        .update({ mapping_status: "pending" })
-        .in("id", epdAutoIds);
+      for (const chunk of chunkArray(epdAutoIds)) {
+        await supabase
+          .from("item_mappings")
+          .delete()
+          .in("abc_item_id", chunk)
+          .eq("mapped_by", "auto")
+          .eq("source_tier", "epd");
+      }
+      for (const chunk of chunkArray(epdAutoIds)) {
+        await supabase
+          .from("abc_items")
+          .update({ mapping_status: "pending" })
+          .in("id", chunk);
+      }
       revertedEpdTotal += epdAutoIds.length;
     }
 
