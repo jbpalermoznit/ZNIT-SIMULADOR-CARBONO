@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import { supabase } from "@/lib/server/supabase";
+import { chunkArray } from "@/lib/server/db-utils";
 import ExcelJS from "exceljs";
 
 // ---------------------------------------------------------------------------
@@ -64,11 +65,15 @@ export async function GET(
 
   const abcIds = scenItems.map((si) => si.abc_item_id);
   const abcMap = new Map<string, Row>();
-  const { data: abcItems } = await supabase.from("abc_items").select("*").in("id", abcIds);
-  for (const ai of abcItems ?? []) abcMap.set(ai.id as string, ai);
+  const abcItems: Row[] = [];
+  for (const chunk of chunkArray(abcIds)) {
+    const { data } = await supabase.from("abc_items").select("*").in("id", chunk);
+    abcItems.push(...(data ?? []));
+  }
+  for (const ai of abcItems) abcMap.set(ai.id as string, ai);
 
   // Parents (blocked compositions) live on the curve, not in scenario_items.
-  const curveId = (abcItems?.[0]?.abc_curve_id as string | undefined) ?? null;
+  const curveId = (abcItems[0]?.abc_curve_id as string | undefined) ?? null;
   let parents: Row[] = [];
   if (curveId) {
     const { data: blocked } = await supabase

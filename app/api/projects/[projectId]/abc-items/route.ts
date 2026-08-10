@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { supabase } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import type { AuthUser } from "@/lib/server/auth";
+import { chunkArray } from "@/lib/server/db-utils";
 
 interface AssemblyRow {
   code?: string;
@@ -116,24 +117,37 @@ export async function GET(
   // Items page can reflect per-scenario factor substitutions instead of
   // always showing the project default.
   const itemIds = allItems.map((i) => i.id);
-  const { data: mappings } = await supabase
-    .from("item_mappings")
-    .select("*")
-    .in("abc_item_id", itemIds);
-
   const mappingByItem: Record<string, Record<string, unknown>> = {};
-  for (const m of mappings ?? []) {
-    mappingByItem[m.abc_item_id] = m;
+  for (const chunk of chunkArray(itemIds)) {
+    const { data: mappings } = await supabase
+      .from("item_mappings")
+      .select("*")
+      .in("abc_item_id", chunk);
+    for (const m of mappings ?? []) {
+      mappingByItem[m.abc_item_id] = m;
+    }
   }
 
   const scenarioIdParam = searchParams.get("scenario_id");
   if (scenarioIdParam) {
-    const { data: sItems } = await supabase
-      .from("scenario_items")
-      .select("abc_item_id, factor_value, factor_unit, factor_name, source_tier, is_excluded, exclusion_reason")
-      .eq("scenario_id", scenarioIdParam)
-      .in("abc_item_id", itemIds);
-    for (const si of sItems ?? []) {
+    const sItems: Array<{
+      abc_item_id: string;
+      factor_value: unknown;
+      factor_unit: unknown;
+      factor_name: unknown;
+      source_tier: unknown;
+      is_excluded: unknown;
+      exclusion_reason: unknown;
+    }> = [];
+    for (const chunk of chunkArray(itemIds)) {
+      const { data } = await supabase
+        .from("scenario_items")
+        .select("abc_item_id, factor_value, factor_unit, factor_name, source_tier, is_excluded, exclusion_reason")
+        .eq("scenario_id", scenarioIdParam)
+        .in("abc_item_id", chunk);
+      sItems.push(...(data ?? []));
+    }
+    for (const si of sItems) {
       const itemId = si.abc_item_id as string;
       const existing = mappingByItem[itemId] ?? {};
       mappingByItem[itemId] = {

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { supabase } from "@/lib/server/supabase";
 import { getCurrentUser, unauthorized } from "@/lib/server/auth";
 import type { AuthUser } from "@/lib/server/auth";
+import { chunkArray } from "@/lib/server/db-utils";
 
 // ---------------------------------------------------------------------------
 // GET /api/projects/[projectId]
@@ -112,8 +113,8 @@ export async function DELETE(
   }
 
   // 2. item_mappings → abc_items (no cascade). Delete first.
-  if (itemIds.length > 0) {
-    await supabase.from("item_mappings").delete().in("abc_item_id", itemIds);
+  for (const chunk of chunkArray(itemIds)) {
+    await supabase.from("item_mappings").delete().in("abc_item_id", chunk);
   }
 
   // 3. abc_curves → cascades abc_items + parent_item_id self-refs.

@@ -3,6 +3,7 @@
  * Port of backend/app/services/calculator.py
  */
 import { supabase } from "./supabase";
+import { chunkArray } from "./db-utils";
 import { geometricRecipe } from "./coverage-rules";
 import {
   getTransportFactors,
@@ -170,6 +171,7 @@ export function getConversionStatus(
 // --------------------------------------------------------------------------
 
 interface MappingRow {
+  abc_item_id: string;
   factor_value: number | null;
   factor_unit: string | null;
   factor_name: string | null;
@@ -185,6 +187,19 @@ interface AbcItemRow {
   unit: string | null;
   mapping_status: string | null;
   [key: string]: unknown;
+}
+
+async function fetchMappingsByItemIds(itemIds: string[]): Promise<MappingRow[]> {
+  const mappings: MappingRow[] = [];
+  for (const chunk of chunkArray(itemIds)) {
+    const { data, error } = await supabase
+      .from("item_mappings")
+      .select("*")
+      .in("abc_item_id", chunk);
+    if (error) throw new Error(`Erro ao buscar mapeamentos: ${error.message}`);
+    mappings.push(...((data ?? []) as MappingRow[]));
+  }
+  return mappings;
 }
 
 function calcItemEmission(item: AbcItemRow, mapping: MappingRow | null): number {
@@ -453,12 +468,9 @@ export async function createBaseScenario(
   // Pre-load mappings
   const mappingByItem: Record<string, MappingRow> = {};
   if (itemIds.length > 0) {
-    const { data: mappings } = await supabase
-      .from("item_mappings")
-      .select("*")
-      .in("abc_item_id", itemIds);
+    const mappings = await fetchMappingsByItemIds(itemIds);
 
-    for (const m of mappings ?? []) {
+    for (const m of mappings) {
       mappingByItem[m.abc_item_id] = m as MappingRow;
     }
   }
@@ -536,12 +548,9 @@ export async function recalculateScenario(scenarioId: string) {
   const abcItemIds = (scenarioItems ?? []).map((si) => si.abc_item_id).filter(Boolean);
   const mappingByItem: Record<string, MappingRow> = {};
   if (abcItemIds.length > 0) {
-    const { data: mappings } = await supabase
-      .from("item_mappings")
-      .select("*")
-      .in("abc_item_id", abcItemIds);
-    for (const m of mappings ?? []) {
-      mappingByItem[(m as { abc_item_id: string }).abc_item_id] = m as MappingRow;
+    const mappings = await fetchMappingsByItemIds(abcItemIds);
+    for (const m of mappings) {
+      mappingByItem[m.abc_item_id] = m;
     }
   }
   const transportFactors = await loadTransportFactorsIfNeeded(

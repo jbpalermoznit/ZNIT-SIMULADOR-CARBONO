@@ -10,6 +10,7 @@ import {
   compareByAbatementCost,
 } from "@/lib/macc-economics";
 import type { AuthUser } from "@/lib/server/auth";
+import { chunkArray } from "@/lib/server/db-utils";
 
 export const maxDuration = 60;
 
@@ -350,14 +351,15 @@ export async function GET(
 
   // Load mappings
   const itemIds = items.map((i) => i.id);
-  const { data: mappings } = await supabase
-    .from("item_mappings")
-    .select("*")
-    .in("abc_item_id", itemIds);
-
   const mappingByItem: Record<string, Record<string, unknown>> = {};
-  for (const m of mappings ?? []) {
-    mappingByItem[m.abc_item_id] = m;
+  for (const chunk of chunkArray(itemIds)) {
+    const { data: mappings } = await supabase
+      .from("item_mappings")
+      .select("*")
+      .in("abc_item_id", chunk);
+    for (const m of mappings ?? []) {
+      mappingByItem[m.abc_item_id] = m;
+    }
   }
 
   // Registro da empresa (preço + GWP manual por EPD).

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { supabase } from "@/lib/server/supabase";
 import { resolveConversion } from "@/lib/server/calculator";
 import { authenticatePowerBI, powerbiUnauthorized } from "@/lib/server/powerbi-auth";
+import { chunkArray } from "@/lib/server/db-utils";
 
 export async function GET(
   req: NextRequest,
@@ -25,9 +26,13 @@ export async function GET(
     .from("abc_items").select("*").eq("abc_curve_id", curve.id).order("item_order");
   if (!items?.length) return Response.json([]);
 
-  const { data: mappings } = await supabase
-    .from("item_mappings").select("*").in("abc_item_id", items.map((i) => i.id));
-  const mMap = new Map((mappings ?? []).map((m) => [m.abc_item_id, m]));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mappings: any[] = [];
+  for (const chunk of chunkArray(items.map((i) => i.id))) {
+    const { data } = await supabase.from("item_mappings").select("*").in("abc_item_id", chunk);
+    mappings.push(...(data ?? []));
+  }
+  const mMap = new Map(mappings.map((m) => [m.abc_item_id as string, m]));
 
   const rows = items.map((item) => {
     const m = mMap.get(item.id);
