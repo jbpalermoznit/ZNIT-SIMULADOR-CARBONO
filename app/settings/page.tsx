@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { useOrganization, useClerk } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { Check, Upload, X } from "lucide-react";
 
@@ -38,6 +39,8 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<BrandingSettings>(defaultSettings());
   const [saved, setSaved] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const { organization } = useOrganization();
+  const clerk = useClerk();
 
   useEffect(() => {
     setSettings(loadSettings());
@@ -76,6 +79,33 @@ export default function SettingsPage() {
       </div>
 
       <div className="bg-white rounded-xl border border-[#E0E4E3] divide-y divide-[#F0F4F3]">
+        {/* Platform logo — per organization, managed by Clerk (not localStorage:
+            each org only ever sees/sets its own logo, enforced by Clerk itself). */}
+        <div className="px-6 py-5">
+          <h2 className="text-sm font-bold text-[#030304] mb-1">Logo da Plataforma</h2>
+          <p className="text-xs text-[#808181] mb-4">
+            Aparece no menu lateral no lugar do logo ZNIT. Cada organização define e vê apenas o seu próprio logo.
+          </p>
+          <div className="flex items-center gap-4">
+            <div className="w-20 h-20 rounded-lg border-2 border-dashed border-[#E0E4E3] flex items-center justify-center bg-[#F8FAF9] overflow-hidden shrink-0">
+              {organization?.hasImage ? (
+                <img src={organization.imageUrl} alt={organization.name} className="w-full h-full object-contain p-1" />
+              ) : (
+                <span className="text-xs text-[#BDBDBC] text-center">Logo ZNIT (padrão)</span>
+              )}
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs text-[#404040]">
+                Organização atual: <span className="font-semibold">{organization?.name ?? "—"}</span>
+              </p>
+              <Button size="sm" variant="outline" onClick={() => clerk.openOrganizationProfile()}>
+                <Upload size={13} />
+                {organization?.hasImage ? "Trocar logo da organização" : "Definir logo da organização"}
+              </Button>
+            </div>
+          </div>
+        </div>
+
         {/* Branding / Identity */}
         <div className="px-6 py-5">
           <h2 className="text-sm font-bold text-[#030304] mb-4">Identidade Visual — Relatórios</h2>
