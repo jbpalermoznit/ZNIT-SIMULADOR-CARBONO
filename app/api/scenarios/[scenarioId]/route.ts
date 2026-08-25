@@ -102,6 +102,8 @@ export async function GET(
         parent_item_id: ai.parent_item_id ?? null,
         classification_note: ai.classification_note ?? null,
         mapping_status: ai.mapping_status ?? null,
+        phase: ai.phase ?? null,
+        factor_version: (si as Record<string, unknown>).factor_version ?? null,
       };
     })
     .sort(
@@ -120,7 +122,7 @@ export async function GET(
   if (curveId) {
     const { data: blockedItems } = await supabase
       .from("abc_items")
-      .select("id, cost_code, description, quantity, unit, total_cost, item_type, item_order, mapping_status, classification_note")
+      .select("id, cost_code, description, quantity, unit, total_cost, item_type, item_order, mapping_status, classification_note, phase")
       .eq("abc_curve_id", curveId)
       .eq("mapping_status", "blocked")
       .order("item_order");
@@ -136,6 +138,7 @@ export async function GET(
       item_order: bi.item_order,
       mapping_status: bi.mapping_status,
       classification_note: bi.classification_note,
+      phase: bi.phase ?? null,
       parent_item_id: null,
       is_parent: true,
       // Sum child emissions

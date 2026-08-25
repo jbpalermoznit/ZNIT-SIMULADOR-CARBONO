@@ -114,8 +114,8 @@ export async function GET(
 
     const headers = [
       "Cenário", "Descrição", "CostCode", "Tipo", "Classe", "Unidade",
-      "Quantidade", "Custo Total (R$)",
-      "Fator de Emissão", "Unidade Fator", "Fonte", "Status", "Emissões (tCO₂e)",
+      "Quantidade", "Custo Total (R$)", "Fase",
+      "Fator de Emissão", "Unidade Fator", "Fonte", "Versão do Fator", "Status", "Emissões (tCO₂e)",
     ];
     const escape = (v: unknown): string => {
       if (v === null || v === undefined) return "";
@@ -132,8 +132,8 @@ export async function GET(
         scenarioName,
         (si.is_excluded ? "[excluído] " : "") + (ai.description as string),
         ai.cost_code, ai.item_type, ai.abc_class, ai.unit,
-        ai.quantity, ai.total_cost,
-        si.factor_value ?? "", si.factor_unit ?? "", si.source_tier ?? "",
+        ai.quantity, ai.total_cost, ai.phase ?? "",
+        si.factor_value ?? "", si.factor_unit ?? "", si.source_tier ?? "", si.factor_version ?? "",
         si.is_excluded ? "excluído" : ai.mapping_status,
         si.is_excluded ? 0 : emT(si),
       ].map(escape).join(";"));
@@ -143,7 +143,7 @@ export async function GET(
       const parentT = kids.reduce((s, si) => s + emT(si), 0);
       lines.push([
         scenarioName, parent.description, parent.cost_code, parent.item_type, parent.abc_class,
-        parent.unit, parent.quantity, parent.total_cost, "", "", "", "composição",
+        parent.unit, parent.quantity, parent.total_cost, parent.phase ?? "", "", "", "", "", "composição",
         Math.round(parentT * 10000) / 10000,
       ].map(escape).join(";"));
       for (const si of kids) pushItem(abcMap.get(si.abc_item_id as string)!, si);
@@ -169,8 +169,8 @@ export async function GET(
   const HEADER_BG = "FF1D7A6B";
 
   const headers = [
-    "Cenário", "Descrição", "Un", "Quantidade", "Emissões (tCO₂e)", "Código",
-    "Fator de Emissão", "Unidade Fator", "Fonte",
+    "Cenário", "Descrição", "Un", "Quantidade", "Emissões (tCO₂e)", "Código", "Fase",
+    "Fator de Emissão", "Unidade Fator", "Fonte", "Versão do Fator",
   ];
   const headerRow = ws.addRow(headers);
   headerRow.eachCell((cell) => {
@@ -190,9 +190,11 @@ export async function GET(
       ai.quantity,
       excluded ? 0 : (emT(si) > 0 ? emT(si) : ""),
       ai.cost_code,
+      ai.phase ?? "",
       si.factor_value ?? "",
       si.factor_unit ?? "",
       si.source_tier ?? "",
+      si.factor_version ?? "",
     ]);
     row.eachCell((cell) => {
       cell.font = isChild
@@ -208,7 +210,7 @@ export async function GET(
     const kids = childrenByParent.get(parent.id as string) ?? [];
     const pRow = ws.addRow([
       scenarioName, parent.description, parent.unit, parent.quantity,
-      "", parent.cost_code, "", "", "",
+      "", parent.cost_code, parent.phase ?? "", "", "", "", "",
     ]);
     pRow.eachCell((cell) => {
       cell.font = { bold: true, size: 9, name: "Calibri", color: { argb: DARK.slice(2) } };
@@ -219,7 +221,7 @@ export async function GET(
   for (const si of directItems) addChildOrDirect(abcMap.get(si.abc_item_id as string)!, si, false);
 
   ws.columns.forEach((col, i) => {
-    col.width = [14, 55, 7, 14, 16, 22, 12, 14, 14][i] ?? 12;
+    col.width = [14, 55, 7, 14, 16, 22, 14, 12, 14, 14, 14][i] ?? 12;
   });
   ws.views = [{ state: "frozen", ySplit: 1 }];
 

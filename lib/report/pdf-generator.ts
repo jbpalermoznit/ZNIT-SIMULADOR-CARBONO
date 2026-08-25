@@ -6,7 +6,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { BrandingSettings } from "@/app/settings/page";
 
-interface ReportScenario {
+export interface ReportScenario {
   name: string;
   totalTco2e: number;
   totalCostR$: number;
@@ -19,16 +19,18 @@ interface ReportScenario {
   items: ReportItem[];
 }
 
-interface ReportItem {
+export interface ReportItem {
   description: string;
   costCode: string;
   unit: string;
   quantity: number;
   emissionTco2e: number;
+  /** Fase/etapa de obra (abc_items.phase) — usada pelo relatório LEED v5 por fase. */
+  phase?: string | null;
   children?: ReportChild[];
 }
 
-interface ReportChild {
+export interface ReportChild {
   description: string;
   costCode: string;
   unit: string;
@@ -59,23 +61,20 @@ function hexRgb(hex: string): [number, number, number] {
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
-export function generateComparisonPDF(
-  data: ReportData,
-  branding: BrandingSettings
-): jsPDF {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const pageW = doc.internal.pageSize.getWidth();
-  const pageH = doc.internal.pageSize.getHeight();
-  const ml = 15; // margin left
-  const mr = 15;
-  let y = ml;
-
-  const pc = branding.primaryColor || "#56B7A5";
-  const rgb = hexRgb(pc);
-  const aName = data.scenarioA.name.split(" - ").pop() || "Padrao";
-  const bName = data.scenarioB.name.split(" - ").pop() || "Novo";
-
-  // ── Helpers ─────────────────────────────────────────────────────────
+/**
+ * Helpers de desenho compartilhados entre os geradores de relatório
+ * (logo/rodapé/linha de cabeçalho) — mesmo padrão visual em todo PDF.
+ * `getY`/`setY` indiretos porque cada gerador mantém seu próprio cursor Y.
+ */
+function createPdfHelpers(
+  doc: jsPDF,
+  branding: BrandingSettings,
+  pageW: number,
+  pageH: number,
+  ml: number,
+  mr: number,
+  rgb: [number, number, number]
+) {
   const drawLogo = (xRight: number, yTop: number, maxW: number, maxH: number) => {
     if (branding.companyLogo) {
       try {
@@ -109,12 +108,33 @@ export function generateComparisonPDF(
     doc.text("Pag. " + pg, pageW - mr, pageH - 7, { align: "right" });
   };
 
-  const drawHeaderLine = () => {
+  const drawHeaderLine = (y: number) => {
     doc.setDrawColor(...rgb);
     doc.setLineWidth(0.4);
     doc.line(ml, y, pageW - mr, y);
-    y += 4;
+    return y + 4;
   };
+
+  return { drawLogo, drawFooter, drawHeaderLine };
+}
+
+export function generateComparisonPDF(
+  data: ReportData,
+  branding: BrandingSettings
+): jsPDF {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const ml = 15; // margin left
+  const mr = 15;
+  let y = ml;
+
+  const pc = branding.primaryColor || "#56B7A5";
+  const rgb = hexRgb(pc);
+  const aName = data.scenarioA.name.split(" - ").pop() || "Padrao";
+  const bName = data.scenarioB.name.split(" - ").pop() || "Novo";
+
+  const { drawLogo, drawFooter, drawHeaderLine } = createPdfHelpers(doc, branding, pageW, pageH, ml, mr, rgb);
 
   // ── PAGE 1: Header + Indicators ────────────────────────────────────
   // Logo
@@ -127,7 +147,7 @@ export function generateComparisonPDF(
   doc.text("RELATORIO COMPARATIVO DE EMISSOES", ml, y + 7);
 
   y += 12;
-  drawHeaderLine();
+  y = drawHeaderLine(y);
 
   // Scenario identification
   doc.setFontSize(8);
@@ -219,7 +239,7 @@ export function generateComparisonPDF(
     ml, y + 11
   );
   y += 14;
-  drawHeaderLine();
+  y = drawHeaderLine(y);
 
   // Build detail rows
   const allItems = [
@@ -271,6 +291,176 @@ export function generateComparisonPDF(
     },
     rowPageBreak: "auto",
   });
+
+  return doc;
+}
+
+export interface PhaseReportData {
+  projectName: string;
+  scenario: ReportScenario;
+  createdAt: string;
+}
+
+interface PhaseGroup {
+  phase: string;
+  tco2e: number;
+  items: ReportItem[];
+}
+
+const UNCLASSIFIED_PHASE = "Nao classificado";
+
+/**
+ * Agrupa por fase somando só os itens de topo (`emissionTco2e` do pai já
+ * inclui os filhos, mesmo padrão de agregação usado no Overview) — os
+ * filhos entram na tabela de detalhe de cada fase, mas não no subtotal.
+ */
+function groupItemsByPhase(items: ReportItem[]): PhaseGroup[] {
+  const groups = new Map<string, PhaseGroup>();
+  for (const item of items) {
+    const phase = item.phase?.trim() || UNCLASSIFIED_PHASE;
+    let group = groups.get(phase);
+    if (!group) {
+      group = { phase, tco2e: 0, items: [] };
+      groups.set(phase, group);
+    }
+    group.tco2e += item.emissionTco2e;
+    group.items.push(item);
+  }
+  return [...groups.values()].sort((x, y) => y.tco2e - x.tco2e);
+}
+
+export function generatePhaseReportPDF(
+  data: PhaseReportData,
+  branding: BrandingSettings
+): jsPDF {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const ml = 15;
+  const mr = 15;
+  let y = ml;
+
+  const pc = branding.primaryColor || "#56B7A5";
+  const rgb = hexRgb(pc);
+  const { drawLogo, drawFooter, drawHeaderLine } = createPdfHelpers(doc, branding, pageW, pageH, ml, mr, rgb);
+
+  const groups = groupItemsByPhase(data.scenario.items);
+  const totalTco2e = groups.reduce((sum, g) => sum + g.tco2e, 0);
+
+  // ── PAGE 1: Header + Phase summary ─────────────────────────────────
+  drawLogo(pageW - mr, y, 25, 10);
+
+  doc.setFontSize(13);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(3, 3, 4);
+  doc.text("RELATORIO DE CARBONO POR FASE DE OBRA (LEED v5)", ml, y + 7);
+
+  y += 12;
+  y = drawHeaderLine(y);
+
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(128, 129, 129);
+  doc.text("Projeto: " + data.projectName + "  |  Emitido em: " + data.createdAt, ml, y + 3);
+
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(3, 3, 4);
+  doc.text("Cenario:  " + data.scenario.name, ml, y + 9);
+  y += 14;
+
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(...rgb);
+  doc.text(fmtN(totalTco2e) + " tCO2e", ml, y + 7);
+  y += 14;
+
+  const summaryRows = groups.map((g) => [
+    g.phase,
+    fmtN(g.tco2e),
+    (totalTco2e > 0 ? (g.tco2e / totalTco2e * 100) : 0).toFixed(1) + "%",
+  ]);
+
+  autoTable(doc, {
+    startY: y,
+    head: [["Fase de Obra", "tCO2e", "% do Total"]],
+    body: summaryRows,
+    margin: { left: ml, right: mr },
+    styles: { fontSize: 8, cellPadding: 2.5, font: "helvetica" },
+    headStyles: { fillColor: rgb, textColor: [255, 255, 255], fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [248, 250, 249] },
+    columnStyles: {
+      0: { fontStyle: "bold", cellWidth: 100 },
+      1: { halign: "right" as const, cellWidth: 35 },
+      2: { halign: "right" as const, cellWidth: 30 },
+    },
+  });
+
+  drawFooter(1);
+
+  // ── PAGE 2+: One detail section per phase ──────────────────────────
+  for (const group of groups) {
+    doc.addPage();
+    y = ml;
+
+    drawLogo(pageW - mr, y, 20, 8);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(3, 3, 4);
+    doc.text("FASE: " + group.phase.toUpperCase(), ml, y + 6);
+
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(128, 129, 129);
+    doc.text(
+      fmtN(group.tco2e) + " tCO2e  |  " + (totalTco2e > 0 ? (group.tco2e / totalTco2e * 100) : 0).toFixed(1) + "% do total",
+      ml, y + 11
+    );
+    y += 14;
+    y = drawHeaderLine(y);
+
+    const detailRows: string[][] = [];
+    for (const item of group.items.sort((x, yy) => yy.emissionTco2e - x.emissionTco2e)) {
+      detailRows.push([
+        item.description,
+        item.unit,
+        fmtN(item.quantity, 0),
+        fmtN(item.emissionTco2e),
+        item.costCode,
+      ]);
+      if (item.children) {
+        for (const child of item.children.slice(0, 6)) {
+          detailRows.push([
+            "  > " + child.description,
+            child.unit,
+            fmtN(child.quantity, 1),
+            fmtN(child.emissionTco2e, 4),
+            "FE: " + child.factorValue + " | " + child.factorSource,
+          ]);
+        }
+      }
+    }
+
+    autoTable(doc, {
+      startY: y,
+      head: [["Descricao", "Un", "Quantidade", "tCO2e", "Codigo"]],
+      body: detailRows,
+      margin: { left: ml, right: mr },
+      styles: { fontSize: 6.5, cellPadding: 1.5, font: "helvetica", overflow: "linebreak" },
+      headStyles: { fillColor: rgb, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7 },
+      columnStyles: {
+        0: { cellWidth: 74 },
+        1: { cellWidth: 10, halign: "center" as const },
+        2: { cellWidth: 20, halign: "right" as const },
+        3: { cellWidth: 18, halign: "right" as const, fontStyle: "bold" },
+        4: { cellWidth: 40, fontSize: 5.5, textColor: [128, 128, 128] },
+      },
+      didDrawPage: (hookData) => {
+        drawFooter(hookData.pageNumber);
+      },
+      rowPageBreak: "auto",
+    });
+  }
 
   return doc;
 }

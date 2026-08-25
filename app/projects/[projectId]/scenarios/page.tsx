@@ -453,22 +453,24 @@ function ImpactAnalysis({ scenarioId, projectId }: { scenarioId: string; project
 function ScenarioComparison({ scenarios }: { scenarios: ScenarioResponse[] }) {
   const [details, setDetails] = useState<Record<string, ScenarioDetailResponse>>({});
   const [loading, setLoading] = useState(true);
-  const [compareIds, setCompareIds] = useState<[string, string] | null>(null);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
 
-  // Auto-select first two scenarios
+  // Auto-select first two scenarios (Base first, when present)
   useEffect(() => {
     if (scenarios.length >= 2) {
-      const ids = scenarios.slice(0, 2).map((s) => s.id) as [string, string];
-      setCompareIds(ids);
+      const sorted = [...scenarios].sort((a, b) => (b.is_base ? 1 : 0) - (a.is_base ? 1 : 0));
+      setCompareIds(sorted.slice(0, 2).map((s) => s.id));
     }
   }, [scenarios]);
 
   useEffect(() => {
-    if (!compareIds) return;
+    if (compareIds.length < 2) return;
     setLoading(true);
     Promise.all(compareIds.map((id) => getScenario(id)))
-      .then(([a, b]) => {
-        setDetails({ [compareIds[0]]: a, [compareIds[1]]: b });
+      .then((results) => {
+        const byId: Record<string, ScenarioDetailResponse> = {};
+        compareIds.forEach((id, i) => { byId[id] = results[i]; });
+        setDetails(byId);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -484,23 +486,66 @@ function ScenarioComparison({ scenarios }: { scenarios: ScenarioResponse[] }) {
     );
   }
 
-  if (loading || !compareIds) {
-    return <div className="py-12 text-center"><Loader2 size={20} className="text-[#56B7A5] animate-spin mx-auto" /></div>;
+  const toggleCompare = (id: string) => {
+    setCompareIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  // Selector — chips de multi-seleção em vez de 2 dropdowns fixos.
+  const selector = (
+    <div className="bg-white rounded-xl border border-[#E0E4E3] p-4">
+      <label className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide mb-2 block">
+        Cenários selecionados para comparação ({compareIds.length})
+      </label>
+      <div className="flex flex-wrap gap-2">
+        {scenarios.map((s) => {
+          const active = compareIds.includes(s.id);
+          return (
+            <button
+              key={s.id}
+              onClick={() => toggleCompare(s.id)}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all",
+                active
+                  ? "bg-[#56B7A5] border-[#56B7A5] text-white"
+                  : "bg-white border-[#E0E4E3] text-[#808181] hover:border-[#81C8B9]"
+              )}
+            >
+              {s.name}{s.is_base ? " (Base)" : ""} · {(s.result?.total_tco2e ?? 0).toFixed(1)} tCO₂e
+            </button>
+          );
+        })}
+      </div>
+      {compareIds.length < 2 && (
+        <p className="text-xs text-[#b45309] mt-2">Selecione pelo menos 2 cenários.</p>
+      )}
+    </div>
+  );
+
+  if (compareIds.length < 2) {
+    return <div className="space-y-6">{selector}</div>;
   }
 
-  const scenA = scenarios.find((s) => s.id === compareIds[0]);
-  const scenB = scenarios.find((s) => s.id === compareIds[1]);
-  const detailA = details[compareIds[0]];
-  const detailB = details[compareIds[1]];
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        {selector}
+        <div className="py-12 text-center"><Loader2 size={20} className="text-[#56B7A5] animate-spin mx-auto" /></div>
+      </div>
+    );
+  }
 
-  if (!scenA || !scenB || !detailA || !detailB) return null;
+  const selected = compareIds
+    .map((id) => ({ scen: scenarios.find((s) => s.id === id), detail: details[id] }))
+    .filter((x): x is { scen: ScenarioResponse; detail: ScenarioDetailResponse } => !!x.scen && !!x.detail);
 
-  const rA = scenA.result;
-  const rB = scenB.result;
-  const totalA = rA?.total_tco2e ?? 0;
-  const totalB = rB?.total_tco2e ?? 0;
-  const diff = totalA - totalB;
-  const diffPct = totalA > 0 ? (diff / totalA) * 100 : 0;
+  if (selected.length < 2) return <div className="space-y-6">{selector}</div>;
+
+  // Ancora as diferenças % no cenário Base do projeto (mesmo critério do
+  // export Excel) — se nenhum dos selecionados for o Base, usa o primeiro.
+  const baseIdxFound = selected.findIndex((s) => s.scen.is_base);
+  const baseIdx = baseIdxFound >= 0 ? baseIdxFound : 0;
 
   // Group items by material description for side-by-side
   const groupItems = (items: ScenarioItemResponse[]) => {
@@ -515,16 +560,14 @@ function ScenarioComparison({ scenarios }: { scenarios: ScenarioResponse[] }) {
     return groups;
   };
 
-  const groupsA = groupItems(detailA.items);
-  const groupsB = groupItems(detailB.items);
-  const allMaterials = [...new Set([...Object.keys(groupsA), ...Object.keys(groupsB)])];
+  const groupsPerScenario = selected.map((s) => groupItems(s.detail.items));
+  const allMaterials = [...new Set(groupsPerScenario.flatMap((g) => Object.keys(g)))];
   const materialRows = allMaterials
     .map((name) => ({
       name,
-      a: groupsA[name]?.tco2e ?? 0,
-      b: groupsB[name]?.tco2e ?? 0,
+      values: groupsPerScenario.map((g) => g[name]?.tco2e ?? 0),
     }))
-    .sort((x, y) => Math.max(y.a, y.b) - Math.max(x.a, x.b))
+    .sort((x, y) => Math.max(...y.values) - Math.max(...x.values))
     .slice(0, 15);
 
   // Calculate report-style indicators
@@ -540,7 +583,7 @@ function ScenarioComparison({ scenarios }: { scenarios: ScenarioResponse[] }) {
 
     for (const item of items) {
       if (item.is_excluded) continue;
-      const desc = (item.description ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const desc = (item.description ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
       const tco2e = item.emission_tco2e ?? 0;
       const qty = item.quantity ?? 0;
       const unit = (item.unit ?? "").toLowerCase();
@@ -566,65 +609,68 @@ function ScenarioComparison({ scenarios }: { scenarios: ScenarioResponse[] }) {
     };
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const indA = calcIndicators(detailA.items, ((detailA as any).parent_items ?? []) as Record<string, unknown>[]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const indB = calcIndicators(detailB.items, ((detailB as any).parent_items ?? []) as Record<string, unknown>[]);
+  const perScenario = selected.map((s) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parents = ((s.detail as any).parent_items ?? []) as Record<string, unknown>[];
+    return {
+      scen: s.scen,
+      result: s.scen.result,
+      ind: calcIndicators(s.detail.items, parents),
+    };
+  });
 
   const fmtNum = (v: number, d = 2) => v.toLocaleString("pt-BR", { maximumFractionDigits: d });
   const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
-  const pctDiff = (a: number, b: number) => a > 0 ? ((a - b) / a * 100) : 0;
+  const pctDiff = (base: number, v: number) => base > 0 ? ((base - v) / base * 100) : 0;
+  const shortName = (n: string) => n.split(" - ").pop() ?? n;
+
+  const baseTotal = perScenario[baseIdx].result?.total_tco2e ?? 0;
+
+  type MetricRow = { label: string; fmt: (v: number) => string; highlight?: boolean; values: number[] };
+  const metricRows: MetricRow[] = [
+    { label: "Emissões Totais (tCO₂e)", fmt: (v) => fmtNum(v, 2), highlight: true, values: perScenario.map((p) => p.result?.total_tco2e ?? 0) },
+    { label: "Valor (R$)", fmt: fmtBRL, values: perScenario.map((p) => p.ind.totalCostR$) },
+    { label: "Quantidade de concreto (m³)", fmt: (v) => fmtNum(v, 1), values: perScenario.map((p) => p.ind.concretoM3) },
+    { label: "Indicador de Concreto tCO₂/m³", fmt: (v) => fmtNum(v, 2), values: perScenario.map((p) => p.ind.indicadorConcreto) },
+    { label: "Quantidade de aço (ton)", fmt: (v) => fmtNum(v, 1), values: perScenario.map((p) => p.ind.acoTon) },
+    { label: "Indicador de Aço tCO₂/ton", fmt: (v) => fmtNum(v, 2), values: perScenario.map((p) => p.ind.indicadorAco) },
+    { label: "Emissões de Materiais (tCO₂e)", fmt: (v) => fmtNum(v, 2), values: perScenario.map((p) => (p.result?.scope3_materials_kgco2e ?? 0) / 1000) },
+    { label: "Emissões de Transporte (tCO₂e)", fmt: (v) => fmtNum(v, 2), values: perScenario.map((p) => (p.result?.scope3_logistics_kgco2e ?? 0) / 1000) },
+    { label: "Cobertura", fmt: (v) => `${fmtNum(v, 1)}%`, values: perScenario.map((p) => p.result?.coverage_pct ?? 0) },
+    { label: "Itens mapeados", fmt: (v) => String(Math.round(v)), values: perScenario.map((p) => p.result?.items_mapped ?? 0) },
+  ];
 
   return (
     <div className="space-y-6">
-      {/* Scenario selectors */}
-      <div className="grid grid-cols-2 gap-4">
-        {[0, 1].map((idx) => (
-          <div key={idx}>
-            <label className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide mb-1 block">
-              {idx === 0 ? "Cenário A (Referência)" : "Cenário B (Comparação)"}
-            </label>
-            <select
-              className="w-full px-3 py-2 border border-[#E0E4E3] rounded-lg text-sm text-[#030304] focus:outline-none focus:ring-2 focus:ring-[#56B7A5]/30"
-              value={compareIds[idx]}
-              onChange={(e) => {
-                const ids = [...compareIds] as [string, string];
-                ids[idx] = e.target.value;
-                setCompareIds(ids);
-              }}
-            >
-              {scenarios.map((s) => (
-                <option key={s.id} value={s.id}>{s.name} ({(s.result?.total_tco2e ?? 0).toFixed(1)} tCO₂e)</option>
-              ))}
-            </select>
-          </div>
-        ))}
-      </div>
+      {selector}
 
-      {/* Summary KPIs */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border border-[#E0E4E3] p-5 text-center">
-          <p className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide mb-2">{scenA.name}</p>
-          <p className="text-3xl font-bold text-[#030304]">{totalA.toFixed(1)}</p>
-          <p className="text-xs text-[#808181]">tCO₂e</p>
-        </div>
-        <div className="bg-white rounded-xl border border-[#E0E4E3] p-5 text-center">
-          <p className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide mb-2">{scenB.name}</p>
-          <p className="text-3xl font-bold text-[#030304]">{totalB.toFixed(1)}</p>
-          <p className="text-xs text-[#808181]">tCO₂e</p>
-        </div>
-        <div className={cn(
-          "rounded-xl border p-5 text-center",
-          diff > 0 ? "bg-[#E6F3EE] border-[#56B7A5]" : diff < 0 ? "bg-[#FEF3C7] border-[#F59E0B]" : "bg-[#F3F4F6] border-[#E0E4E3]"
-        )}>
-          <p className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide mb-2">Redução</p>
-          <p className={cn("text-3xl font-bold", diff > 0 ? "text-[#1d7a6b]" : "text-[#b45309]")}>
-            {diff > 0 ? "-" : "+"}{Math.abs(diffPct).toFixed(1)}%
-          </p>
-          <p className="text-xs text-[#808181]">
-            {diff > 0 ? "-" : "+"}{Math.abs(diff).toFixed(1)} tCO₂e
-          </p>
-        </div>
+      {/* Summary KPIs — 1 card por cenário + Delta% vs Base pros nao-base */}
+      <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${selected.length}, minmax(0, 1fr))` }}>
+        {perScenario.map((p, i) => {
+          const total = p.result?.total_tco2e ?? 0;
+          const isBase = i === baseIdx;
+          const diff = baseTotal - total;
+          const diffPct = pctDiff(baseTotal, total);
+          return (
+            <div key={p.scen.id} className={cn(
+              "rounded-xl border p-5 text-center",
+              isBase ? "bg-white border-[#E0E4E3]"
+                : diff > 0 ? "bg-[#E6F3EE] border-[#56B7A5]"
+                : diff < 0 ? "bg-[#FEF3C7] border-[#F59E0B]" : "bg-[#F3F4F6] border-[#E0E4E3]"
+            )}>
+              <p className="text-[10px] font-semibold text-[#808181] uppercase tracking-wide mb-2">
+                {p.scen.name}{isBase ? " (Base)" : ""}
+              </p>
+              <p className="text-3xl font-bold text-[#030304]">{total.toFixed(1)}</p>
+              <p className="text-xs text-[#808181]">tCO₂e</p>
+              {!isBase && (
+                <p className={cn("text-xs font-bold mt-1", diff > 0 ? "text-[#1d7a6b]" : diff < 0 ? "text-[#b45309]" : "text-[#808181]")}>
+                  {diff > 0 ? "-" : diff < 0 ? "+" : ""}{Math.abs(diffPct).toFixed(1)}% vs Base
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Report-style indicators table */}
@@ -632,42 +678,41 @@ function ScenarioComparison({ scenarios }: { scenarios: ScenarioResponse[] }) {
         <div className="px-5 py-3 border-b border-[#E0E4E3] bg-[#F8FAF9]">
           <p className="text-xs font-bold text-[#030304]">Indicadores Comparativos</p>
         </div>
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-[#E0E4E3]">
-              <th className="text-left px-5 py-3 text-[10px] font-semibold text-[#808181] uppercase tracking-wide">Parâmetro</th>
-              <th className="text-right px-5 py-3 text-[10px] font-semibold text-[#808181] uppercase tracking-wide">{scenA.name.split(" - ").pop()}</th>
-              <th className="text-right px-5 py-3 text-[10px] font-semibold text-[#808181] uppercase tracking-wide">{scenB.name.split(" - ").pop()}</th>
-              <th className="text-right px-5 py-3 text-[10px] font-semibold text-[#808181] uppercase tracking-wide">Diferença %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              { label: "Emissões Totais (tCO₂e)", a: totalA, b: totalB, fmt: (v: number) => fmtNum(v, 2), highlight: true },
-              { label: "Valor (R$)", a: indA.totalCostR$, b: indB.totalCostR$, fmt: (v: number) => fmtBRL(v) },
-              { label: "Quantidade de concreto (m³)", a: indA.concretoM3, b: indB.concretoM3, fmt: (v: number) => fmtNum(v, 1) },
-              { label: "Indicador de Concreto tCO₂/m³", a: indA.indicadorConcreto, b: indB.indicadorConcreto, fmt: (v: number) => fmtNum(v, 2) },
-              { label: "Quantidade de aço (ton)", a: indA.acoTon, b: indB.acoTon, fmt: (v: number) => fmtNum(v, 1) },
-              { label: "Indicador de Aço tCO₂/ton", a: indA.indicadorAco, b: indB.indicadorAco, fmt: (v: number) => fmtNum(v, 2) },
-              { label: "Emissões de Materiais (tCO₂e)", a: (rA?.scope3_materials_kgco2e ?? 0) / 1000, b: (rB?.scope3_materials_kgco2e ?? 0) / 1000, fmt: (v: number) => fmtNum(v, 2) },
-              { label: "Emissões de Transporte (tCO₂e)", a: (rA?.scope3_logistics_kgco2e ?? 0) / 1000, b: (rB?.scope3_logistics_kgco2e ?? 0) / 1000, fmt: (v: number) => fmtNum(v, 2) },
-              { label: "Cobertura", a: rA?.coverage_pct ?? 0, b: rB?.coverage_pct ?? 0, fmt: (v: number) => `${fmtNum(v, 1)}%` },
-              { label: "Itens mapeados", a: rA?.items_mapped ?? 0, b: rB?.items_mapped ?? 0, fmt: (v: number) => String(Math.round(v)) },
-            ].map((row) => {
-              const d = pctDiff(row.a, row.b);
-              return (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-[#E0E4E3]">
+                <th className="text-left px-5 py-3 text-[10px] font-semibold text-[#808181] uppercase tracking-wide whitespace-nowrap">Parâmetro</th>
+                {perScenario.map((p, i) => (
+                  <th key={p.scen.id} className="text-right px-5 py-3 text-[10px] font-semibold text-[#808181] uppercase tracking-wide whitespace-nowrap">
+                    {shortName(p.scen.name)}{i === baseIdx ? " (Base)" : ""}
+                    {i !== baseIdx && <span className="block normal-case font-normal">Δ% vs Base</span>}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {metricRows.map((row) => (
                 <tr key={row.label} className={cn("border-b border-[#F0F4F3]", row.highlight ? "bg-[#F8FAF9]" : "")}>
-                  <td className={cn("px-5 py-2.5 text-[#030304]", row.highlight ? "font-bold" : "font-semibold")}>{row.label}</td>
-                  <td className="px-5 py-2.5 text-right text-[#030304] font-semibold">{row.fmt(row.a)}</td>
-                  <td className="px-5 py-2.5 text-right text-[#030304] font-semibold">{row.fmt(row.b)}</td>
-                  <td className={cn("px-5 py-2.5 text-right font-bold", d > 0 ? "text-[#1d7a6b]" : d < 0 ? "text-[#b45309]" : "text-[#808181]")}>
-                    {d !== 0 ? `${Math.abs(d).toFixed(2)}%` : "0.00%"}
-                  </td>
+                  <td className={cn("px-5 py-2.5 text-[#030304] whitespace-nowrap", row.highlight ? "font-bold" : "font-semibold")}>{row.label}</td>
+                  {row.values.map((v, i) => {
+                    const d = i !== baseIdx ? pctDiff(row.values[baseIdx], v) : null;
+                    return (
+                      <td key={i} className="px-5 py-2.5 text-right whitespace-nowrap">
+                        <span className="text-[#030304] font-semibold">{row.fmt(v)}</span>
+                        {d !== null && (
+                          <span className={cn("block font-bold", d > 0 ? "text-[#1d7a6b]" : d < 0 ? "text-[#b45309]" : "text-[#808181]")}>
+                            {d !== 0 ? `${Math.abs(d).toFixed(2)}%` : "0.00%"}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Material-by-material comparison */}
@@ -675,32 +720,29 @@ function ScenarioComparison({ scenarios }: { scenarios: ScenarioResponse[] }) {
         <div className="px-5 py-3 border-b border-[#E0E4E3] bg-[#F8FAF9]">
           <p className="text-xs font-bold text-[#030304]">Top Emissores por Material (tCO₂e)</p>
         </div>
-        <div className="max-h-[400px] overflow-y-auto">
+        <div className="max-h-[400px] overflow-y-auto overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-white">
               <tr className="border-b border-[#F0F4F3]">
-                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">Material</th>
-                <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">{scenA.name.split(" - ").pop()}</th>
-                <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">{scenB.name.split(" - ").pop()}</th>
-                <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-[#808181] uppercase">Dif.</th>
+                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-[#808181] uppercase whitespace-nowrap">Material</th>
+                {selected.map((s) => (
+                  <th key={s.scen.id} className="text-right px-3 py-2.5 text-[10px] font-semibold text-[#808181] uppercase whitespace-nowrap">
+                    {shortName(s.scen.name)}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {materialRows.map((row) => {
-                const d = row.a > 0 ? ((row.a - row.b) / row.a * 100) : 0;
-                return (
-                  <tr key={row.name} className="border-b border-[#F0F4F3]">
-                    <td className="px-4 py-2 text-[#030304] leading-snug max-w-[200px] truncate" title={row.name}>
-                      {row.name.length > 35 ? row.name.slice(0, 32) + "…" : row.name}
-                    </td>
-                    <td className="px-3 py-2 text-right text-[#030304] whitespace-nowrap">{row.a.toFixed(1)}</td>
-                    <td className="px-3 py-2 text-right text-[#030304] whitespace-nowrap">{row.b.toFixed(1)}</td>
-                    <td className={cn("px-3 py-2 text-right font-semibold whitespace-nowrap", d > 0 ? "text-[#1d7a6b]" : d < 0 ? "text-[#b45309]" : "text-[#808181]")}>
-                      {row.a === 0 && row.b === 0 ? "—" : d > 0 ? `↓${d.toFixed(0)}%` : d < 0 ? `↑${Math.abs(d).toFixed(0)}%` : "="}
-                    </td>
-                  </tr>
-                );
-              })}
+              {materialRows.map((row) => (
+                <tr key={row.name} className="border-b border-[#F0F4F3]">
+                  <td className="px-4 py-2 text-[#030304] leading-snug max-w-[200px] truncate" title={row.name}>
+                    {row.name.length > 35 ? row.name.slice(0, 32) + "…" : row.name}
+                  </td>
+                  {row.values.map((v, i) => (
+                    <td key={i} className="px-3 py-2 text-right text-[#030304] whitespace-nowrap">{v.toFixed(1)}</td>
+                  ))}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -708,7 +750,6 @@ function ScenarioComparison({ scenarios }: { scenarios: ScenarioResponse[] }) {
     </div>
   );
 }
-
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 type BottomTab = "impact" | "compare";

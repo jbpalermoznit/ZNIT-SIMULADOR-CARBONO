@@ -100,6 +100,16 @@ export function getConversionFactor(
   return 0.0;
 }
 
+/** Overrides an analyst can set on item_mappings when the automatic cascade
+ *  can't resolve a unit mismatch (see migration-v11-manual-conversion.sql). */
+export interface ManualConversionOverride {
+  /** Corrects the unit used for this item at calc time. Falsy = use itemUnit as-is. */
+  unitOverride?: string | null;
+  /** Explicit multiplier (qty in the effective unit × this = qty in factorUnit).
+   *  When set (and > 0) it wins outright over the automatic cascade. */
+  conversionFactor?: number | null;
+}
+
 /**
  * Conversão ciente da descrição: tenta a conversão direta de unidade e, se
  * for cross-family (0), tenta uma receita geométrica/densidade (PLANO §5),
@@ -108,16 +118,28 @@ export function getConversionFactor(
  * Ex.: "CONCRETO PARA PISO 15CM" (m²) com fator por m³ → 0 direto, mas a
  * receita dá m²→m³ = 0,15, então o item passa a contribuir em vez de zerar.
  * Retorna 0 quando não há conversão nem receita aplicável.
+ *
+ * `override` permite ao analista (a) corrigir a unidade efetiva do item
+ * antes de tentar a cascata automática, e/ou (b) fornecer um multiplicador
+ * explícito que vence tudo — para os casos em que nem a unidade corrigida
+ * compartilha família com o fator, e nenhuma receita geométrica se aplica.
  */
 export function resolveConversion(
   description: string | null | undefined,
   itemUnit: string | null | undefined,
-  factorUnit: string | null | undefined
+  factorUnit: string | null | undefined,
+  override?: ManualConversionOverride | null
 ): number {
-  const direct = getConversionFactor(itemUnit, factorUnit);
+  if (override?.conversionFactor != null && override.conversionFactor > 0) {
+    return override.conversionFactor;
+  }
+
+  const effectiveUnit = override?.unitOverride || itemUnit;
+
+  const direct = getConversionFactor(effectiveUnit, factorUnit);
   if (direct !== 0.0) return direct;
 
-  const recipe = geometricRecipe(description, itemUnit);
+  const recipe = geometricRecipe(description, effectiveUnit);
   if (!recipe) return 0.0;
 
   // Compõe a unidade-base da receita (kg/m³) com a unidade do fator
@@ -135,6 +157,8 @@ export type ConversionStatus =
   | "converted"
   /** via receita geométrica/densidade (coverage-rules) */
   | "recipe"
+  /** fator de conversão explícito informado pelo analista (item_mappings) */
+  | "manual"
   /** unidade do item desconhecida → 1.0 permissivo, NÃO validado */
   | "assumed"
   /** sem conversão possível → contribuição 0 */
@@ -149,18 +173,24 @@ export type ConversionStatus =
 export function getConversionStatus(
   description: string | null | undefined,
   itemUnit: string | null | undefined,
-  factorUnit: string | null | undefined
+  factorUnit: string | null | undefined,
+  override?: ManualConversionOverride | null
 ): { factor: number; status: ConversionStatus } {
-  const iu = normalizeUnit(itemUnit);
+  if (override?.conversionFactor != null && override.conversionFactor > 0) {
+    return { factor: override.conversionFactor, status: "manual" };
+  }
+
+  const effectiveUnit = override?.unitOverride || itemUnit;
+  const iu = normalizeUnit(effectiveUnit);
   if (!iu) return { factor: 1.0, status: "assumed" };
 
-  const direct = getConversionFactor(itemUnit, factorUnit);
+  const direct = getConversionFactor(effectiveUnit, factorUnit);
   if (direct !== 0.0) {
     const fu = normalizeUnit(factorUnit);
     return { factor: direct, status: iu === fu ? "exact" : "converted" };
   }
 
-  const viaRecipe = resolveConversion(description, itemUnit, factorUnit);
+  const viaRecipe = resolveConversion(description, effectiveUnit, factorUnit);
   if (viaRecipe !== 0.0) return { factor: viaRecipe, status: "recipe" };
 
   return { factor: 0.0, status: "incompatible" };
@@ -179,6 +209,35 @@ interface MappingRow {
   exclusion_justification?: string | null;
   distance_km?: number | null;
   transport_modal?: string | null;
+  unit_override?: string | null;
+  manual_conversion_factor?: number | null;
+  factor_version?: string | null;
+}
+
+function overrideFromMapping(mapping: MappingRow | null): ManualConversionOverride | null {
+  if (!mapping) return null;
+  if (!mapping.unit_override && mapping.manual_conversion_factor == null) return null;
+  return {
+    unitOverride: mapping.unit_override,
+    conversionFactor: mapping.manual_conversion_factor,
+  };
+}
+
+/**
+ * manual_conversion_factor é definido em relação a mapping.factor_unit (o
+ * fator de material). Reusar esse mesmo número pro cálculo de logística
+ * (que sempre converte para "kg", ver calcLogisticsEmission) só é válido
+ * quando o próprio fator de material já é mássico — senão o multiplicador
+ * representaria outra grandeza (ex.: m³) e inflaria/zeraria a tonelagem.
+ * unit_override, por ser só uma correção de unidade do item, continua
+ * válido em qualquer conversão-alvo.
+ */
+function overrideForLogistics(mapping: MappingRow | null): ManualConversionOverride | null {
+  const override = overrideFromMapping(mapping);
+  if (!override || override.conversionFactor == null) return override;
+  const factorFamily = normalizeUnit(mapping?.factor_unit);
+  if (["kg", "t", "g"].includes(factorFamily)) return override;
+  return override.unitOverride ? { unitOverride: override.unitOverride } : null;
 }
 
 interface AbcItemRow {
@@ -209,7 +268,8 @@ function calcItemEmission(item: AbcItemRow, mapping: MappingRow | null): number 
   const conversion = resolveConversion(
     item.description as string | undefined,
     item.unit,
-    mapping.factor_unit
+    mapping.factor_unit,
+    overrideFromMapping(mapping)
   );
   return qty * mapping.factor_value * conversion;
 }
@@ -236,7 +296,8 @@ function calcLogisticsEmission(
   const kgPerUnit = resolveConversion(
     item.description as string | undefined,
     item.unit,
-    "kg"
+    "kg",
+    overrideForLogistics(mapping)
   );
   if (qty <= 0 || kgPerUnit <= 0) return 0.0;
   const tonnage = (qty * kgPerUnit) / 1000;
@@ -479,6 +540,15 @@ export async function createBaseScenario(
   const transportFactors = await loadTransportFactorsIfNeeded(
     Object.values(mappingByItem)
   );
+  // Probe whether migration-v12-factor-version.sql is applied on
+  // scenario_items (item_mappings may already have it — checked separately
+  // by fetchMappingsByItemIds' plain select("*")).
+  const factorVersionProbe = await supabase
+    .from("scenario_items")
+    .select("factor_version")
+    .limit(1);
+  const factorVersionColumnExists = !factorVersionProbe.error;
+
   const scenarioItems = allItems.map((item) => {
     const mapping = mappingByItem[item.id] ?? null;
     const isExcluded =
@@ -500,6 +570,7 @@ export async function createBaseScenario(
       is_excluded: isExcluded,
       exclusion_reason:
         mapping && isExcluded ? mapping.exclusion_justification ?? null : null,
+      ...(factorVersionColumnExists ? { factor_version: mapping?.factor_version ?? null } : {}),
     };
   });
 
@@ -575,6 +646,7 @@ export async function recalculateScenario(scenarioId: string) {
     if (!abcItem) continue;
 
     const qty = si.quantity_override ?? abcItem.quantity ?? 0;
+    const mapping = mappingByItem[si.abc_item_id] ?? null;
     // Fator limpo/nulo/zero → zera a emissão em vez de manter o valor
     // antigo persistido (staleness silenciosa).
     let emission = 0;
@@ -582,13 +654,14 @@ export async function recalculateScenario(scenarioId: string) {
       const conversion = resolveConversion(
         abcItem.description,
         abcItem.unit,
-        si.factor_unit
+        si.factor_unit,
+        overrideFromMapping(mapping)
       );
       emission = qty * si.factor_value * conversion;
     }
     const logistics = calcLogisticsEmission(
       abcItem as AbcItemRow,
-      mappingByItem[si.abc_item_id] ?? null,
+      mapping,
       transportFactors
     );
     await supabase
@@ -619,6 +692,9 @@ export interface ScenarioItemFactorPatch {
    *  override (use abc_items.unit_cost); undefined → don't touch existing
    *  override. Persisted on scenario_items.unit_cost_override. */
   unit_cost_override?: number | null;
+  /** Frozen copy of item_mappings.factor_version at apply time. undefined →
+   *  don't touch. Persisted on scenario_items.factor_version. */
+  factor_version?: string | null;
 }
 
 /**
@@ -649,6 +725,15 @@ export async function applyFactorToScenarioItem(
       .limit(1);
     if (!probe.error) {
       update.unit_cost_override = patch.unit_cost_override;
+    }
+  }
+  if (patch.factor_version !== undefined) {
+    const probe = await supabase
+      .from("scenario_items")
+      .select("factor_version")
+      .limit(1);
+    if (!probe.error) {
+      update.factor_version = patch.factor_version;
     }
   }
 

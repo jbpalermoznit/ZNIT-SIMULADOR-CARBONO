@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { itemTypeMeta, mappingStatusMeta, type ItemType, type AbcClass, type AbcItem } from "@/lib/mock/data";
-import { listAbcItems, getProject, reclassifyBlocked, type AbcItemResponse, type ProjectResponse } from "@/lib/api/projects";
+import { listAbcItems, getProject, reclassifyBlocked, updateItemsPhase, type AbcItemResponse, type ProjectResponse } from "@/lib/api/projects";
 import { getMapping, type MappingResponse } from "@/lib/api/emission-factors";
 import { useActiveScenario } from "@/lib/hooks/use-active-scenario";
 import { SaveModeDialog, type SaveModeChoice } from "@/components/items/save-mode-dialog";
@@ -16,8 +16,9 @@ import {
 } from "lucide-react";
 import {
   searchEmissionFactors, autoMatchItem, autoMapProject, confirmMapping,
+  getEpdExtraction, extractEpdFactor, reviewEpdExtraction,
   type EmissionSearchResponse, type AutoMatchResult, type EcoinventResult,
-  type EpdCatalogResult, type MappingConfirmRequest,
+  type EpdCatalogResult, type MappingConfirmRequest, type EpdAiExtraction,
 } from "@/lib/api/emission-factors";
 import { createFactorRule } from "@/lib/api/factor-rules";
 
@@ -70,7 +71,10 @@ function getUnitConversion(itemUnit: string | null, factorUnit: string | null): 
 
 /** Convert snake_case API response to camelCase AbcItem for the UI */
 function toAbcItem(r: AbcItemResponse): AbcItem {
-  const conv = getUnitConversion(r.unit, r.factor_unit);
+  const effectiveUnit = r.unit_override || r.unit;
+  const conv = r.manual_conversion_factor && r.manual_conversion_factor > 0
+    ? r.manual_conversion_factor
+    : getUnitConversion(effectiveUnit, r.factor_unit);
   const emissionKgco2e = r.factor_value && r.quantity ? r.quantity * r.factor_value * conv : undefined;
   return {
     id: r.id,
@@ -96,6 +100,7 @@ function toAbcItem(r: AbcItemResponse): AbcItem {
     classificationNote: r.classification_note ?? null,
     autoExcluded: r.auto_excluded,
     assemblies: r.assemblies ?? [],
+    phase: r.phase ?? null,
   };
 }
 
@@ -158,15 +163,36 @@ function DrawerHeader({ item, onClose, back, backLabel }: {
 
 // ─── View: Detail ────────────────────────────────────────────────────────────
 
-function DetailView({ item, mapping, onEditEpd, onParametrize, onExclude }: {
+function DetailView({ item, mapping, onEditEpd, onParametrize, onExclude, projectId, knownPhases, onSaved }: {
   item: AbcItem;
   mapping: MappingResponse | null;
   onEditEpd: () => void;
   onParametrize: () => void;
   onExclude?: () => void;
+  projectId: string;
+  /** Fases já usadas no projeto — sugestões pro autocomplete, sem forçar taxonomia fixa. */
+  knownPhases: string[];
+  onSaved?: () => void;
 }) {
   const statusMeta = mappingStatusMeta[item.mappingStatus];
   const conf = item.confidence ? CONFIDENCE_LABEL[item.confidence] : null;
+
+  // key={item.id} on the call site (below) remounts this component whenever
+  // the open item changes, so phaseInput's initializer is always fresh —
+  // no effect needed to re-sync it.
+  const [phaseInput, setPhaseInput] = useState(item.phase ?? "");
+  const [savingPhase, setSavingPhase] = useState(false);
+
+  const savePhase = async () => {
+    setSavingPhase(true);
+    try {
+      await updateItemsPhase(projectId, [item.id], phaseInput.trim() || null);
+      onSaved?.();
+    } catch {
+      alert("Erro ao salvar fase");
+    }
+    setSavingPhase(false);
+  };
 
   // Decision-of-the-AI block: one of four buckets, each with its own colour
   // and explanation. Falls back to a stable default when the mapping row is
@@ -251,6 +277,24 @@ function DetailView({ item, mapping, onEditEpd, onParametrize, onExclude }: {
           } />
           <Row label="% do orçamento" value={`${item.costPct.toFixed(2)}%`} />
           <Row label="% acumulado" value={`${item.cumulativePct.toFixed(2)}%`} />
+        </Section>
+
+        <Section title="Fase de obra">
+          <div className="flex gap-2">
+            <input
+              value={phaseInput}
+              onChange={(e) => setPhaseInput(e.target.value)}
+              list="known-phases"
+              placeholder="Ex: Fundação, Estrutura, Vedação..."
+              className="flex-1 h-8 px-2.5 rounded-lg border border-[#E0E4E3] text-xs text-[#030304] placeholder:text-[#BDBDBC] focus:outline-none focus:border-[#56B7A5]"
+            />
+            <datalist id="known-phases">
+              {knownPhases.map((p) => <option key={p} value={p} />)}
+            </datalist>
+            <Button size="sm" variant="outline" onClick={savePhase} disabled={savingPhase || phaseInput.trim() === (item.phase ?? "")}>
+              {savingPhase ? <Loader2 size={12} className="animate-spin" /> : "Salvar"}
+            </Button>
+          </div>
         </Section>
 
         <Section title="Decisão da IA">
@@ -434,14 +478,34 @@ function EditEpdView({
   const [manualSource, setManualSource] = useState("");
   const [manualName, setManualName] = useState("");
 
+  // Correção de unidade/conversão manual — para quando o item foi
+  // importado com uma unidade que não bate com a do fator (ex.: EPD usa
+  // outra unidade) e nenhuma receita automática resolve.
+  const [manualUnitOverride, setManualUnitOverride] = useState("");
+  const [manualConversionFactor, setManualConversionFactor] = useState("");
+  const [manualConversionNote, setManualConversionNote] = useState("");
+
   // Current mapping (already saved)
   const [currentMapping, setCurrentMapping] = useState<MappingResponse | null>(null);
+
+  // Extração de GWP A1-A3 via IA por EPD (feedback Saint Gobain) — chave por
+  // epd.id. "loading" enquanto a extração roda; null = ainda não extraído.
+  const [epdExtractions, setEpdExtractions] = useState<Record<number, EpdAiExtraction | "loading" | null>>({});
 
   // Load current mapping + auto-match on mount
   useEffect(() => {
     if (!item.id) return;
     // Load existing mapping
-    getMapping(item.id).then(setCurrentMapping).catch(() => {});
+    getMapping(item.id).then((m) => {
+      setCurrentMapping(m);
+      // Overrides de unidade/conversão já vivem no mapping independente da
+      // aba usada pra criá-lo — prefill pra não "sumir" ao reabrir o item.
+      if (m?.unit_override) setManualUnitOverride(m.unit_override);
+      if (m?.manual_conversion_factor != null) {
+        setManualConversionFactor(String(m.manual_conversion_factor));
+      }
+      if (m?.manual_conversion_note) setManualConversionNote(m.manual_conversion_note);
+    }).catch(() => {});
     // Auto-match
     setAutoLoading(true);
     autoMatchItem(item.id)
@@ -468,6 +532,50 @@ function EditEpdView({
     return () => clearTimeout(t);
   }, [search, doSearch]);
 
+  // Carrega o estado de extração já existente (se houver) pros EPDs
+  // visíveis no catálogo — evita re-extrair à toa quando já existe uma
+  // extração pending_review de uma sessão anterior.
+  useEffect(() => {
+    const epds = results?.epd_catalog ?? [];
+    const toLoad = epds.filter((epd) => !(epd.id in epdExtractions));
+    if (toLoad.length === 0) return;
+    toLoad.forEach((epd) => {
+      getEpdExtraction(epd.id)
+        .then((extraction) => setEpdExtractions((prev) => ({ ...prev, [epd.id]: extraction })))
+        .catch(() => {});
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results?.epd_catalog]);
+
+  const handleExtractEpd = async (epdId: number) => {
+    setEpdExtractions((prev) => ({ ...prev, [epdId]: "loading" }));
+    try {
+      const extraction = await extractEpdFactor(epdId);
+      setEpdExtractions((prev) => ({ ...prev, [epdId]: extraction }));
+    } catch (e) {
+      setEpdExtractions((prev) => ({ ...prev, [epdId]: null }));
+      alert(e instanceof Error ? e.message : "Erro ao extrair fator via IA");
+    }
+  };
+
+  const handleReviewEpd = async (epd: EpdCatalogResult, approve: boolean) => {
+    try {
+      const extraction = await reviewEpdExtraction(epd.id, approve);
+      setEpdExtractions((prev) => ({ ...prev, [epd.id]: extraction }));
+      if (approve && extraction.gwp_a1a3 != null) {
+        setSelected({
+          source_tier: "epd",
+          factor_value: extraction.gwp_a1a3,
+          factor_unit: `kgCO2e/${(extraction.declared_unit || "1 kg").replace(/^1\s*/, "")}`,
+          factor_name: epd.titulo,
+          epd_id: epd.id,
+        });
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erro ao revisar extração");
+    }
+  };
+
   const handleConfirm = async () => {
     if (!selected && tab !== "manual") return;
     setSaving(true);
@@ -480,6 +588,11 @@ function EditEpdView({
           factor_unit: manualUnit,
           factor_name: manualName || item.description,
           custom_factor_source: manualSource,
+          unit_override: manualUnitOverride.trim() || null,
+          manual_conversion_factor: manualConversionFactor
+            ? parseFloat(manualConversionFactor)
+            : null,
+          manual_conversion_note: manualConversionNote.trim() || null,
         };
       } else {
         body = {
@@ -774,7 +887,11 @@ function EditEpdView({
                 <p className="text-[10px] text-[#BDBDBC] mt-1">Os valores de emissão estão nos PDFs — consulte e insira manualmente</p>
               </div>
             )}
-            {results?.epd_catalog.map((epd) => (
+            {results?.epd_catalog.map((epd) => {
+              const extraction = epdExtractions[epd.id];
+              const hasCatalogGwp = epd.gwp_a1a3 != null;
+              const isEpdSelected = selected?.source_tier === "epd" && selected?.epd_id === epd.id;
+              return (
               <div key={epd.id} className="px-5 py-3.5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -788,13 +905,78 @@ function EditEpdView({
                       )}
                       {epd.geographical_scopes && <span className="text-[10px] text-[#BDBDBC]">{epd.geographical_scopes}</span>}
                       {epd.valid_until && <span className="text-[10px] text-[#BDBDBC]">Válido até {epd.valid_until}</span>}
+                      {hasCatalogGwp && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#E6F3EE] text-[#1d7a6b]">
+                          GWP A1-A3: {epd.gwp_a1a3} kgCO₂e
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
                 {epd.informacao_produto && (
                   <p className="text-[11px] text-[#808181] mt-2 leading-relaxed line-clamp-2">{epd.informacao_produto}</p>
                 )}
-                <div className="flex gap-2 mt-2.5">
+
+                {/* Extração de GWP A1-A3 via IA — só faz sentido quando o
+                    catálogo ainda não tem o valor. */}
+                {!hasCatalogGwp && extraction && extraction !== "loading" && (
+                  <div className={cn("mt-2.5 p-2.5 rounded-lg border text-[11px]",
+                    extraction.status === "approved" ? "border-[#56B7A5]/40 bg-[#E6F3EE]" :
+                    extraction.status === "rejected" ? "border-[#E0E4E3] bg-[#F8FAF9]" :
+                    "border-[#FDE68A] bg-[#FEFCE8]"
+                  )}>
+                    {extraction.found ? (
+                      <>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-semibold text-[#030304]">
+                            IA extraiu: {extraction.gwp_a1a3} kgCO₂e/{extraction.declared_unit || "kg"}
+                          </p>
+                          <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0",
+                            extraction.confidence === "alta" ? "bg-[#E6F3EE] text-[#1d7a6b]" :
+                            extraction.confidence === "media" ? "bg-[#FEF3C7] text-[#92400e]" : "bg-[#FEE2E2] text-[#DC2626]"
+                          )}>{extraction.confidence}</span>
+                        </div>
+                        <p className="text-[#808181] mt-1 leading-relaxed italic">&quot;{extraction.citation}&quot;</p>
+                      </>
+                    ) : (
+                      <p className="text-[#808181]">IA não encontrou A1-A3 neste documento: {extraction.citation}</p>
+                    )}
+                    {extraction.status === "pending_review" && extraction.found && (
+                      <div className="flex gap-2 mt-2">
+                        <button onClick={() => handleReviewEpd(epd, true)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-[#1d7a6b] text-white hover:bg-[#166354] transition-all">
+                          <CheckCircle size={11} /> Aprovar e usar
+                        </button>
+                        <button onClick={() => handleReviewEpd(epd, false)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-[#F3F4F6] text-[#808181] hover:bg-[#E0E4E3] transition-all">
+                          Rejeitar
+                        </button>
+                      </div>
+                    )}
+                    {extraction.status === "pending_review" && !extraction.found && (
+                      <button onClick={() => handleReviewEpd(epd, false)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 mt-2 rounded-lg text-[10px] font-semibold bg-[#F3F4F6] text-[#808181] hover:bg-[#E0E4E3] transition-all">
+                        Descartar
+                      </button>
+                    )}
+                    {extraction.status === "approved" && (
+                      <div className="flex items-center gap-1 mt-1.5">
+                        <CheckCircle size={11} className="text-[#1d7a6b]" />
+                        <span className="text-[10px] text-[#1d7a6b] font-semibold">
+                          Aprovado por {extraction.reviewed_by ?? "revisor"}{isEpdSelected ? " · selecionado" : ""}
+                        </span>
+                      </div>
+                    )}
+                    {extraction.status === "rejected" && (
+                      <button onClick={() => handleExtractEpd(epd.id)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 mt-2 rounded-lg text-[10px] font-semibold bg-[#F3F4F6] text-[#808181] hover:bg-[#E0E4E3] transition-all">
+                        Rejeitado — extrair novamente
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex gap-2 mt-2.5 flex-wrap">
                   {epd.pdf_url && (
                     <a href={epd.pdf_url} target="_blank" rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-[#E6F3EE] text-[#1d7a6b] hover:bg-[#d0ebe1] transition-all">
@@ -807,13 +989,25 @@ function EditEpdView({
                       <ExternalLink size={11} /> Fonte
                     </a>
                   )}
+                  {!hasCatalogGwp && !extraction && (
+                    <button onClick={() => handleExtractEpd(epd.id)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-[#EDE9FE] text-[#6D28D9] hover:bg-[#DDD6FE] transition-all">
+                      <Zap size={11} /> Extrair fator via IA
+                    </button>
+                  )}
+                  {extraction === "loading" && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-[#EDE9FE] text-[#6D28D9]">
+                      <Loader2 size={11} className="animate-spin" /> Extraindo...
+                    </span>
+                  )}
                   <button onClick={() => { setTab("manual"); setManualName(epd.titulo); }}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold bg-[#FEF3C7] text-[#92400e] hover:bg-[#FDE68A] transition-all ml-auto">
                     <Pencil size={11} /> Inserir fator manualmente
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
             {search && results?.epd_catalog.length === 0 && (
               <p className="text-xs text-[#BDBDBC] px-5 py-6 text-center">Nenhum EPD encontrado para &quot;{search}&quot;</p>
             )}
@@ -856,15 +1050,88 @@ function EditEpdView({
               <input value={manualSource} onChange={(e) => setManualSource(e.target.value)}
                 placeholder="Ex: EPD Votorantim 2024, página 12" className={inputClass} />
             </div>
-            {manualValue && (
-              <div className="bg-[#E6F3EE] rounded-lg px-3 py-2.5 text-xs text-[#1d7a6b]">
-                <p className="font-semibold mb-0.5">Emissão estimada</p>
-                <p className="font-mono">
-                  {item.quantity.toLocaleString("pt-BR")} {item.unit} × {manualValue} {manualUnit} ={" "}
-                  {(item.quantity * parseFloat(manualValue || "0")).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} kgCO₂e
-                </p>
-              </div>
-            )}
+
+            {(() => {
+              const effectiveUnit = manualUnitOverride.trim() || item.unit;
+              const autoConv = getUnitConversion(effectiveUnit, manualUnit);
+              const hasManualFactor = manualConversionFactor !== "" && parseFloat(manualConversionFactor) > 0;
+              const conv = hasManualFactor ? parseFloat(manualConversionFactor) : autoConv;
+              const incompatible = !hasManualFactor && autoConv === 0;
+              const qty = item.quantity ?? 0;
+              const value = parseFloat(manualValue || "0");
+              const estimated = qty * value * conv;
+
+              return (
+                <>
+                  <div className="pt-1 border-t border-[#E0E4E3]">
+                    <p className="text-xs font-semibold text-[#404040] mb-2 mt-3">
+                      Unidade e conversão
+                    </p>
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <label className="block text-xs font-semibold text-[#404040] mb-1.5">
+                          Unidade real do item (opcional)
+                        </label>
+                        <input value={manualUnitOverride} onChange={(e) => setManualUnitOverride(e.target.value)}
+                          placeholder={`Padrão: ${item.unit}`} className={inputClass} />
+                        <p className="text-[10px] text-[#808181] mt-1">
+                          Corrige a unidade usada no cálculo quando o item foi importado com uma
+                          unidade diferente da que o fator/EPD realmente usa.
+                        </p>
+                      </div>
+                    </div>
+                    {incompatible && (
+                      <div className="mt-3 flex items-start gap-2 bg-[#FEF3C7] rounded-lg px-3 py-2.5">
+                        <AlertTriangle size={13} className="text-[#b45309] shrink-0 mt-0.5" />
+                        <p className="text-[11px] text-[#92400e]">
+                          &quot;{effectiveUnit}&quot; não converte automaticamente para &quot;{manualUnit}&quot; —
+                          a emissão ficaria zerada. Informe um fator de conversão manual abaixo
+                          (ex.: densidade em kg/m³) para que o item passe a contribuir.
+                        </p>
+                      </div>
+                    )}
+                    <div className="flex gap-3 mt-3">
+                      <div className="flex-1">
+                        <label className="block text-xs font-semibold text-[#404040] mb-1.5">
+                          Fator de conversão manual (opcional)
+                        </label>
+                        <input type="number" value={manualConversionFactor}
+                          onChange={(e) => setManualConversionFactor(e.target.value)}
+                          placeholder="Ex: 1850 (densidade kg/m³)" className={inputClass} />
+                      </div>
+                    </div>
+                    {hasManualFactor && (
+                      <div className="mt-3">
+                        <label className="block text-xs font-semibold text-[#404040] mb-1.5">
+                          Justificativa
+                        </label>
+                        <input value={manualConversionNote} onChange={(e) => setManualConversionNote(e.target.value)}
+                          placeholder="Ex: densidade informada pelo engenheiro" className={inputClass} />
+                      </div>
+                    )}
+                  </div>
+
+                  {manualValue && (
+                    <div className={cn(
+                      "rounded-lg px-3 py-2.5 text-xs",
+                      incompatible ? "bg-[#FEF3C7] text-[#92400e]" : "bg-[#E6F3EE] text-[#1d7a6b]"
+                    )}>
+                      <p className="font-semibold mb-0.5">Emissão estimada</p>
+                      {incompatible ? (
+                        <p>Unidades incompatíveis — emissão ficaria zerada sem um fator de conversão manual.</p>
+                      ) : (
+                        <p className="font-mono">
+                          {qty.toLocaleString("pt-BR")} {effectiveUnit}
+                          {hasManualFactor ? ` × ${conv.toLocaleString("pt-BR")} (conversão manual)` : effectiveUnit !== manualUnit ? ` × ${conv.toLocaleString("pt-BR")} (conversão)` : ""}
+                          {" "}× {manualValue} {manualUnit} ={" "}
+                          {estimated.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} kgCO₂e
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -1281,6 +1548,8 @@ function ItemDrawer({
   onSaved,
   onFactorSaveRequest,
   onExcludeRequest,
+  projectId,
+  knownPhases,
 }: {
   item: AbcItem;
   onClose: () => void;
@@ -1291,6 +1560,8 @@ function ItemDrawer({
   /** When provided, the 'Desconsiderar' button opens the page-level
    *  exclusion dialog. */
   onExcludeRequest?: (item: AbcItem, onFinish: () => void) => void;
+  projectId: string;
+  knownPhases: string[];
 }) {
   const [view, setView] = useState<DrawerView>("detail");
   const [mapping, setMapping] = useState<MappingResponse | null>(null);
@@ -1311,6 +1582,7 @@ function ItemDrawer({
         />
         {view === "detail"     && (
           <DetailView
+            key={item.id}
             item={item}
             mapping={mapping}
             onEditEpd={() => setView("edit-epd")}
@@ -1320,6 +1592,9 @@ function ItemDrawer({
                 ? () => onExcludeRequest(item, () => onClose())
                 : undefined
             }
+            projectId={projectId}
+            knownPhases={knownPhases}
+            onSaved={onSaved}
           />
         )}
         {view === "edit-epd"   && <EditEpdView item={item} onBack={() => setView("detail")} onSaved={onSaved} onFactorSaveRequest={onFactorSaveRequest} onClose={onClose} />}
@@ -1351,6 +1626,10 @@ export default function ItemsPage() {
     classParam === "P1" || classParam === "P2" || classParam === "P3" ? classParam : "all";
   const [classFilter, setClassFilter] = useState<AbcClass | "all">(initialClass);
   const [statusFilter, setStatusFilter] = useState<"all" | "auto" | "suggested" | "pending" | "excluded">(initialStatus);
+  const phaseParam = searchParams.get("phase");
+  const [phaseFilter, setPhaseFilter] = useState<string>(phaseParam ?? "all");
+  const [bulkPhaseInput, setBulkPhaseInput] = useState("");
+  const [bulkPhaseSaving, setBulkPhaseSaving] = useState(false);
   const [search, setSearch] = useState(factorParam ?? "");
   const [openItem, setOpenItem] = useState<AbcItem | null>(null);
   const [expandedComps, setExpandedComps] = useState<Set<string>>(new Set());
@@ -1495,7 +1774,11 @@ export default function ItemsPage() {
     }
   }
 
+  const knownPhases = [...new Set(items.map((i) => i.phase).filter((p): p is string => !!p))].sort();
+
   const filtered = items.filter((item) => {
+    if (phaseFilter === "unclassified" && item.phase) return false;
+    if (phaseFilter !== "all" && phaseFilter !== "unclassified" && item.phase !== phaseFilter) return false;
     if (typeFilter === "compositions") {
       const isComp = compositionParentIds.has(item.id);
       const isChildOfComp =
@@ -1620,7 +1903,48 @@ export default function ItemsPage() {
             </button>
           ))}
         </div>
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-[#808181] mr-1">Fase:</span>
+          <select value={phaseFilter} onChange={(e) => setPhaseFilter(e.target.value)}
+            className="h-7 px-2 rounded text-xs font-semibold bg-[#F3F4F6] text-[#404040] border-none focus:outline-none focus:ring-1 focus:ring-[#56B7A5]">
+            <option value="all">Todas</option>
+            <option value="unclassified">Não classificado</option>
+            {knownPhases.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
         <span className="text-xs text-[#808181] ml-auto">{filtered.length} itens · duplo clique para detalhes</span>
+      </div>
+
+      <div className="bg-white rounded-lg border border-[#E0E4E3] px-4 py-3 mb-4 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold text-[#404040]">Marcar fase em lote:</span>
+        <input value={bulkPhaseInput} onChange={(e) => setBulkPhaseInput(e.target.value)}
+          list="known-phases-bulk" placeholder="Ex: Fundação, Estrutura, Vedação..."
+          className="h-8 px-2.5 rounded-lg border border-[#E0E4E3] text-xs text-[#030304] placeholder:text-[#BDBDBC] focus:outline-none focus:border-[#56B7A5] min-w-56" />
+        <datalist id="known-phases-bulk">
+          {knownPhases.map((p) => <option key={p} value={p} />)}
+        </datalist>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={bulkPhaseSaving || filtered.length === 0 || !bulkPhaseInput.trim()}
+          onClick={async () => {
+            setBulkPhaseSaving(true);
+            try {
+              await updateItemsPhase(projectId, filtered.map((i) => i.id), bulkPhaseInput.trim() || null);
+              setBulkPhaseInput("");
+              await loadItems();
+            } catch {
+              alert("Erro ao marcar fase em lote");
+            }
+            setBulkPhaseSaving(false);
+          }}
+        >
+          {bulkPhaseSaving ? <Loader2 size={12} className="animate-spin" /> : null}
+          Aplicar aos {filtered.length} itens filtrados
+        </Button>
+        <span className="text-[10px] text-[#808181]">
+          Aplica a fase acima a todos os itens que passam pelos filtros de Tipo/Classe/Status/busca no momento.
+        </span>
       </div>
 
       {loading && (
@@ -1934,6 +2258,8 @@ export default function ItemsPage() {
           item={openItem}
           onClose={() => setOpenItem(null)}
           onSaved={loadItems}
+          projectId={projectId}
+          knownPhases={knownPhases}
           onFactorSaveRequest={
             activeScenarioId
               ? (body, factorLabel, onFinish) => {

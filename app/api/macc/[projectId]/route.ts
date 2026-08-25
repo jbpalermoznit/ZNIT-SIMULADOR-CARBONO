@@ -399,7 +399,11 @@ export async function GET(
     const baselineConv = resolveConversion(
       item.description ?? "",
       item.unit ?? "",
-      (mapping.factor_unit as string) ?? ""
+      (mapping.factor_unit as string) ?? "",
+      {
+        unitOverride: mapping.unit_override as string | null,
+        conversionFactor: mapping.manual_conversion_factor as number | null,
+      }
     );
     const baselineEmissionKg =
       baselineFactor * (item.quantity ?? 0) * baselineConv;
@@ -557,7 +561,11 @@ export async function GET(
     const baselineConv = resolveConversion(
       item.description ?? "",
       item.unit ?? "",
-      (mapping.factor_unit as string) ?? ""
+      (mapping.factor_unit as string) ?? "",
+      {
+        unitOverride: mapping.unit_override as string | null,
+        conversionFactor: mapping.manual_conversion_factor as number | null,
+      }
     );
     const baselineEmissionKg = baselineFactor * (item.quantity ?? 0) * baselineConv;
     if (baselineEmissionKg <= 0) continue;

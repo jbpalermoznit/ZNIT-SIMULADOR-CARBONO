@@ -225,3 +225,54 @@ describe("resolveConversion", () => {
     expect(resolveConversion("CONCRETO PARA PISO 15CM", "m2", "kgCO₂/kg")).toBe(0.0);
   });
 });
+
+// ===========================================================================
+// resolveConversion / getConversionStatus — override manual (item_mappings)
+// ===========================================================================
+//
+// unit_override corrige a unidade efetiva do item antes da cascata normal;
+// manual_conversion_factor é um multiplicador explícito que vence tudo.
+
+describe("resolveConversion — override manual", () => {
+  it("sem override, comportamento idêntico ao original (item sem receita)", () => {
+    expect(resolveConversion("ITEM QUALQUER", "un", "kgCO₂/kg")).toBe(0.0);
+  });
+
+  it("unit_override corrige a unidade e deixa a conversão direta resolver sozinha", () => {
+    // "un" vs "kg" não converte direto; corrigindo pra "kg" vira 1:1.
+    expect(
+      resolveConversion("ITEM QUALQUER", "un", "kgCO₂/kg", { unitOverride: "kg" })
+    ).toBe(1.0);
+  });
+
+  it("unit_override também habilita a receita geométrica (m² corrigido)", () => {
+    expect(
+      resolveConversion("CONCRETO PARA PISO 15CM", "pç", "kgCO₂/m3", {
+        unitOverride: "m2",
+      })
+    ).toBeCloseTo(0.15, 6);
+  });
+
+  it("manual_conversion_factor vence a conversão direta quando ambos aplicáveis", () => {
+    expect(
+      resolveConversion("ACO CA-50", "kg", "kgCO₂/kg", { conversionFactor: 2.5 })
+    ).toBe(2.5);
+  });
+
+  it("manual_conversion_factor resolve quando não há conversão nem receita", () => {
+    expect(
+      resolveConversion("ITEM SEM RECEITA", "un", "kgCO₂/kg", {
+        conversionFactor: 0.75,
+      })
+    ).toBe(0.75);
+  });
+
+  it("conversionFactor <= 0 é ignorado (cai pra cascata normal)", () => {
+    expect(
+      resolveConversion("ACO CA-50", "kg", "kgCO₂/kg", { conversionFactor: 0 })
+    ).toBe(1.0);
+    expect(
+      resolveConversion("ACO CA-50", "kg", "kgCO₂/kg", { conversionFactor: -5 })
+    ).toBe(1.0);
+  });
+});

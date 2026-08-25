@@ -65,6 +65,11 @@ export interface AbcItemResponse {
   factor_unit: string | null;
   source_tier: string | null;
   confidence: string | null;
+  /** Analyst-declared unit correction (item_mappings.unit_override) — used
+   *  for calc in place of `unit`. Null = use `unit` as-is. */
+  unit_override: string | null;
+  /** Explicit conversion multiplier (item_mappings.manual_conversion_factor). */
+  manual_conversion_factor: number | null;
   /** True when the exclusion was made automatically by the classifier
    *  (mapped_by='auto_excluded' OR legacy auto-justification text).
    *  Distinguishes from the user's manual "Desconsiderar" action. */
@@ -81,6 +86,8 @@ export interface AbcItemResponse {
    *  este cost code consome na EAP do iTwo. Informativo (sem quantidade
    *  ou fator), usado para mostrar o que compõe um item agrupado. */
   assemblies: Array<{ code?: string; description?: string; uom?: string | null }>;
+  /** Fase/etapa de obra, texto livre marcado manualmente. Null = não classificado. */
+  phase: string | null;
 }
 
 export function listProjects() {
@@ -188,6 +195,18 @@ export function listAbcItems(
   if (filters?.scenario_id) params.set("scenario_id", filters.scenario_id);
   const qs = params.toString();
   return api.get<AbcItemResponse[]>(`/api/projects/${projectId}/abc-items${qs ? `?${qs}` : ""}`);
+}
+
+/** Marca a fase/etapa de obra de um ou mais itens (individual ou em lote). */
+export function updateItemsPhase(
+  projectId: string,
+  itemIds: string[],
+  phase: string | null
+) {
+  return api.patch<{ updated: number; phase: string | null }>(
+    `/api/projects/${projectId}/abc-items`,
+    { item_ids: itemIds, phase }
+  );
 }
 
 /** Confirmation phrase that the user must type to confirm a project delete. */

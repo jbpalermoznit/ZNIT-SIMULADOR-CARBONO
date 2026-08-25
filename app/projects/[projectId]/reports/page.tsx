@@ -11,7 +11,101 @@ import {
 import { getProject } from "@/lib/api/projects";
 import { listScenarios, getScenario, type ScenarioResponse } from "@/lib/api/scenarios";
 import { loadSettings, type BrandingSettings } from "@/app/settings/page";
-import { generateComparisonPDF } from "@/lib/report/pdf-generator";
+import { generateComparisonPDF, generatePhaseReportPDF, type PhaseReportData } from "@/lib/report/pdf-generator";
+import { cn } from "@/lib/utils";
+
+async function loadScenarioRaw(scenId: string): Promise<Record<string, unknown>> {
+  const res = await fetch(`/api/scenarios/${scenId}`, { credentials: "include" });
+  return res.json();
+}
+
+function buildReportScenario(
+  scen: ScenarioResponse,
+  detail: Awaited<ReturnType<typeof getScenario>>,
+  raw: Record<string, unknown>
+) {
+  const items = detail.items;
+  const parents = (raw.parent_items ?? []) as Record<string, unknown>[];
+  let concretoM3 = 0, concretoTco2e = 0, acoKg = 0, acoTco2e = 0;
+  // Project cost = parents (compositions) + direct items
+  const parentsCost = parents.reduce((s, p) => s + ((p.total_cost as number) ?? 0), 0);
+  const directItemsCost = items
+    .filter((i) => !(i as unknown as Record<string, unknown>).parent_item_id)
+    .reduce((s, i) => s + (i.total_cost ?? 0), 0);
+  const totalCost = parentsCost + directItemsCost;
+
+  for (const item of items) {
+    const desc = (item.description ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const tco2e = item.emission_tco2e ?? 0;
+    const qty = item.quantity ?? 0;
+    const unit = (item.unit ?? "").toLowerCase();
+    if (desc.includes("concreto") && (unit === "m³" || unit === "m3")) {
+      concretoM3 += qty; concretoTco2e += tco2e;
+    }
+    if ((desc.includes("aco") || desc.includes("armadura") || desc.includes("ca-50") || desc.includes("ca-25") || desc.includes("ca-60") || desc.includes("tela soldada")) && (unit === "kg" || unit === "t")) {
+      acoKg += unit === "t" ? qty * 1000 : qty; acoTco2e += tco2e;
+    }
+  }
+
+  // Build hierarchical items
+  const reportItems = parents
+    .filter((p) => (p.emission_tco2e as number) > 0)
+    .sort((a, b) => (b.emission_tco2e as number) - (a.emission_tco2e as number))
+    .map((p) => {
+      const children = items
+        .filter((i) => {
+          const pi = (i as unknown as Record<string, unknown>).parent_item_id;
+          return pi === p.id;
+        })
+        .filter((i) => (i.emission_tco2e ?? 0) > 0)
+        .sort((a, b) => (b.emission_tco2e ?? 0) - (a.emission_tco2e ?? 0))
+        .map((c) => ({
+          description: c.description ?? "",
+          costCode: c.cost_code ?? "",
+          unit: c.unit ?? "",
+          quantity: c.quantity ?? 0,
+          emissionTco2e: c.emission_tco2e ?? 0,
+          factorValue: c.factor_value ?? 0,
+          factorSource: c.source_tier ?? "",
+        }));
+
+      return {
+        description: (p.description as string) ?? "",
+        costCode: (p.cost_code as string) ?? "",
+        unit: (p.unit as string) ?? "",
+        quantity: (p.quantity as number) ?? 0,
+        emissionTco2e: (p.emission_tco2e as number) ?? 0,
+        phase: (p.phase as string | null) ?? null,
+        children,
+      };
+    });
+
+  // Add direct items (no parent)
+  const directItems = items
+    .filter((i) => !(i as unknown as Record<string, unknown>).parent_item_id && (i.emission_tco2e ?? 0) > 0 && !i.is_excluded)
+    .sort((a, b) => (b.emission_tco2e ?? 0) - (a.emission_tco2e ?? 0))
+    .map((i) => ({
+      description: i.description ?? "",
+      costCode: i.cost_code ?? "",
+      unit: i.unit ?? "",
+      quantity: i.quantity ?? 0,
+      emissionTco2e: i.emission_tco2e ?? 0,
+      phase: i.phase ?? null,
+    }));
+
+  return {
+    name: scen.name,
+    totalTco2e: scen.result?.total_tco2e ?? 0,
+    totalCostR$: totalCost,
+    concretoM3: Math.round(concretoM3 * 10) / 10,
+    concretoTco2e: Math.round(concretoTco2e * 100) / 100,
+    acoTon: Math.round(acoKg / 100) / 10,
+    acoTco2e: Math.round(acoTco2e * 100) / 100,
+    materiaisTco2e: (scen.result?.scope3_materials_kgco2e ?? 0) / 1000,
+    transporteTco2e: (scen.result?.scope3_logistics_kgco2e ?? 0) / 1000,
+    items: [...reportItems, ...directItems],
+  };
+}
 
 export default function ReportsPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -21,6 +115,9 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState<string | null>(null);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>("");
+  // Cenários selecionados para os relatórios comparativos (PDF + Conferência).
+  // PDF exige exatamente 2; Conferência aceita 2+.
+  const [compareIds, setCompareIds] = useState<string[]>([]);
 
   useEffect(() => {
     setBranding(loadSettings());
@@ -33,9 +130,17 @@ export default function ReportsPage() {
       setScenarios(withResult);
       const preferred = withResult.find((s) => s.is_base) ?? withResult[0];
       if (preferred) setSelectedScenarioId(preferred.id);
+      const sorted = [...withResult].sort((a, b) => (b.is_base ? 1 : 0) - (a.is_base ? 1 : 0));
+      setCompareIds(sorted.slice(0, 2).map((s) => s.id));
     }).catch(() => {})
       .finally(() => setLoading(false));
   }, [projectId]);
+
+  const toggleCompare = (id: string) => {
+    setCompareIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
   const handleExcelDownload = async () => {
     setGenerating("excel");
@@ -78,117 +183,31 @@ export default function ReportsPage() {
   };
 
   const handlePdfDownload = async () => {
-    if (scenarios.length < 2) {
-      alert("Necessário pelo menos 2 cenários para o relatório comparativo");
+    if (compareIds.length !== 2) {
+      alert("Selecione exatamente 2 cenários para o relatório comparativo em PDF");
       return;
     }
+    const [scenA, scenB] = compareIds
+      .map((id) => scenarios.find((s) => s.id === id))
+      .filter((s): s is ScenarioResponse => !!s);
+    if (!scenA || !scenB) return;
+
     setGenerating("pdf");
     try {
-      // Load details for first two scenarios
+      // Load details for the selected scenarios
       const [detailA, detailB] = await Promise.all([
-        getScenario(scenarios[0].id),
-        getScenario(scenarios[1].id),
+        getScenario(scenA.id),
+        getScenario(scenB.id),
       ]);
 
       // Also load parent items
-      const loadParents = async (scenId: string) => {
-        const res = await fetch(`/api/scenarios/${scenId}`, { credentials: "include" });
-        return res.json();
-      };
-
       const [rawA, rawB] = await Promise.all([
-        loadParents(scenarios[0].id),
-        loadParents(scenarios[1].id),
+        loadScenarioRaw(scenA.id),
+        loadScenarioRaw(scenB.id),
       ]);
 
-      const buildScenario = (
-        scen: ScenarioResponse,
-        detail: typeof detailA,
-        raw: Record<string, unknown>
-      ) => {
-        const items = detail.items;
-        const parents = (raw.parent_items ?? []) as Record<string, unknown>[];
-        let concretoM3 = 0, concretoTco2e = 0, acoKg = 0, acoTco2e = 0;
-        // Project cost = parents (compositions) + direct items
-        const parentsCost = parents.reduce((s, p) => s + ((p.total_cost as number) ?? 0), 0);
-        const directItemsCost = items
-          .filter((i) => !(i as unknown as Record<string, unknown>).parent_item_id)
-          .reduce((s, i) => s + (i.total_cost ?? 0), 0);
-        const totalCost = parentsCost + directItemsCost;
-
-        for (const item of items) {
-          const desc = (item.description ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-          const tco2e = item.emission_tco2e ?? 0;
-          const qty = item.quantity ?? 0;
-          const unit = (item.unit ?? "").toLowerCase();
-          if (desc.includes("concreto") && (unit === "m³" || unit === "m3")) {
-            concretoM3 += qty; concretoTco2e += tco2e;
-          }
-          if ((desc.includes("aco") || desc.includes("armadura") || desc.includes("ca-50") || desc.includes("ca-25") || desc.includes("ca-60") || desc.includes("tela soldada")) && (unit === "kg" || unit === "t")) {
-            acoKg += unit === "t" ? qty * 1000 : qty; acoTco2e += tco2e;
-          }
-        }
-
-        // Build hierarchical items
-        const reportItems = parents
-          .filter((p) => (p.emission_tco2e as number) > 0)
-          .sort((a, b) => (b.emission_tco2e as number) - (a.emission_tco2e as number))
-          .map((p) => {
-            const children = items
-              .filter((i) => {
-                const pi = (i as unknown as Record<string, unknown>).parent_item_id;
-                return pi === p.id;
-              })
-              .filter((i) => (i.emission_tco2e ?? 0) > 0)
-              .sort((a, b) => (b.emission_tco2e ?? 0) - (a.emission_tco2e ?? 0))
-              .map((c) => ({
-                description: c.description ?? "",
-                costCode: c.cost_code ?? "",
-                unit: c.unit ?? "",
-                quantity: c.quantity ?? 0,
-                emissionTco2e: c.emission_tco2e ?? 0,
-                factorValue: c.factor_value ?? 0,
-                factorSource: c.source_tier ?? "",
-              }));
-
-            return {
-              description: (p.description as string) ?? "",
-              costCode: (p.cost_code as string) ?? "",
-              unit: (p.unit as string) ?? "",
-              quantity: (p.quantity as number) ?? 0,
-              emissionTco2e: (p.emission_tco2e as number) ?? 0,
-              children,
-            };
-          });
-
-        // Add direct items (no parent)
-        const directItems = items
-          .filter((i) => !(i as unknown as Record<string, unknown>).parent_item_id && (i.emission_tco2e ?? 0) > 0 && !i.is_excluded)
-          .sort((a, b) => (b.emission_tco2e ?? 0) - (a.emission_tco2e ?? 0))
-          .map((i) => ({
-            description: i.description ?? "",
-            costCode: i.cost_code ?? "",
-            unit: i.unit ?? "",
-            quantity: i.quantity ?? 0,
-            emissionTco2e: i.emission_tco2e ?? 0,
-          }));
-
-        return {
-          name: scen.name,
-          totalTco2e: scen.result?.total_tco2e ?? 0,
-          totalCostR$: totalCost,
-          concretoM3: Math.round(concretoM3 * 10) / 10,
-          concretoTco2e: Math.round(concretoTco2e * 100) / 100,
-          acoTon: Math.round(acoKg / 100) / 10,
-          acoTco2e: Math.round(acoTco2e * 100) / 100,
-          materiaisTco2e: (scen.result?.scope3_materials_kgco2e ?? 0) / 1000,
-          transporteTco2e: (scen.result?.scope3_logistics_kgco2e ?? 0) / 1000,
-          items: [...reportItems, ...directItems],
-        };
-      };
-
-      const scenarioA = buildScenario(scenarios[0], detailA, rawA);
-      const scenarioB = buildScenario(scenarios[1], detailB, rawB);
+      const scenarioA = buildReportScenario(scenA, detailA, rawA);
+      const scenarioB = buildReportScenario(scenB, detailB, rawB);
 
       const pdf = generateComparisonPDF(
         {
@@ -208,15 +227,45 @@ export default function ReportsPage() {
     setGenerating(null);
   };
 
+  const handleLeedPhaseDownload = async () => {
+    if (!selectedScenarioId) {
+      alert("Selecione um cenário para o relatório por fase");
+      return;
+    }
+    const scen = scenarios.find((s) => s.id === selectedScenarioId);
+    if (!scen) return;
+
+    setGenerating("leed-phase");
+    try {
+      const [detail, raw] = await Promise.all([
+        getScenario(scen.id),
+        loadScenarioRaw(scen.id),
+      ]);
+      const scenario = buildReportScenario(scen, detail, raw);
+
+      const data: PhaseReportData = {
+        projectName,
+        scenario,
+        createdAt: new Date().toLocaleDateString("pt-BR"),
+      };
+      const pdf = generatePhaseReportPDF(data, branding ?? loadSettings());
+      pdf.save(`${projectName.replace(/\s+/g, "_")}_carbono_por_fase_${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (e) {
+      console.error("LEED phase PDF error:", e);
+      alert("Erro ao gerar relatório por fase");
+    }
+    setGenerating(null);
+  };
+
   const handleComparisonDownload = async () => {
-    if (scenarios.length < 2) {
-      alert("Necessário pelo menos 2 cenários");
+    if (compareIds.length < 2) {
+      alert("Selecione pelo menos 2 cenários");
       return;
     }
     setGenerating("comparison");
     try {
       const resp = await fetch(
-        `/api/projects/${projectId}/export-comparison?scenario_a=${scenarios[0].id}&scenario_b=${scenarios[1].id}`,
+        `/api/projects/${projectId}/export-comparison?scenario_ids=${compareIds.join(",")}`,
         { credentials: "include" }
       );
       const blob = await resp.blob();
@@ -239,10 +288,22 @@ export default function ReportsPage() {
       desc: "Indicadores, composições e insumos com fatores de emissão · Identidade visual configurável",
       badge: "Recomendado",
       format: ".pdf",
-      ready: scenarios.length >= 2,
+      ready: compareIds.length === 2,
       color: "#1d7a6b",
       bg: "#E6F3EE",
       onClick: handlePdfDownload,
+    },
+    {
+      id: "leed-phase",
+      icon: BarChart2,
+      title: "Relatório de Carbono por Fase — LEED v5",
+      desc: "Emissões agrupadas por etapa de obra, para certificação LEED v5 · Identidade visual configurável",
+      badge: "LEED v5",
+      format: ".pdf",
+      ready: !!selectedScenarioId,
+      color: "#1d7a6b",
+      bg: "#E6F3EE",
+      onClick: handleLeedPhaseDownload,
     },
     {
       id: "comparison",
@@ -251,7 +312,7 @@ export default function ReportsPage() {
       desc: "Comparativo dos dados de entrada (orçamento) com as emissões calculadas por composição e insumo",
       badge: "Conferência",
       format: ".xlsx",
-      ready: scenarios.length >= 2,
+      ready: compareIds.length >= 2,
       color: "#1e40af",
       bg: "#DBEAFE",
       onClick: handleComparisonDownload,
@@ -353,6 +414,34 @@ export default function ReportsPage() {
         </div>
       )}
 
+      {/* Scenario selector for comparative reports (PDF + Conferência) */}
+      {scenarios.length >= 2 && (
+        <div className="bg-white border border-[#E0E4E3] rounded-xl p-4 mb-4">
+          <p className="text-xs font-semibold text-[#404040] mb-2">
+            Cenários para relatórios comparativos ({compareIds.length} selecionados) — PDF usa exatamente 2, Conferência aceita 2 ou mais
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {scenarios.map((s) => {
+              const active = compareIds.includes(s.id);
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => toggleCompare(s.id)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all",
+                    active
+                      ? "bg-[#56B7A5] border-[#56B7A5] text-white"
+                      : "bg-white border-[#E0E4E3] text-[#808181] hover:border-[#81C8B9]"
+                  )}
+                >
+                  {s.name}{s.is_base ? " (Base)" : ""} · {(s.result?.total_tco2e ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} tCO₂e
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Scenario selector for item exports (Excel/CSV) */}
       {scenarios.length > 0 && (
         <div className="bg-white border border-[#E0E4E3] rounded-xl p-4 mb-4 flex items-center gap-3">
@@ -418,7 +507,7 @@ export default function ReportsPage() {
                       ) : (
                         <Download size={13} />
                       )}
-                      {isGenerating ? "Gerando..." : report.ready ? "Baixar" : "Sem cenários"}
+                      {isGenerating ? "Gerando..." : report.ready ? "Baixar" : "Selecione cenários"}
                     </Button>
                   </div>
                 </div>

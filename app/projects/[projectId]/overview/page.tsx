@@ -44,6 +44,7 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [paretoData, setParetoData] = useState<ParetoDataPoint[]>([]);
+  const [phaseData, setPhaseData] = useState<ParetoDataPoint[]>([]);
   const [scopeData, setScopeData] = useState<ScopeDataPoint[]>([]);
   const [project, setProject] = useState<ProjectResponse | null>(null);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
@@ -73,6 +74,34 @@ export default function OverviewPage() {
       return { ...d, pct: totalPareto > 0 ? (d.tco2e / totalPareto) * 100 : 0, cumPct: totalPareto > 0 ? (cum / totalPareto) * 100 : 0 };
     });
     setParetoData(pareto);
+
+    // Por fase de obra — mesmo idioma (Record<string, number> acumulado,
+    // ordenado desc). "Não classificado" agrupa itens sem phase.
+    const groupedByPhase: Record<string, number> = {};
+    for (const item of items) {
+      if (item.is_excluded || !item.emission_tco2e) continue;
+      const key = item.phase || "Não classificado";
+      groupedByPhase[key] = (groupedByPhase[key] || 0) + item.emission_tco2e;
+    }
+    const sortedPhases = Object.entries(groupedByPhase)
+      .map(([name, tco2e]) => ({
+        fullName: name,
+        name: name.length > 25 ? name.slice(0, 22) + "…" : name,
+        tco2e: Math.round(tco2e * 100) / 100,
+      }))
+      .sort((a, b) => b.tco2e - a.tco2e);
+    const totalPhase = sortedPhases.reduce((s, d) => s + d.tco2e, 0);
+    let cumPhase = 0;
+    setPhaseData(
+      sortedPhases.map((d) => {
+        cumPhase += d.tco2e;
+        return {
+          ...d,
+          pct: totalPhase > 0 ? (d.tco2e / totalPhase) * 100 : 0,
+          cumPct: totalPhase > 0 ? (cumPhase / totalPhase) * 100 : 0,
+        };
+      }),
+    );
 
     // Scope donut from result
     if (result) {
@@ -140,6 +169,7 @@ export default function OverviewPage() {
     if (!activeScenarioId) {
       setParetoData([]);
       setScopeData([]);
+      setPhaseData([]);
       return;
     }
     let cancelled = false;
@@ -535,6 +565,34 @@ export default function OverviewPage() {
               </CardBody>
             </Card>
           </div>
+
+          {phaseData.length > 0 && !(phaseData.length === 1 && phaseData[0].fullName === "Não classificado") && (
+            <div className="grid grid-cols-3 gap-4 mt-4">
+              <Card className="col-span-3">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-sm font-bold text-[#030304]">Emissões por Fase de Obra</h2>
+                      <p className="text-xs text-[#808181] mt-0.5">
+                        Fases marcadas manualmente na página de Itens · &quot;Não classificado&quot; agrupa itens sem fase
+                      </p>
+                    </div>
+                    <span className="text-xs text-[#808181]">tCO₂e · % acumulado</span>
+                  </div>
+                </CardHeader>
+                <CardBody>
+                  <ParetoChart
+                    data={phaseData}
+                    onBarClick={(point) => {
+                      const phase = point.fullName ?? point.name;
+                      const qs = phase === "Não classificado" ? "unclassified" : encodeURIComponent(phase);
+                      router.push(`/projects/${projectId}/items?phase=${qs}`);
+                    }}
+                  />
+                </CardBody>
+              </Card>
+            </div>
+          )}
         </>
       )}
 

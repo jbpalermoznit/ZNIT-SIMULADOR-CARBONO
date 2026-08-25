@@ -52,6 +52,8 @@ export interface ScenarioItemResponse {
   emission_scope3_logistics_kgco2e?: number;
   is_excluded: boolean;
   exclusion_reason?: string;
+  phase?: string | null;
+  factor_version?: string | null;
 }
 
 export interface ScenarioDetailResponse extends ScenarioResponse {
