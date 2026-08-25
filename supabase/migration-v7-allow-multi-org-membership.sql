@@ -31,7 +31,7 @@ BEGIN
       AND relname = 'users'
       AND contype = 'u'
       AND (
-        SELECT array_agg(attname)
+        SELECT array_agg(attname::text)
         FROM pg_attribute
         WHERE attrelid = conrelid
           AND attnum = ANY (conkey)
