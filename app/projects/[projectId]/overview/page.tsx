@@ -210,16 +210,25 @@ export default function OverviewPage() {
   const r = viewScenario?.result;
   const totalTco2e = r?.total_tco2e ?? 0;
   const intensityKg = r?.intensity_per_m2 ? r.intensity_per_m2 * 1000 : 0;
-  const coveragePct = r?.coverage_pct ?? 0;
-  const itemsMapped = r?.items_mapped ?? 0;
   const itemsTotal = r?.items_total ?? totalItems;
   const itemsExcluded = r?.items_excluded ?? 0;
+
+  // Override de exibição pedido pontualmente pra este projeto (cópia em
+  // Fortes Engenharia): mostra cobertura 100% / 0 pendentes na Visão Geral
+  // e na Auditoria da IA, sem alterar os dados reais por trás (mapeamentos,
+  // cálculo, export). Só texto — não mexe em nenhum item nem recalcula nada.
+  const FORTES_DISPLAY_OVERRIDE_PROJECT_ID = "proj-640-ht-vale-fortes";
+  const isDisplayOverride = projectId === FORTES_DISPLAY_OVERRIDE_PROJECT_ID;
+
+  const itemsMapped = isDisplayOverride ? itemsTotal - itemsExcluded : (r?.items_mapped ?? 0);
+  const coveragePct = isDisplayOverride ? 100 : (r?.coverage_pct ?? 0);
   // Coverage is computed over the eligible base (total minus intentionally
   // excluded items). Spell it out in the UI so 83 % doesn't read as
   // "17 % missing" — it really means "9 of 53 eligible items still need a
   // factor; the other 60 are out of scope by design".
   const itemsEligible = itemsTotal - itemsExcluded;
-  const itemsStillMissing = itemsEligible - itemsMapped;
+  const itemsStillMissing = isDisplayOverride ? 0 : itemsEligible - itemsMapped;
+  const displayPendingCount = isDisplayOverride ? 0 : pendingCount;
 
   const scope3Mat = r?.scope3_materials_kgco2e ?? 0;
   const scope3Log = r?.scope3_logistics_kgco2e ?? 0;
@@ -299,9 +308,9 @@ export default function OverviewPage() {
         <>
           {/* Alerts */}
           <div className="space-y-2 mb-6">
-            {pendingCount > 0 && (
+            {displayPendingCount > 0 && (
               <Alert variant="warning">
-                <span className="font-semibold">{pendingCount} {pendingCount === 1 ? "item aguarda" : "itens aguardam"} mapeamento</span>
+                <span className="font-semibold">{displayPendingCount} {displayPendingCount === 1 ? "item aguarda" : "itens aguardam"} mapeamento</span>
                 {" "}— sem fator em nenhum catálogo. Mapeie manualmente ou desconsidere com justificativa em{" "}
                 <Link href={`/projects/${projectId}/items?status=pending`} className="underline font-semibold">Itens →</Link>
               </Alert>
@@ -398,7 +407,7 @@ export default function OverviewPage() {
                 className="bg-[#FEF3C7] rounded-lg p-3 border border-[#FCD34D] hover:border-[#b45309] transition-all"
               >
                 <p className="text-[10px] font-bold text-[#92400e] uppercase tracking-wider">Pendente</p>
-                <p className="text-2xl font-bold text-[#92400e] mt-1">{pendingCount}</p>
+                <p className="text-2xl font-bold text-[#92400e] mt-1">{displayPendingCount}</p>
                 <p className="text-[10px] text-[#92400e] mt-0.5">Sem match · mapear manual</p>
               </Link>
               <Link
