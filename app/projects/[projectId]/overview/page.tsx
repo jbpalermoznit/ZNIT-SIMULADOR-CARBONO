@@ -315,14 +315,14 @@ export default function OverviewPage() {
                 <Link href={`/projects/${projectId}/items?status=pending`} className="underline font-semibold">Itens →</Link>
               </Alert>
             )}
-            {blockedCount > 0 && (
+            {!isDisplayOverride && blockedCount > 0 && (
               <Alert variant="info">
                 <span className="font-semibold">{blockedCount} {blockedCount === 1 ? "composição aguarda" : "composições aguardam"} decomposição</span>
                 {" "}— item agrupado sem insumos no Relatório Proof ou Planilha de Insumos. Veja em{" "}
                 <Link href={`/projects/${projectId}/items?type=compositions`} className="underline font-semibold">Composições →</Link>
               </Alert>
             )}
-            {manualCount > 0 && (
+            {!isDisplayOverride && manualCount > 0 && (
               <Alert variant="info">
                 <span className="font-semibold">{manualCount} {manualCount === 1 ? "item sugerido" : "itens sugeridos"} para revisão</span>
                 {" "}— match com confiança média ou baixa. Confirme ou ajuste em{" "}
