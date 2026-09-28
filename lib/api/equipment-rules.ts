@@ -14,6 +14,9 @@ export interface EquipmentRuleResponse {
   emission_factor_source: string;
   emission_factor_tier: string;
   scope: number;
+  /** Horas por unidade de quantidade do item (ex.: 2,35 h/m³ p/ guindaste).
+   *  1 = quantidade do item já está em horas. Ver migration-v15. */
+  productivity_index?: number;
   notes: string | null;
   times_applied: number;
   is_active: boolean;
@@ -32,6 +35,7 @@ export interface EquipmentRuleCreate {
   emission_factor_source: string;
   emission_factor_tier: string;
   scope?: number;
+  productivity_index?: number;
   notes?: string;
 }
 
@@ -45,11 +49,12 @@ export interface EquipmentSuggestion {
   emission_factor_source: string;
   emission_factor_tier: string;
   scope: number;
+  productivity_index?: number;
   total_kgco2e: number;
 }
 
 export interface DefaultProfiles {
-  profiles: Record<string, { fuel: string; consumption: number; unit: string; scope: number }>;
+  profiles: Record<string, { fuel: string; consumption: number; unit: string; scope: number; productivity_index?: number }>;
   fuel_factors: Record<string, { value: number; unit: string; source: string; tier: string }>;
   transport_factors: Record<string, { value: number; unit: string; source: string }>;
 }

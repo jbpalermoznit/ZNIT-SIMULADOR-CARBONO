@@ -10,8 +10,14 @@ const ELECTRIC_FACTOR = {
   tier: "ghg_protocol",
 };
 
-// Default consumption per hour by equipment category
-const DEFAULT_EQUIPMENT_PROFILES = {
+// Default consumption per hour by equipment category. `productivity_index`
+// (horas por unidade de quantidade do item) é opcional — omitido = 1, ou
+// seja, a quantidade do item já está em horas. Guindaste é medido por
+// produtividade (h/m³), não diretamente em horas — ver migration-v15.
+const DEFAULT_EQUIPMENT_PROFILES: Record<
+  string,
+  { fuel: string; consumption: number; unit: string; scope: number; productivity_index?: number }
+> = {
   retroescavadeira: { fuel: "diesel", consumption: 12.0, unit: "L/h", scope: 1 },
   escavadeira: { fuel: "diesel", consumption: 18.0, unit: "L/h", scope: 1 },
   "caminhão basculante": { fuel: "diesel", consumption: 15.0, unit: "L/h", scope: 1 },

@@ -1170,6 +1170,9 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
   const [consumo, setConsumo] = useState("15");
   const [premissaF, setPremissaF] = useState("excluir");
   const [eqCategory, setEqCategory] = useState("");
+  // Horas por unidade de quantidade do item (ex.: guindaste = 2,35 h/m³).
+  // "1" preserva o comportamento padrão: quantidade do item já em horas.
+  const [productivityIndex, setProductivityIndex] = useState("1");
   const [eqFactor, setEqFactor] = useState("2.643");
   const [eqFactorUnit, setEqFactorUnit] = useState("kgCO₂/L");
   const [eqFactorSource, setEqFactorSource] = useState("BEN 2023");
@@ -1201,6 +1204,7 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
         setEqCategory(s.category);
         setFuelType(s.fuel_type);
         setConsumo(String(s.consumption_per_hour));
+        setProductivityIndex(String(s.productivity_index ?? 1));
         setEqFactor(String(s.emission_factor_value));
         setEqFactorUnit(s.emission_factor_unit);
         setEqFactorSource(s.emission_factor_source);
@@ -1228,6 +1232,7 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
     setEqSaving(true);
     try {
       // Save equipment rule
+      const productivityIndexNum = parseFloat(productivityIndex || "1") || 1;
       const { createEquipmentRule } = await import("@/lib/api/equipment-rules");
       await createEquipmentRule({
         original_description: item.description,
@@ -1240,15 +1245,19 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
         emission_factor_source: eqFactorSource,
         emission_factor_tier: "ghg_protocol",
         scope: eqScope,
+        productivity_index: productivityIndexNum,
       });
 
-      // Also save as item mapping so emission is calculated
-      const totalFactor = parseFloat(consumo) * parseFloat(eqFactor);
+      // Also save as item mapping so emission is calculated. O índice de
+      // produtividade entra dobrado no fator (kgCO2 por unidade do item),
+      // já que o calculador sempre faz item.quantity × factor_value.
+      const totalFactor = productivityIndexNum * parseFloat(consumo) * parseFloat(eqFactor);
+      const indexNote = productivityIndexNum !== 1 ? ` × ${productivityIndexNum} h/unid.` : "";
       await confirmMapping(item.id, {
         source_tier: "ghg_protocol",
         factor_value: totalFactor,
         factor_unit: fuelType === "electric" ? "kgCO₂/kWh·h" : "kgCO₂/L·h",
-        factor_name: `${eqCategory || item.description} (${consumo} ${fuelType === "electric" ? "kWh/h" : "L/h"} × ${eqFactor} ${eqFactorUnit})`,
+        factor_name: `${eqCategory || item.description} (${consumo} ${fuelType === "electric" ? "kWh/h" : "L/h"}${indexNote} × ${eqFactor} ${eqFactorUnit})`,
       });
 
       onSaved?.();
@@ -1417,6 +1426,17 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
                     placeholder="Ex: retroescavadeira" className={inputClass} />
                 </div>
                 <div>
+                  <label className="block text-xs font-semibold text-[#404040] mb-1.5">
+                    Índice de produtividade (h por {item.unit || "unidade"} do item)
+                  </label>
+                  <input type="number" step="0.01" value={productivityIndex} onChange={(e) => setProductivityIndex(e.target.value)}
+                    placeholder="Ex: 2.35" className={inputClass} />
+                  <p className="text-[10px] text-[#BDBDBC] mt-1">
+                    Converte a quantidade do item em horas de operação. Deixe 1 se a quantidade já está em horas
+                    (ex.: guindaste = 2,35 h/m³ de concreto lançado).
+                  </p>
+                </div>
+                <div>
                   <label className="block text-xs font-semibold text-[#404040] mb-1.5">Tipo de combustível</label>
                   <select value={fuelType} onChange={(e) => handleFuelChange(e.target.value)} className={selectClass}>
                     <option value="diesel">Diesel</option>
@@ -1450,19 +1470,30 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
                     </div>
                   </>
                 )}
-                {consumo && eqFactor && fuelType !== "none" && (
+                {consumo && eqFactor && fuelType !== "none" && (() => {
+                  const idx = parseFloat(productivityIndex || "1") || 1;
+                  const hours = item.quantity * idx;
+                  const total = hours * parseFloat(consumo || "0") * parseFloat(eqFactor || "0");
+                  return (
                   <div className="bg-[#E6F3EE] rounded-lg px-3 py-2.5 text-xs text-[#1d7a6b]">
                     <p className="font-semibold mb-1">Cálculo de emissão</p>
+                    {idx !== 1 && (
+                      <p className="font-mono text-[11px]">
+                        {item.quantity.toLocaleString("pt-BR")} {item.unit || "unid."} × {idx} h/{item.unit || "unid."}
+                        {" "}= {hours.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} h
+                      </p>
+                    )}
                     <p className="font-mono text-[11px]">
-                      {item.quantity.toLocaleString("pt-BR")} h × {consumo}{" "}
+                      {hours.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} h × {consumo}{" "}
                       {fuelType === "electric" ? "kWh/h" : fuelType === "glp" ? "kg/h" : "L/h"} × {eqFactor} {eqFactorUnit}
                     </p>
                     <p className="font-bold mt-1">
-                      = {(item.quantity * parseFloat(consumo || "0") * parseFloat(eqFactor || "0")).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} kgCO₂e
-                      {" "}({((item.quantity * parseFloat(consumo || "0") * parseFloat(eqFactor || "0")) / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} tCO₂e)
+                      = {total.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} kgCO₂e
+                      {" "}({(total / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} tCO₂e)
                     </p>
                   </div>
-                )}
+                  );
+                })()}
                 {fuelType === "none" && (
                   <div className="bg-[#F3F4F6] rounded-lg px-3 py-2.5 text-xs text-[#808181]">
                     Equipamento sem combustão direta — emissão = 0. Pode ser excluído do inventário ou tratado como material (Tipo A).

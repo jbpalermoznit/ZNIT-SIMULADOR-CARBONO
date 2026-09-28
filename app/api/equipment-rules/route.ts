@@ -59,6 +59,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Probe: migration-v15-equipment-productivity-index.sql pode não estar
+    // aplicada ainda — mesmo padrão defensivo usado em mapping/[itemId].
+    const productivityIndexProbe = await supabase
+      .from("equipment_rules")
+      .select("productivity_index")
+      .limit(1);
+    const productivityIndexColumnExists = !productivityIndexProbe.error;
+    if (!productivityIndexColumnExists) {
+      console.warn(
+        "[equipment-rules POST] migration-v15-equipment-productivity-index.sql not applied; " +
+        "productivity_index will be ignored on this request",
+      );
+    }
+
     // Upsert: update if rule with same keyword exists
     const { data: existing } = await supabase
       .from("equipment_rules")
@@ -82,6 +96,7 @@ export async function POST(req: NextRequest) {
           emission_factor_tier: body.emission_factor_tier,
           scope: body.scope ?? 1,
           notes: body.notes ?? null,
+          ...(productivityIndexColumnExists ? { productivity_index: body.productivity_index ?? 1 } : {}),
         })
         .eq("id", existing.id)
         .select()
@@ -111,6 +126,7 @@ export async function POST(req: NextRequest) {
         scope: body.scope ?? 1,
         notes: body.notes ?? null,
         created_by: user.id,
+        ...(productivityIndexColumnExists ? { productivity_index: body.productivity_index ?? 1 } : {}),
       })
       .select()
       .single();
