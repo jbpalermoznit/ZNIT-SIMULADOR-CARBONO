@@ -105,6 +105,21 @@ export async function GET(
   };
   const scenarioName = (scenario.name as string) ?? (project.name as string) ?? "Cenário";
 
+  // Diagnóstico do zero: um item com fator aplicado mas emissão 0 quase
+  // sempre é incompatibilidade de unidade (a conversão retorna 0 e a
+  // emissão some silenciosamente) — o cliente reportou "diversos materiais
+  // com emissões zeradas" sem conseguir distinguir isso de item sem fator.
+  // Derivado dos números já persistidos, sem query extra.
+  const diagnostico = (ai: Row, si: Row): string => {
+    if (si.is_excluded) return "desconsiderado";
+    const qty = (ai.quantity as number) ?? 0;
+    const fv = (si.factor_value as number) ?? 0;
+    if (!fv) return "sem fator";
+    if (qty === 0) return "quantidade zero";
+    if (((si.emission_kgco2e as number) ?? 0) > 0) return "ok";
+    return `unidade incompativel (item ${ai.unit ?? "?"} x fator ${si.factor_unit ?? "?"})`;
+  };
+
   // ── CSV branch — plano, ; separado, UTF-8 com BOM ──────────────────────────
   const format = req.nextUrl.searchParams.get("format");
   if (format === "csv") {
@@ -115,7 +130,7 @@ export async function GET(
     const headers = [
       "Cenário", "Descrição", "CostCode", "Tipo", "Classe", "Unidade",
       "Quantidade", "Custo Total (R$)", "Fase",
-      "Fator de Emissão", "Unidade Fator", "Fonte", "Versão do Fator", "Status", "Emissões (tCO₂e)",
+      "Fator de Emissão", "Unidade Fator", "Fonte", "Versão do Fator", "Status", "Diagnóstico", "Emissões (tCO₂e)",
     ];
     const escape = (v: unknown): string => {
       if (v === null || v === undefined) return "";
@@ -135,6 +150,7 @@ export async function GET(
         ai.quantity, ai.total_cost, ai.phase ?? "",
         si.factor_value ?? "", si.factor_unit ?? "", si.source_tier ?? "", si.factor_version ?? "",
         si.is_excluded ? "excluído" : ai.mapping_status,
+        diagnostico(ai, si),
         si.is_excluded ? 0 : emT(si),
       ].map(escape).join(";"));
     };
@@ -143,7 +159,7 @@ export async function GET(
       const parentT = kids.reduce((s, si) => s + emT(si), 0);
       lines.push([
         scenarioName, parent.description, parent.cost_code, parent.item_type, parent.abc_class,
-        parent.unit, parent.quantity, parent.total_cost, parent.phase ?? "", "", "", "", "", "composição",
+        parent.unit, parent.quantity, parent.total_cost, parent.phase ?? "", "", "", "", "", "composição", "",
         Math.round(parentT * 10000) / 10000,
       ].map(escape).join(";"));
       for (const si of kids) pushItem(abcMap.get(si.abc_item_id as string)!, si);
@@ -170,7 +186,8 @@ export async function GET(
 
   const headers = [
     "Cenário", "Descrição", "Un", "Quantidade", "Emissões (tCO₂e)", "Código", "Fase",
-    "Fator de Emissão", "Unidade Fator", "Fonte", "Versão do Fator",
+    "Tipo", "Classe ABC",
+    "Fator de Emissão", "Unidade Fator", "Fonte", "Versão do Fator", "Diagnóstico",
   ];
   const headerRow = ws.addRow(headers);
   headerRow.eachCell((cell) => {
@@ -191,10 +208,13 @@ export async function GET(
       excluded ? 0 : (emT(si) > 0 ? emT(si) : ""),
       ai.cost_code,
       ai.phase ?? "",
+      ai.item_type ?? "",
+      ai.abc_class ?? "",
       si.factor_value ?? "",
       si.factor_unit ?? "",
       si.source_tier ?? "",
       si.factor_version ?? "",
+      diagnostico(ai, si),
     ]);
     row.eachCell((cell) => {
       cell.font = isChild
@@ -210,7 +230,9 @@ export async function GET(
     const kids = childrenByParent.get(parent.id as string) ?? [];
     const pRow = ws.addRow([
       scenarioName, parent.description, parent.unit, parent.quantity,
-      "", parent.cost_code, parent.phase ?? "", "", "", "", "",
+      "", parent.cost_code, parent.phase ?? "",
+      parent.item_type ?? "", parent.abc_class ?? "",
+      "", "", "", "", "composição",
     ]);
     pRow.eachCell((cell) => {
       cell.font = { bold: true, size: 9, name: "Calibri", color: { argb: DARK.slice(2) } };
@@ -221,7 +243,7 @@ export async function GET(
   for (const si of directItems) addChildOrDirect(abcMap.get(si.abc_item_id as string)!, si, false);
 
   ws.columns.forEach((col, i) => {
-    col.width = [14, 55, 7, 14, 16, 22, 14, 12, 14, 14, 14][i] ?? 12;
+    col.width = [14, 55, 7, 14, 16, 22, 14, 8, 11, 12, 14, 14, 14, 34][i] ?? 12;
   });
   ws.views = [{ state: "frozen", ySplit: 1 }];
 
