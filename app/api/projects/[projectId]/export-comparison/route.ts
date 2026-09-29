@@ -158,7 +158,19 @@ export async function GET(
     { label: "Indicador Concreto (tCO₂/m³)", noDiff: true, value: (p) => (p.ind.concM3 > 0 ? p.ind.concTco2 / p.ind.concM3 : 0) },
     { label: "Quantidade de Aço (ton)", value: (p) => p.ind.acoTon },
     { label: "Indicador Aço (tCO₂/ton)", noDiff: true, value: (p) => (p.ind.acoTon > 0 ? p.ind.acoTco2 / p.ind.acoTon : 0) },
-    { label: "Emissões Materiais (tCO₂e)", value: (p) => (p.result?.scope3_materials_kgco2e ?? 0) / 1000 },
+    // "Emissões Materiais" sozinho, listado ao lado dos indicadores de
+    // concreto e aço, dava a entender que era uma categoria SEPARADA desses
+    // dois — é o total de TODOS os materiais. Abre em total + composição
+    // (concreto, aço, demais) pra não restar ambiguidade.
+    { label: "Emissões Materiais — TOTAL (tCO₂e)", value: (p) => (p.result?.scope3_materials_kgco2e ?? 0) / 1000 },
+    { label: "   ├ dos quais Concreto (tCO₂e)", noDiff: true, value: (p) => p.ind.concTco2 },
+    { label: "   ├ dos quais Aço (tCO₂e)", noDiff: true, value: (p) => p.ind.acoTco2 },
+    {
+      label: "   └ Outros Materiais (tCO₂e)",
+      noDiff: true,
+      value: (p) =>
+        Math.max(0, (p.result?.scope3_materials_kgco2e ?? 0) / 1000 - p.ind.concTco2 - p.ind.acoTco2),
+    },
     { label: "Emissões Transporte (tCO₂e)", noDiff: true, value: (p) => (p.result?.scope3_logistics_kgco2e ?? 0) / 1000 },
     { label: "Cobertura (%)", noDiff: true, value: (p) => p.result?.coverage_pct ?? 0 },
     { label: "Itens Mapeados", noDiff: true, value: (p) => p.result?.items_mapped ?? 0 },
@@ -182,6 +194,29 @@ export async function GET(
     }
   }
 
+  // Legenda — "Tipo" e "Classe ABC" aparecem nas abas de itens sem nenhuma
+  // explicação, e o cliente reportou não saber o que P1/P2/P3 significam.
+  wsInd.addRow([]);
+  const legendTitle = wsInd.addRow(["LEGENDA"]);
+  legendTitle.getCell(1).font = { bold: true, size: 10, name: "Calibri" };
+  const legendLines: Array<[string, string]> = [
+    ["Tipo A", "Material direto — insumo físico com fator de emissão próprio"],
+    ["Tipo B", "Mão de obra — sem emissão direta de Escopo 3 de materiais"],
+    ["Tipo C", "Item agrupado (composição) — emissão vem da soma dos insumos"],
+    ["Tipo D", "Material embutido — já contabilizado no item pai (evita dupla contagem)"],
+    ["Tipo E", "Equipamento/locação — emissão por consumo de combustível × uso"],
+    ["Tipo F", "Administrativo/indireto — sem emissão direta de materiais"],
+    ["Classe P1", "Curva ABC: itens que somam os primeiros 80% do custo do projeto"],
+    ["Classe P2", "Curva ABC: itens entre 80% e 95% do custo acumulado"],
+    ["Classe P3", "Curva ABC: itens entre 95% e 100% do custo acumulado (cauda)"],
+    ["Cobertura (%)", "Itens com fator aplicado ÷ itens elegíveis (exclui desconsiderados)"],
+  ];
+  for (const [term, meaning] of legendLines) {
+    const row = wsInd.addRow([term, meaning]);
+    row.getCell(1).font = { bold: true, size: 8, name: "Calibri" };
+    row.getCell(2).font = { size: 8, name: "Calibri", color: { argb: "FF404040" } };
+  }
+
   wsInd.columns = colWidths.map((width) => ({ width }));
 
   // ── Sheet 2 & 3: Detail per scenario ──────────────────────────────
@@ -194,6 +229,7 @@ export async function GET(
     const header = ws.addRow([
       "Composição", "Código", "Un", "Qtd (Input)", "Custo (Input)",
       "Insumo", "Código Insumo", "Un", "Qtd Expandida",
+      "Tipo", "Classe ABC",
       "Fator Emissão", "Unidade Fator", "Fonte", "Versão do Fator", "tCO₂e",
     ]);
     header.eachCell((cell) => {
@@ -228,6 +264,7 @@ export async function GET(
       const pRow = ws.addRow([
         parent.description, parent.cost_code, parent.unit, parent.quantity, parent.total_cost,
         "", "", "", "",
+        parent.item_type ?? "", parent.abc_class ?? "",
         "", "", "Σ Insumos", "", Math.round(parentEmission * 10000) / 10000,
       ]);
       pRow.eachCell((cell) => {
@@ -243,6 +280,7 @@ export async function GET(
         const cRow = ws.addRow([
           "", "", "", "", "",
           ai.description, ai.cost_code, ai.unit, ai.quantity,
+          ai.item_type ?? "", ai.abc_class ?? "",
           si.factor_value ?? "", si.factor_unit ?? "", si.source_tier ?? "", si.factor_version ?? "",
           Math.round(em * 10000) / 10000,
         ]);
@@ -267,6 +305,7 @@ export async function GET(
         ws.addRow([
           ai.description, ai.cost_code, ai.unit, ai.quantity, ai.total_cost,
           "", "", "", "",
+          ai.item_type ?? "", ai.abc_class ?? "",
           si.factor_value ?? "", si.factor_unit ?? "", si.source_tier ?? "", si.factor_version ?? "",
           Math.round(em * 10000) / 10000,
         ]);
@@ -276,6 +315,7 @@ export async function GET(
     ws.columns = [
       { width: 45 }, { width: 14 }, { width: 6 }, { width: 14 }, { width: 16 },
       { width: 45 }, { width: 18 }, { width: 6 }, { width: 14 },
+      { width: 8 }, { width: 11 },
       { width: 12 }, { width: 14 }, { width: 14 }, { width: 14 }, { width: 14 },
     ];
     ws.views = [{ state: "frozen", ySplit: 1 }];

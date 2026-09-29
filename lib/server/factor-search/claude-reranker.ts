@@ -87,6 +87,27 @@ const FASTENER_ITEM_RE =
 const METAL_FACTOR_RE =
   /(aco|aço|steel|inox|stainless|ferro|iron|metal|metalic|zinco|zinc|galvaniz|aluminio|alumini|copper|cobre|lat[aã]o|brass|reinforc|vergalh|prego|arame|wire|nail|bolt|screw|anchor|fastener)/;
 
+// Segunda guarda, da mesma família da de fixadores: consumíveis e acessórios
+// pequenos de canteiro (etiqueta de identificação, protetor de ponta de
+// vergalhão, lacre, espaçador) contados em "un" casavam com EQUIPAMENTO
+// industrial pesado só porque a unidade batia — observado ao vivo:
+// "ETIQUETA PARA IDENTIFICACAO DE ACO" → "air distribution terminal panel,
+// steel, 120 m3/h" (40 kgCO₂/un → 91 t só nesse item) e "PROTETOR PARA PONTA
+// DE FERRO" → "silencer, steel, DN 125". Um acessório de gramas nunca casa
+// com um fator de equipamento/máquina de dezenas de kgCO₂ por unidade.
+const SMALL_ACCESSORY_ITEM_RE =
+  /\b(etiqueta|etiquetas|protetor|protetores|lacre|lacres|tag|marcador|espacador|espacadores|espa[çc]ador|capa\s+de\s+ponta|tampao\s+plastico)\b/;
+const INDUSTRIAL_EQUIPMENT_FACTOR_RE =
+  /(terminal panel|silencer|air distribution|ventilat|hvac|compressor|pump|bomba\b|boiler|caldeira|chiller|turbine|turbina|machine|m[aá]quina|engine|motor\b|furnace|forno|heat exchanger|trocador|transformer|transformador|generator|gerador)/;
+
+/** Resíduo/subproduto do processamento de um material NÃO é o material em si
+ *  — o caso real: "CHAPA COMPENSADA 14MM" → "bottom ash, MSWI-WWT, WW from
+ *  plywood production" (cinza da incineração do resíduo da produção de
+ *  compensado). O nome compartilha o termo do material e passa no match
+ *  textual, mas o fator é de tratamento de resíduo, não do produto. */
+const WASTE_BYPRODUCT_FACTOR_RE =
+  /\b(bottom ash|fly ash|waste water|wastewater|municipal solid waste|MSWI|WWT|landfill|incinerat|treatment of|residue)\b/i;
+
 function norm(s: string | null | undefined): string {
   return String(s ?? "")
     .toLowerCase()
@@ -174,6 +195,27 @@ export async function rerankWithClaude(
         bestIndex: null,
         confidence: "low",
         reason: `fixador metálico não casa com "${chosen.factor_name}" (rejeitado pós-rerank)`,
+      };
+    }
+
+    // Acessório/consumível pequeno × fator de equipamento industrial.
+    if (
+      SMALL_ACCESSORY_ITEM_RE.test(norm(description)) &&
+      INDUSTRIAL_EQUIPMENT_FACTOR_RE.test(norm(chosen.factor_name))
+    ) {
+      return {
+        bestIndex: null,
+        confidence: "low",
+        reason: `acessório de canteiro não casa com equipamento industrial "${chosen.factor_name}" (rejeitado pós-rerank)`,
+      };
+    }
+
+    // Fator de resíduo/subproduto no lugar do material.
+    if (WASTE_BYPRODUCT_FACTOR_RE.test(chosen.factor_name ?? "")) {
+      return {
+        bestIndex: null,
+        confidence: "low",
+        reason: `"${chosen.factor_name}" é resíduo/tratamento, não o material do item (rejeitado pós-rerank)`,
       };
     }
 
