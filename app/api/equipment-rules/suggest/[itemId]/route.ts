@@ -34,7 +34,7 @@ async function loadFuelFactors(): Promise<
 
 const DEFAULT_EQUIPMENT_PROFILES: Record<
   string,
-  { fuel: string; consumption: number; unit: string; scope: number }
+  { fuel: string; consumption: number; unit: string; scope: number; productivity_index?: number }
 > = {
   retroescavadeira: { fuel: "diesel", consumption: 12.0, unit: "L/h", scope: 1 },
   escavadeira: { fuel: "diesel", consumption: 18.0, unit: "L/h", scope: 1 },
@@ -148,8 +148,13 @@ export async function GET(
   }
 
   if (bestRule) {
+    // productivity_index (h por unidade de quantidade do item) pode não
+    // existir ainda no banco (migration-v15) — select("*") só omite a
+    // coluna nesse caso, undefined cai no default 1 sem quebrar.
+    const productivityIndex = (bestRule.productivity_index as number | null) ?? 1;
+    const hours = qty * productivityIndex;
     const total =
-      qty *
+      hours *
       (bestRule.consumption_per_hour as number) *
       (bestRule.emission_factor_value as number);
     return Response.json({
@@ -162,6 +167,7 @@ export async function GET(
       emission_factor_source: bestRule.emission_factor_source,
       emission_factor_tier: bestRule.emission_factor_tier,
       scope: bestRule.scope,
+      productivity_index: productivityIndex,
       total_kgco2e: total,
     });
   }
@@ -206,7 +212,9 @@ export async function GET(
 
   const consumption = profile.consumption;
   const factor = fuel.value;
-  const total = qty * consumption * factor;
+  const productivityIndex = profile.productivity_index ?? 1;
+  const hours = qty * productivityIndex;
+  const total = hours * consumption * factor;
 
   return Response.json({
     category: matchedCat,
@@ -218,6 +226,7 @@ export async function GET(
     emission_factor_source: fuel.source,
     emission_factor_tier: fuel.tier,
     scope: profile.scope,
+    productivity_index: productivityIndex,
     total_kgco2e: total,
   });
 }

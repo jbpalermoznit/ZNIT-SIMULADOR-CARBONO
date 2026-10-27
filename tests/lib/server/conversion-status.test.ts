@@ -36,3 +36,30 @@ describe("getConversionStatus", () => {
     expect(r.factor).toBe(0);
   });
 });
+
+// ===========================================================================
+// override manual (item_mappings.unit_override / manual_conversion_factor)
+// ===========================================================================
+
+describe("getConversionStatus — override manual", () => {
+  it("manual: manual_conversion_factor setado vence tudo", () => {
+    const r = getConversionStatus("ITEM QUALQUER", "un", "kgCO₂/kg", {
+      conversionFactor: 0.75,
+    });
+    expect(r).toEqual({ factor: 0.75, status: "manual" });
+  });
+
+  it("exact: unit_override corrige pra unidade igual à do fator", () => {
+    const r = getConversionStatus("ITEM QUALQUER", "un", "kg", {
+      unitOverride: "kg",
+    });
+    expect(r).toEqual({ factor: 1.0, status: "exact" });
+  });
+
+  it("incompatible: continua incompatível quando nem o override resolve", () => {
+    const r = getConversionStatus("ITEM QUALQUER", "un", "kgCO₂/kg", {
+      unitOverride: "m",
+    });
+    expect(r).toEqual({ factor: 0.0, status: "incompatible" });
+  });
+});

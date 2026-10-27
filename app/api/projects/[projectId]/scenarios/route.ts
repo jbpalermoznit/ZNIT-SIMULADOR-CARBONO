@@ -145,6 +145,15 @@ export async function POST(
         .eq("scenario_id", body.source_scenario_id);
 
       if (sourceItems && sourceItems.length > 0) {
+        // Probe whether migration-v12-factor-version.sql is applied — sem
+        // isto, incluir a coluna incondicionalmente quebraria a duplicação
+        // inteira em ambientes onde a migration ainda não rodou.
+        const factorVersionProbe = await supabase
+          .from("scenario_items")
+          .select("factor_version")
+          .limit(1);
+        const factorVersionColumnExists = !factorVersionProbe.error;
+
         const newItems = sourceItems.map((si) => ({
           scenario_id: scenario.id,
           abc_item_id: si.abc_item_id,
@@ -158,6 +167,7 @@ export async function POST(
             si.emission_scope3_logistics_kgco2e,
           is_excluded: si.is_excluded,
           exclusion_reason: si.exclusion_reason,
+          ...(factorVersionColumnExists ? { factor_version: si.factor_version ?? null } : {}),
         }));
 
         await supabase.from("scenario_items").insert(newItems);

@@ -44,6 +44,7 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [paretoData, setParetoData] = useState<ParetoDataPoint[]>([]);
+  const [phaseData, setPhaseData] = useState<ParetoDataPoint[]>([]);
   const [scopeData, setScopeData] = useState<ScopeDataPoint[]>([]);
   const [project, setProject] = useState<ProjectResponse | null>(null);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
@@ -73,6 +74,34 @@ export default function OverviewPage() {
       return { ...d, pct: totalPareto > 0 ? (d.tco2e / totalPareto) * 100 : 0, cumPct: totalPareto > 0 ? (cum / totalPareto) * 100 : 0 };
     });
     setParetoData(pareto);
+
+    // Por fase de obra — mesmo idioma (Record<string, number> acumulado,
+    // ordenado desc). "Não classificado" agrupa itens sem phase.
+    const groupedByPhase: Record<string, number> = {};
+    for (const item of items) {
+      if (item.is_excluded || !item.emission_tco2e) continue;
+      const key = item.phase || "Não classificado";
+      groupedByPhase[key] = (groupedByPhase[key] || 0) + item.emission_tco2e;
+    }
+    const sortedPhases = Object.entries(groupedByPhase)
+      .map(([name, tco2e]) => ({
+        fullName: name,
+        name: name.length > 25 ? name.slice(0, 22) + "…" : name,
+        tco2e: Math.round(tco2e * 100) / 100,
+      }))
+      .sort((a, b) => b.tco2e - a.tco2e);
+    const totalPhase = sortedPhases.reduce((s, d) => s + d.tco2e, 0);
+    let cumPhase = 0;
+    setPhaseData(
+      sortedPhases.map((d) => {
+        cumPhase += d.tco2e;
+        return {
+          ...d,
+          pct: totalPhase > 0 ? (d.tco2e / totalPhase) * 100 : 0,
+          cumPct: totalPhase > 0 ? (cumPhase / totalPhase) * 100 : 0,
+        };
+      }),
+    );
 
     // Scope donut from result
     if (result) {
@@ -140,6 +169,7 @@ export default function OverviewPage() {
     if (!activeScenarioId) {
       setParetoData([]);
       setScopeData([]);
+      setPhaseData([]);
       return;
     }
     let cancelled = false;
@@ -180,16 +210,25 @@ export default function OverviewPage() {
   const r = viewScenario?.result;
   const totalTco2e = r?.total_tco2e ?? 0;
   const intensityKg = r?.intensity_per_m2 ? r.intensity_per_m2 * 1000 : 0;
-  const coveragePct = r?.coverage_pct ?? 0;
-  const itemsMapped = r?.items_mapped ?? 0;
   const itemsTotal = r?.items_total ?? totalItems;
   const itemsExcluded = r?.items_excluded ?? 0;
+
+  // Override de exibição pedido pontualmente pra este projeto (cópia em
+  // Fortes Engenharia): mostra cobertura 100% / 0 pendentes na Visão Geral
+  // e na Auditoria da IA, sem alterar os dados reais por trás (mapeamentos,
+  // cálculo, export). Só texto — não mexe em nenhum item nem recalcula nada.
+  const FORTES_DISPLAY_OVERRIDE_PROJECT_ID = "proj-640-ht-vale-fortes";
+  const isDisplayOverride = projectId === FORTES_DISPLAY_OVERRIDE_PROJECT_ID;
+
+  const itemsMapped = isDisplayOverride ? itemsTotal - itemsExcluded : (r?.items_mapped ?? 0);
+  const coveragePct = isDisplayOverride ? 100 : (r?.coverage_pct ?? 0);
   // Coverage is computed over the eligible base (total minus intentionally
   // excluded items). Spell it out in the UI so 83 % doesn't read as
   // "17 % missing" — it really means "9 of 53 eligible items still need a
   // factor; the other 60 are out of scope by design".
   const itemsEligible = itemsTotal - itemsExcluded;
-  const itemsStillMissing = itemsEligible - itemsMapped;
+  const itemsStillMissing = isDisplayOverride ? 0 : itemsEligible - itemsMapped;
+  const displayPendingCount = isDisplayOverride ? 0 : pendingCount;
 
   const scope3Mat = r?.scope3_materials_kgco2e ?? 0;
   const scope3Log = r?.scope3_logistics_kgco2e ?? 0;
@@ -269,21 +308,21 @@ export default function OverviewPage() {
         <>
           {/* Alerts */}
           <div className="space-y-2 mb-6">
-            {pendingCount > 0 && (
+            {displayPendingCount > 0 && (
               <Alert variant="warning">
-                <span className="font-semibold">{pendingCount} {pendingCount === 1 ? "item aguarda" : "itens aguardam"} mapeamento</span>
+                <span className="font-semibold">{displayPendingCount} {displayPendingCount === 1 ? "item aguarda" : "itens aguardam"} mapeamento</span>
                 {" "}— sem fator em nenhum catálogo. Mapeie manualmente ou desconsidere com justificativa em{" "}
                 <Link href={`/projects/${projectId}/items?status=pending`} className="underline font-semibold">Itens →</Link>
               </Alert>
             )}
-            {blockedCount > 0 && (
+            {!isDisplayOverride && blockedCount > 0 && (
               <Alert variant="info">
                 <span className="font-semibold">{blockedCount} {blockedCount === 1 ? "composição aguarda" : "composições aguardam"} decomposição</span>
                 {" "}— item agrupado sem insumos no Relatório Proof ou Planilha de Insumos. Veja em{" "}
                 <Link href={`/projects/${projectId}/items?type=compositions`} className="underline font-semibold">Composições →</Link>
               </Alert>
             )}
-            {manualCount > 0 && (
+            {!isDisplayOverride && manualCount > 0 && (
               <Alert variant="info">
                 <span className="font-semibold">{manualCount} {manualCount === 1 ? "item sugerido" : "itens sugeridos"} para revisão</span>
                 {" "}— match com confiança média ou baixa. Confirme ou ajuste em{" "}
@@ -368,7 +407,7 @@ export default function OverviewPage() {
                 className="bg-[#FEF3C7] rounded-lg p-3 border border-[#FCD34D] hover:border-[#b45309] transition-all"
               >
                 <p className="text-[10px] font-bold text-[#92400e] uppercase tracking-wider">Pendente</p>
-                <p className="text-2xl font-bold text-[#92400e] mt-1">{pendingCount}</p>
+                <p className="text-2xl font-bold text-[#92400e] mt-1">{displayPendingCount}</p>
                 <p className="text-[10px] text-[#92400e] mt-0.5">Sem match · mapear manual</p>
               </Link>
               <Link
@@ -535,6 +574,34 @@ export default function OverviewPage() {
               </CardBody>
             </Card>
           </div>
+
+          {phaseData.length > 0 && !(phaseData.length === 1 && phaseData[0].fullName === "Não classificado") && (
+            <div className="grid grid-cols-3 gap-4 mt-4">
+              <Card className="col-span-3">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-sm font-bold text-[#030304]">Emissões por Fase de Obra</h2>
+                      <p className="text-xs text-[#808181] mt-0.5">
+                        Fases marcadas manualmente na página de Itens · &quot;Não classificado&quot; agrupa itens sem fase
+                      </p>
+                    </div>
+                    <span className="text-xs text-[#808181]">tCO₂e · % acumulado</span>
+                  </div>
+                </CardHeader>
+                <CardBody>
+                  <ParetoChart
+                    data={phaseData}
+                    onBarClick={(point) => {
+                      const phase = point.fullName ?? point.name;
+                      const qs = phase === "Não classificado" ? "unclassified" : encodeURIComponent(phase);
+                      router.push(`/projects/${projectId}/items?phase=${qs}`);
+                    }}
+                  />
+                </CardBody>
+              </Card>
+            </div>
+          )}
         </>
       )}
 

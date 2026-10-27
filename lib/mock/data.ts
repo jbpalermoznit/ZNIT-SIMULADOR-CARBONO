@@ -28,6 +28,8 @@ export interface AbcItem {
   autoExcluded?: boolean;
   /** Composições do Relatório Proof (descrições, sem quantidade/fator). */
   assemblies?: Array<{ code?: string; description?: string; uom?: string | null }>;
+  /** Fase/etapa de obra, texto livre marcado manualmente. Null = não classificado. */
+  phase?: string | null;
 }
 
 export interface Project {

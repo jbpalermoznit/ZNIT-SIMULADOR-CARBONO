@@ -51,6 +51,26 @@ export interface EpdCatalogResult {
   source_url?: string;
   en15804_compliant?: string;
   source_tier: "epd_catalog";
+  /** GWP total A1-A3 (kgCO2e), quando já preenchido no catálogo. */
+  gwp_a1a3?: number | null;
+  declared_unit?: string | null;
+  declared_value?: number | null;
+}
+
+export interface EpdAiExtraction {
+  id: string;
+  epd_id: number;
+  found: boolean;
+  gwp_a1a3: number | null;
+  declared_unit: string | null;
+  declared_value: number | null;
+  confidence: string | null;
+  citation: string;
+  model: string;
+  extracted_at: string;
+  status: "pending_review" | "approved" | "rejected";
+  reviewed_by: string | null;
+  reviewed_at: string | null;
 }
 
 export interface CecarbonResult {
@@ -119,6 +139,16 @@ export interface MappingConfirmRequest {
    *  new unit cost for the product. Persisted on scenario_items.unit_cost_override.
    *  Null/undefined → keep the original abc_items.unit_cost. */
   unit_cost_override?: number | null;
+  /** Corrects the unit used for this item at calc time (e.g. item parsed as
+   *  "un" but should be "kg" to match the factor). Null/undefined → use the
+   *  item's original unit as-is. */
+  unit_override?: string | null;
+  /** Explicit conversion multiplier (qty in the effective unit × this = qty
+   *  in factor_unit) for when the unit still doesn't share a family with the
+   *  factor and no automatic recipe applies. */
+  manual_conversion_factor?: number | null;
+  /** Free-text justification for manual_conversion_factor. */
+  manual_conversion_note?: string | null;
 }
 
 export interface MappingResponse {
@@ -135,6 +165,10 @@ export interface MappingResponse {
   notes?: string;
   /** Justification text written by the auto-exclusion pass (B/D/E/F). */
   exclusion_justification?: string | null;
+  unit_override?: string | null;
+  manual_conversion_factor?: number | null;
+  manual_conversion_note?: string | null;
+  factor_version?: string | null;
   /** Set when the server forked a new scenario (mode=fork). */
   new_scenario_id?: string | null;
   scenario_apply_error?: string | null;
@@ -189,4 +223,19 @@ export function confirmMapping(
 
 export function getMapping(itemId: string): Promise<MappingResponse | null> {
   return api.get(`/api/emission-factors/mapping/${itemId}`);
+}
+
+export function getEpdExtraction(epdId: number): Promise<EpdAiExtraction | null> {
+  return api.get(`/api/emission-factors/epd/${epdId}`);
+}
+
+export function extractEpdFactor(epdId: number): Promise<EpdAiExtraction> {
+  return api.post(`/api/emission-factors/epd/${epdId}/extract`, {});
+}
+
+export function reviewEpdExtraction(
+  epdId: number,
+  approve: boolean
+): Promise<EpdAiExtraction> {
+  return api.post(`/api/emission-factors/epd/${epdId}/review`, { approve });
 }

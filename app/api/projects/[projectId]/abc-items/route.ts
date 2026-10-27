@@ -216,11 +216,14 @@ export async function GET(
       mapping_status: item.mapping_status,
       classification_note: item.classification_note,
       parent_item_id: item.parent_item_id,
+      phase: item.phase ?? null,
       factor_name: m?.factor_name ?? null,
       factor_value: m?.factor_value ?? null,
       factor_unit: m?.factor_unit ?? null,
       source_tier: m?.source_tier ?? null,
       confidence: m?.confidence ?? null,
+      unit_override: (m?.unit_override as string | null) ?? null,
+      manual_conversion_factor: (m?.manual_conversion_factor as number | null) ?? null,
       auto_excluded: isAutoExcluded,
       legacy_auto_excluded: isLegacyAutoExcluded,
       legacy_epd_auto_mapped: isLegacyEpdAutoMapped,
@@ -231,4 +234,82 @@ export async function GET(
   });
 
   return Response.json(results);
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /api/projects/[projectId]/abc-items — bulk-tag phase
+//
+// Body: { item_ids: string[], phase: string | null }. Used for marking
+// construction phase/etapa (individual item or in bulk over a filtered
+// selection) — see migration-v13-item-phase.sql. Not derived automatically
+// from cost_code (see migration comment for why).
+// ---------------------------------------------------------------------------
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  let user: AuthUser;
+  try {
+    user = await getCurrentUser(req);
+  } catch {
+    return unauthorized();
+  }
+
+  const { projectId } = await params;
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("id", projectId)
+    .eq("company_id", user.company_id)
+    .single();
+
+  if (!project) {
+    return Response.json({ detail: "Projeto não encontrado" }, { status: 404 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const itemIds: string[] = Array.isArray(body?.item_ids) ? body.item_ids : [];
+  if (itemIds.length === 0) {
+    return Response.json({ detail: "item_ids obrigatório" }, { status: 400 });
+  }
+  const phase: string | null =
+    typeof body?.phase === "string" ? body.phase.trim() || null : null;
+
+  // Scope: only items that belong to a curve of THIS project (already
+  // verified as the caller's company above) can be updated.
+  const { data: curves } = await supabase
+    .from("abc_curves")
+    .select("id")
+    .eq("project_id", projectId);
+  const curveIds = new Set((curves ?? []).map((c) => c.id));
+  if (curveIds.size === 0) {
+    return Response.json({ updated: 0 });
+  }
+
+  let updated = 0;
+  for (const chunk of chunkArray(itemIds)) {
+    const { data: validItems } = await supabase
+      .from("abc_items")
+      .select("id, abc_curve_id")
+      .in("id", chunk);
+    const validIds = (validItems ?? [])
+      .filter((i) => curveIds.has(i.abc_curve_id))
+      .map((i) => i.id);
+    if (validIds.length === 0) continue;
+
+    const { error } = await supabase
+      .from("abc_items")
+      .update({ phase })
+      .in("id", validIds);
+    if (error) {
+      return Response.json(
+        { detail: `Erro ao atualizar fase: ${error.message}` },
+        { status: 500 }
+      );
+    }
+    updated += validIds.length;
+  }
+
+  return Response.json({ updated, phase });
 }

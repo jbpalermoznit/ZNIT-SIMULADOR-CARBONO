@@ -129,6 +129,72 @@ describe("rerankWithClaude", () => {
     expect(r?.bestIndex).toBe(0);
   });
 
+  it("rejects a small accessory matched to industrial equipment", async () => {
+    // Caso real: ETIQUETA PARA IDENTIFICACAO DE ACO (un) → "air distribution
+    // terminal panel, steel, 120 m3/h" @ 40 kgCO₂/un → 91 tCO₂e só nesse item.
+    mockCreate.mockResolvedValue(reply({ best_index: 0, confidence: "high", reason: "x" }));
+    const cands = [
+      cand({
+        source_tier: "ecoinvent",
+        factor_name: "air distribution terminal panel, steel, 120 m3/h",
+        factor_unit: "kgCO2e/unit",
+        product_unit: "unit",
+        factor_value: 40,
+      }),
+    ];
+    const r = await rerankWithClaude("ETIQUETA PARA IDENTIFICACAO DE ACO", "un", cands);
+    expect(r?.bestIndex).toBeNull();
+  });
+
+  it("rejects a protetor matched to a silencer", async () => {
+    // Caso real: PROTETOR PARA PONTA DE FERRO → "silencer, steel, DN 125".
+    mockCreate.mockResolvedValue(reply({ best_index: 0, confidence: "high", reason: "x" }));
+    const cands = [
+      cand({
+        source_tier: "ecoinvent",
+        factor_name: "silencer, steel, DN 125",
+        factor_unit: "kgCO2e/unit",
+        product_unit: "unit",
+        factor_value: 34.2,
+      }),
+    ];
+    const r = await rerankWithClaude("PROTETOR PARA PONTA DE FERRO", "un", cands);
+    expect(r?.bestIndex).toBeNull();
+  });
+
+  it("rejects a waste/byproduct factor standing in for the material", async () => {
+    // Caso real: CHAPA COMPENSADA 14MM → "bottom ash, MSWI-WWT, WW from
+    // plywood production" — cinza do tratamento do resíduo, não o compensado.
+    mockCreate.mockResolvedValue(reply({ best_index: 0, confidence: "high", reason: "x" }));
+    const cands = [
+      cand({
+        source_tier: "ecoinvent",
+        factor_name: "bottom ash, MSWI-WWT, WW from plywood production",
+        factor_unit: "kgCO2e/kg",
+        product_unit: "kg",
+        factor_value: 0.0198,
+      }),
+    ];
+    const r = await rerankWithClaude("CHAPA COMPENSADA RESINADA 14MM", "kg", cands);
+    expect(r?.bestIndex).toBeNull();
+  });
+
+  it("keeps a small accessory matched to a plausible material factor", async () => {
+    // A guarda de acessório só dispara contra equipamento industrial — um
+    // fator de plástico/papel segue válido.
+    mockCreate.mockResolvedValue(reply({ best_index: 0, confidence: "high", reason: "plástico" }));
+    const cands = [
+      cand({
+        factor_name: "Polipropileno (granulado)",
+        factor_unit: "kgCO₂/kg",
+        product_unit: "kg",
+        factor_value: 1.9,
+      }),
+    ];
+    const r = await rerankWithClaude("PROTETOR PARA PONTA DE FERRO", "kg", cands);
+    expect(r?.bestIndex).toBe(0);
+  });
+
   it("does not apply the fastener guard to non-fastener items", async () => {
     // CONCRETO não é fixador → a guarda não interfere mesmo com fator não-metal.
     mockCreate.mockResolvedValue(reply({ best_index: 0, confidence: "high", reason: "concreto" }));

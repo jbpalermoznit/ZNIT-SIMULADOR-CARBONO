@@ -17,16 +17,21 @@ export async function GET(
     .from("projects").select("*").eq("id", projectId).eq("company_id", user.company_id).single();
   if (!project) return Response.json({ detail: "Projeto não encontrado" }, { status: 404 });
 
-  // Get scenarios
+  // Get scenarios — scenario_ids=<id1>,<id2>,... (2+; ordem preservada).
   const searchParams = req.nextUrl.searchParams;
-  const scenAId = searchParams.get("scenario_a");
-  const scenBId = searchParams.get("scenario_b");
+  const scenarioIds = (searchParams.get("scenario_ids") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-  if (!scenAId || !scenBId) {
-    return Response.json({ detail: "Parâmetros scenario_a e scenario_b obrigatórios" }, { status: 400 });
+  if (scenarioIds.length < 2) {
+    return Response.json(
+      { detail: "Parâmetro scenario_ids obrigatório, com pelo menos 2 ids separados por vírgula" },
+      { status: 400 },
+    );
   }
 
-  // Load both scenarios with items — escopado ao projeto (já validado como
+  // Load scenarios with items — escopado ao projeto (já validado como
   // da empresa do usuário); sem o .eq("project_id"), ids de cenários de
   // outros projetos/tenants eram exportáveis.
   const loadScenario = async (scenId: string) => {
@@ -62,9 +67,13 @@ export async function GET(
 
     return { scenario, result, scenItems: scenItems ?? [], abcMap, parents };
   };
+  type ScenData = NonNullable<Awaited<ReturnType<typeof loadScenario>>>;
 
-  const [dataA, dataB] = await Promise.all([loadScenario(scenAId), loadScenario(scenBId)]);
-  if (!dataA || !dataB) return Response.json({ detail: "Cenário não encontrado" }, { status: 404 });
+  const loaded = await Promise.all(scenarioIds.map(loadScenario));
+  if (loaded.some((d) => !d)) {
+    return Response.json({ detail: "Um ou mais cenários não encontrados" }, { status: 404 });
+  }
+  const scenariosData = loaded as ScenData[];
 
   const wb = new ExcelJS.Workbook();
   const PRIMARY = "FF56B7A5";
@@ -76,17 +85,29 @@ export async function GET(
   // ── Sheet 1: Indicadores Comparativos ─────────────────────────────
   const wsInd = wb.addWorksheet("Indicadores");
 
-  const nameA = dataA.scenario.name;
-  const nameB = dataB.scenario.name;
+  const names = scenariosData.map((d) => d.scenario.name as string);
+  // Ancora as diferenças % no cenário Base do projeto — mesmo conceito que
+  // a UI já usa (scenarios.is_base). Se nenhum dos selecionados for o Base
+  // (ex.: comparando duas variações entre si), usa o primeiro como referência.
+  const baseIdxFound = scenariosData.findIndex((d) => d.scenario.is_base);
+  const baseIdx = baseIdxFound >= 0 ? baseIdxFound : 0;
+
+  // Colunas: "Parâmetro" + 1 valor por cenário + 1 "Δ%" por cenário não-base.
+  const colWidths = [35, ...scenariosData.flatMap((_, i) => (i === baseIdx ? [20] : [20, 15]))];
 
   // Title
   const titleRow = wsInd.addRow(["RELATÓRIO COMPARATIVO DE EMISSÕES"]);
   titleRow.getCell(1).font = { bold: true, size: 14, color: { argb: DARK.slice(2) } };
-  wsInd.mergeCells("A1:D1");
+  wsInd.mergeCells(1, 1, 1, Math.max(4, colWidths.length));
   wsInd.addRow(["Projeto: " + (project.name ?? ""), "", "Emitido em: " + new Date().toLocaleDateString("pt-BR")]);
   wsInd.addRow([]);
 
-  const indHeader = wsInd.addRow(["Parâmetro", nameA, nameB, "Diferença %"]);
+  const headerCells: string[] = ["Parâmetro"];
+  scenariosData.forEach((d, i) => {
+    headerCells.push(names[i] + (i === baseIdx ? " (Base)" : ""));
+    if (i !== baseIdx) headerCells.push(`Δ% vs ${names[baseIdx]}`);
+  });
+  const indHeader = wsInd.addRow(headerCells);
   indHeader.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10 };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_BG } };
@@ -94,13 +115,8 @@ export async function GET(
   });
   indHeader.getCell(1).alignment = { horizontal: "left" };
 
-  const rA = dataA.result;
-  const rB = dataB.result;
-  const tA = rA?.total_tco2e ?? 0;
-  const tB = rB?.total_tco2e ?? 0;
-
   // Calculate indicators from items
-  const calcFromItems = (scenItems: typeof dataA.scenItems, abcMap: typeof dataA.abcMap, parents: typeof dataA.parents) => {
+  const calcFromItems = (scenItems: ScenData["scenItems"], abcMap: ScenData["abcMap"], parents: ScenData["parents"]) => {
     let concM3 = 0, concTco2 = 0, acoKg = 0, acoTco2 = 0;
     const parentsCost = parents.reduce((s, p) => s + ((p.total_cost as number) ?? 0), 0);
     const directCost = scenItems
@@ -122,46 +138,99 @@ export async function GET(
     return { cost: parentsCost + directCost, concM3, concTco2, acoTon: acoKg / 1000, acoTco2 };
   };
 
-  const iA = calcFromItems(dataA.scenItems, dataA.abcMap, dataA.parents);
-  const iB = calcFromItems(dataB.scenItems, dataB.abcMap, dataB.parents);
+  const perScenario = scenariosData.map((d) => ({
+    result: d.result,
+    ind: calcFromItems(d.scenItems, d.abcMap, d.parents),
+  }));
   const pct = (a: number, b: number) => a > 0 ? `${((a - b) / a * 100).toFixed(2)}%` : "0%";
 
-  const indicators = [
-    ["Emissões Totais (tCO₂e)", tA, tB, pct(tA, tB)],
-    ["Valor do Projeto (R$)", iA.cost, iB.cost, pct(iA.cost, iB.cost)],
-    ["Quantidade de Concreto (m³)", iA.concM3, iB.concM3, pct(iA.concM3, iB.concM3)],
-    ["Indicador Concreto (tCO₂/m³)", iA.concM3 > 0 ? iA.concTco2 / iA.concM3 : 0, iB.concM3 > 0 ? iB.concTco2 / iB.concM3 : 0, ""],
-    ["Quantidade de Aço (ton)", iA.acoTon, iB.acoTon, pct(iA.acoTon, iB.acoTon)],
-    ["Indicador Aço (tCO₂/ton)", iA.acoTon > 0 ? iA.acoTco2 / iA.acoTon : 0, iB.acoTon > 0 ? iB.acoTco2 / iB.acoTon : 0, ""],
-    ["Emissões Materiais (tCO₂e)", (rA?.scope3_materials_kgco2e ?? 0) / 1000, (rB?.scope3_materials_kgco2e ?? 0) / 1000, pct((rA?.scope3_materials_kgco2e ?? 0), (rB?.scope3_materials_kgco2e ?? 0))],
-    ["Emissões Transporte (tCO₂e)", (rA?.scope3_logistics_kgco2e ?? 0) / 1000, (rB?.scope3_logistics_kgco2e ?? 0) / 1000, ""],
-    ["Cobertura (%)", rA?.coverage_pct ?? 0, rB?.coverage_pct ?? 0, ""],
-    ["Itens Mapeados", rA?.items_mapped ?? 0, rB?.items_mapped ?? 0, ""],
+  interface Metric {
+    label: string;
+    isCurrency?: boolean;
+    /** Indicadores de intensidade (tCO₂/m³ etc.) e contadores não têm um Δ% útil. */
+    noDiff?: boolean;
+    value: (p: (typeof perScenario)[number]) => number;
+  }
+  const metrics: Metric[] = [
+    { label: "Emissões Totais (tCO₂e)", value: (p) => p.result?.total_tco2e ?? 0 },
+    { label: "Valor do Projeto (R$)", isCurrency: true, value: (p) => p.ind.cost },
+    { label: "Quantidade de Concreto (m³)", value: (p) => p.ind.concM3 },
+    { label: "Indicador Concreto (tCO₂/m³)", noDiff: true, value: (p) => (p.ind.concM3 > 0 ? p.ind.concTco2 / p.ind.concM3 : 0) },
+    { label: "Quantidade de Aço (ton)", value: (p) => p.ind.acoTon },
+    { label: "Indicador Aço (tCO₂/ton)", noDiff: true, value: (p) => (p.ind.acoTon > 0 ? p.ind.acoTco2 / p.ind.acoTon : 0) },
+    // "Emissões Materiais" sozinho, listado ao lado dos indicadores de
+    // concreto e aço, dava a entender que era uma categoria SEPARADA desses
+    // dois — é o total de TODOS os materiais. Abre em total + composição
+    // (concreto, aço, demais) pra não restar ambiguidade.
+    { label: "Emissões Materiais — TOTAL (tCO₂e)", value: (p) => (p.result?.scope3_materials_kgco2e ?? 0) / 1000 },
+    { label: "   ├ dos quais Concreto (tCO₂e)", noDiff: true, value: (p) => p.ind.concTco2 },
+    { label: "   ├ dos quais Aço (tCO₂e)", noDiff: true, value: (p) => p.ind.acoTco2 },
+    {
+      label: "   └ Outros Materiais (tCO₂e)",
+      noDiff: true,
+      value: (p) =>
+        Math.max(0, (p.result?.scope3_materials_kgco2e ?? 0) / 1000 - p.ind.concTco2 - p.ind.acoTco2),
+    },
+    { label: "Emissões Transporte (tCO₂e)", noDiff: true, value: (p) => (p.result?.scope3_logistics_kgco2e ?? 0) / 1000 },
+    { label: "Cobertura (%)", noDiff: true, value: (p) => p.result?.coverage_pct ?? 0 },
+    { label: "Itens Mapeados", noDiff: true, value: (p) => p.result?.items_mapped ?? 0 },
   ];
 
-  for (const [label, valA, valB, diff] of indicators) {
-    const row = wsInd.addRow([label, valA, valB, diff]);
+  for (const m of metrics) {
+    const values = perScenario.map(m.value);
+    const rowCells: Array<string | number> = [m.label];
+    values.forEach((v, i) => {
+      rowCells.push(v);
+      if (i !== baseIdx) rowCells.push(m.noDiff ? "" : pct(values[baseIdx], v));
+    });
+    const row = wsInd.addRow(rowCells);
     row.getCell(1).font = { bold: true, size: 9 };
-    row.getCell(2).numFmt = typeof valA === "number" && (label as string).includes("R$") ? "#,##0" : "#,##0.00";
-    row.getCell(3).numFmt = typeof valB === "number" && (label as string).includes("R$") ? "#,##0" : "#,##0.00";
-    row.getCell(2).alignment = { horizontal: "right" };
-    row.getCell(3).alignment = { horizontal: "right" };
-    row.getCell(4).alignment = { horizontal: "right" };
+    for (let col = 2; col <= rowCells.length; col++) {
+      const cell = row.getCell(col);
+      cell.alignment = { horizontal: "right" };
+      if (typeof rowCells[col - 1] === "number") {
+        cell.numFmt = m.isCurrency ? "#,##0" : "#,##0.00";
+      }
+    }
   }
 
-  wsInd.columns = [{ width: 35 }, { width: 20 }, { width: 20 }, { width: 15 }];
+  // Legenda — "Tipo" e "Classe ABC" aparecem nas abas de itens sem nenhuma
+  // explicação, e o cliente reportou não saber o que P1/P2/P3 significam.
+  wsInd.addRow([]);
+  const legendTitle = wsInd.addRow(["LEGENDA"]);
+  legendTitle.getCell(1).font = { bold: true, size: 10, name: "Calibri" };
+  const legendLines: Array<[string, string]> = [
+    ["Tipo A", "Material direto — insumo físico com fator de emissão próprio"],
+    ["Tipo B", "Mão de obra — sem emissão direta de Escopo 3 de materiais"],
+    ["Tipo C", "Item agrupado (composição) — emissão vem da soma dos insumos"],
+    ["Tipo D", "Material embutido — já contabilizado no item pai (evita dupla contagem)"],
+    ["Tipo E", "Equipamento/locação — emissão por consumo de combustível × uso"],
+    ["Tipo F", "Administrativo/indireto — sem emissão direta de materiais"],
+    ["Classe P1", "Curva ABC: itens que somam os primeiros 80% do custo do projeto"],
+    ["Classe P2", "Curva ABC: itens entre 80% e 95% do custo acumulado"],
+    ["Classe P3", "Curva ABC: itens entre 95% e 100% do custo acumulado (cauda)"],
+    ["Cobertura (%)", "Itens com fator aplicado ÷ itens elegíveis (exclui desconsiderados)"],
+  ];
+  for (const [term, meaning] of legendLines) {
+    const row = wsInd.addRow([term, meaning]);
+    row.getCell(1).font = { bold: true, size: 8, name: "Calibri" };
+    row.getCell(2).font = { size: 8, name: "Calibri", color: { argb: "FF404040" } };
+  }
+
+  wsInd.columns = colWidths.map((width) => ({ width }));
 
   // ── Sheet 2 & 3: Detail per scenario ──────────────────────────────
   const addDetailSheet = (
     sheetName: string,
-    scenData: typeof dataA,
+    scenData: ScenData,
   ) => {
     const ws = wb.addWorksheet(sheetName);
 
     const header = ws.addRow([
       "Composição", "Código", "Un", "Qtd (Input)", "Custo (Input)",
       "Insumo", "Código Insumo", "Un", "Qtd Expandida",
-      "Fator Emissão", "Unidade Fator", "Fonte", "tCO₂e",
+      "Tipo", "Classe ABC",
+      "Fator Emissão", "Unidade Fator", "Fonte", "Versão do Fator", "tCO₂e",
     ]);
     header.eachCell((cell) => {
       cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 9, name: "Calibri" };
@@ -195,7 +264,8 @@ export async function GET(
       const pRow = ws.addRow([
         parent.description, parent.cost_code, parent.unit, parent.quantity, parent.total_cost,
         "", "", "", "",
-        "", "", "Σ Insumos", Math.round(parentEmission * 10000) / 10000,
+        parent.item_type ?? "", parent.abc_class ?? "",
+        "", "", "Σ Insumos", "", Math.round(parentEmission * 10000) / 10000,
       ]);
       pRow.eachCell((cell) => {
         cell.font = { bold: true, size: 9, name: "Calibri", color: { argb: DARK.slice(2) } };
@@ -210,7 +280,8 @@ export async function GET(
         const cRow = ws.addRow([
           "", "", "", "", "",
           ai.description, ai.cost_code, ai.unit, ai.quantity,
-          si.factor_value ?? "", si.factor_unit ?? "", si.source_tier ?? "",
+          ai.item_type ?? "", ai.abc_class ?? "",
+          si.factor_value ?? "", si.factor_unit ?? "", si.source_tier ?? "", si.factor_version ?? "",
           Math.round(em * 10000) / 10000,
         ]);
         cRow.eachCell((cell) => {
@@ -234,7 +305,8 @@ export async function GET(
         ws.addRow([
           ai.description, ai.cost_code, ai.unit, ai.quantity, ai.total_cost,
           "", "", "", "",
-          si.factor_value ?? "", si.factor_unit ?? "", si.source_tier ?? "",
+          ai.item_type ?? "", ai.abc_class ?? "",
+          si.factor_value ?? "", si.factor_unit ?? "", si.source_tier ?? "", si.factor_version ?? "",
           Math.round(em * 10000) / 10000,
         ]);
       }
@@ -243,13 +315,29 @@ export async function GET(
     ws.columns = [
       { width: 45 }, { width: 14 }, { width: 6 }, { width: 14 }, { width: 16 },
       { width: 45 }, { width: 18 }, { width: 6 }, { width: 14 },
-      { width: 12 }, { width: 14 }, { width: 14 }, { width: 14 },
+      { width: 8 }, { width: 11 },
+      { width: 12 }, { width: 14 }, { width: 14 }, { width: 14 }, { width: 14 },
     ];
     ws.views = [{ state: "frozen", ySplit: 1 }];
   };
 
-  addDetailSheet(nameA.length > 31 ? nameA.slice(0, 28) + "..." : nameA, dataA);
-  addDetailSheet(nameB.length > 31 ? nameB.slice(0, 28) + "..." : nameB, dataB);
+  // Nomes de aba do Excel: máx 31 caracteres e únicos no workbook — com N
+  // cenários, truncamentos de nomes parecidos podem colidir (ex.: dois
+  // cenários cujos primeiros 28 caracteres são iguais), então desambigua
+  // com um sufixo numérico quando necessário.
+  const usedSheetNames = new Set<string>();
+  scenariosData.forEach((d) => {
+    const fullName = d.scenario.name as string;
+    let sheetName = fullName.length > 31 ? fullName.slice(0, 28) + "..." : fullName;
+    let suffix = 2;
+    while (usedSheetNames.has(sheetName)) {
+      const base = fullName.length > 26 ? fullName.slice(0, 23) + "..." : fullName;
+      sheetName = `${base} (${suffix})`;
+      suffix++;
+    }
+    usedSheetNames.add(sheetName);
+    addDetailSheet(sheetName, d);
+  });
 
   const buffer = await wb.xlsx.writeBuffer();
   const dateStr = new Date().toISOString().slice(0, 10);

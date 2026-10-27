@@ -399,7 +399,12 @@ export async function GET(
     const baselineConv = resolveConversion(
       item.description ?? "",
       item.unit ?? "",
-      (mapping.factor_unit as string) ?? ""
+      (mapping.factor_unit as string) ?? "",
+      {
+        unitOverride: mapping.unit_override as string | null,
+        conversionFactor: mapping.manual_conversion_factor as number | null,
+      },
+      mapping.factor_name as string | null
     );
     const baselineEmissionKg =
       baselineFactor * (item.quantity ?? 0) * baselineConv;
@@ -419,7 +424,9 @@ export async function GET(
       const altConv = resolveConversion(
         item.description ?? "",
         item.unit ?? "",
-        (candidate.declared_unit as string) ?? ""
+        (candidate.declared_unit as string) ?? "",
+        null,
+        (candidate.titulo as string) ?? null
       );
       // Guarda de unidade: conversão 0 = unidade do EPD incompatível com a do
       // item. Sem isto, altEmission=0 → abatimento "100%" espúrio.
@@ -557,7 +564,12 @@ export async function GET(
     const baselineConv = resolveConversion(
       item.description ?? "",
       item.unit ?? "",
-      (mapping.factor_unit as string) ?? ""
+      (mapping.factor_unit as string) ?? "",
+      {
+        unitOverride: mapping.unit_override as string | null,
+        conversionFactor: mapping.manual_conversion_factor as number | null,
+      },
+      mapping.factor_name as string | null
     );
     const baselineEmissionKg = baselineFactor * (item.quantity ?? 0) * baselineConv;
     if (baselineEmissionKg <= 0) continue;

@@ -35,10 +35,20 @@ export interface AutoMapResult {
   auto_excluded?: number;
 }
 
+/** Probe whether migration-v12-factor-version.sql is applied, so a
+ *  partially-deployed env still inserts mappings correctly (same pattern
+ *  as the enriched-columns probe below). */
+async function probeFactorVersionColumn(): Promise<boolean> {
+  const probe = await supabase.from("item_mappings").select("factor_version").limit(1);
+  return !probe.error;
+}
+
 export async function runAutoMapForCurve(
   curveId: string,
   companyId: string
 ): Promise<AutoMapResult> {
+  const factorVersionColumnExists = await probeFactorVersionColumn();
+
   const { count: alreadyMapped } = await supabase
     .from("abc_items")
     .select("id", { count: "exact", head: true })
@@ -80,7 +90,7 @@ export async function runAutoMapForCurve(
     // um fator por m³ para um item de piso em m² não é mais rebaixado para
     // "incompatível" quando o calculador consegue converter via receita.
     const conv = best
-      ? getConversionStatus(item.description as string, item.unit as string, best.factor_unit)
+      ? getConversionStatus(item.description as string, item.unit as string, best.factor_unit, null, best.factor_name)
       : { factor: 0, status: "incompatible" as const };
 
     const hasUsableMatch =
@@ -114,6 +124,7 @@ export async function runAutoMapForCurve(
         product_unit: best.product_unit ?? "",
         factor_name: best.factor_name,
         factor_source: best.factor_source ?? null,
+        ...(factorVersionColumnExists ? { factor_version: best.factor_version ?? null } : {}),
         confidence: finalConfidence,
         similarity_score: best.score / 100.0,
         mapped_by: best.source_tier === "rule" ? "rule" : "auto",
@@ -184,6 +195,7 @@ export async function runEnrichedAutoMapForCurve(
       "[auto-map] migration-v5-coverage-enrichment.sql not applied; running with in-memory enrichment only"
     );
   }
+  const factorVersionColumnExists = await probeFactorVersionColumn();
 
   // 1. Pre-pass: enrich every item row with catalog + proof data,
   //    classify by cost-code prefix, and auto-exclude labor/services/
@@ -372,7 +384,7 @@ export async function runEnrichedAutoMapForCurve(
 
     // Mesma máquina de conversão do cálculo (inclui receitas geométricas).
     const conv = best
-      ? getConversionStatus(itemRow.description as string, itemRow.unit as string, best.factor_unit)
+      ? getConversionStatus(itemRow.description as string, itemRow.unit as string, best.factor_unit, null, best.factor_name)
       : { factor: 0, status: "incompatible" as const };
     const wasBlockedC =
       (itemRow.item_type as string) === "C" &&
@@ -433,6 +445,7 @@ export async function runEnrichedAutoMapForCurve(
         product_unit: best.product_unit ?? "",
         factor_name: best.factor_name,
         factor_source: best.factor_source ?? null,
+        ...(factorVersionColumnExists ? { factor_version: best.factor_version ?? null } : {}),
         confidence: finalConfidence,
         similarity_score: best.score / 100.0,
         mapped_by: best.source_tier === "rule" ? "rule" : "auto",

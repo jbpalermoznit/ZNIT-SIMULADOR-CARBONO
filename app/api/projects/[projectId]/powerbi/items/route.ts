@@ -40,7 +40,10 @@ export async function GET(
     // geométricas) — antes, itens que dependem de receita (m²→m³ etc.)
     // zeravam aqui e o PowerBI sub-reportava vs. o cenário persistido.
     const conv = m?.factor_unit
-      ? resolveConversion(item.description, item.unit, m.factor_unit)
+      ? resolveConversion(item.description, item.unit, m.factor_unit, {
+          unitOverride: m.unit_override,
+          conversionFactor: m.manual_conversion_factor,
+        }, m.factor_name)
       : 1;
     const emission = m?.factor_value && conv > 0 ? (item.quantity ?? 0) * m.factor_value * conv : 0;
     return {

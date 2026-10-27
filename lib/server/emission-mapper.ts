@@ -21,6 +21,7 @@ import {
 import { resolveConversion } from "@/lib/server/calculator";
 import { computeCo2e } from "@/lib/server/gwp";
 import { normalizeKeyword } from "@/lib/server/keyword";
+import { buildFactorVersion } from "@/lib/server/factor-version";
 import {
   vectorSearchCandidates,
   isVectorSearchEnabled,
@@ -613,6 +614,7 @@ export interface MatchCandidate {
   product_unit: string;
   factor_name: string;
   factor_source: string;
+  factor_version?: string | null;
   geography: string;
   ecoinvent_product_id?: string;
   ecoinvent_activity_id?: string;
@@ -734,6 +736,7 @@ export async function autoMatchItem(
             product_unit: "",
             factor_name: (row.produto as string) ?? "",
             factor_source: `GHG Protocol BR ${row.versao_ghg ?? ""}`,
+            factor_version: buildFactorVersion("ghg_protocol", row),
             geography: (row.pais as string) ?? "Brasil",
             ghg_factor_id: row.id as number,
           });
@@ -769,6 +772,7 @@ export async function autoMatchItem(
           product_unit: unitCecarbon,
           factor_name: descFactor,
           factor_source: ref,
+          factor_version: buildFactorVersion("cecarbon", row),
           geography: "Brasil",
           cecarbon_id: row.id as number,
           density: density ? parseFloat(String(density)) : 1.0,
@@ -810,6 +814,7 @@ export async function autoMatchItem(
           product_unit: prodUnit,
           factor_name: (row.product_name as string) ?? "",
           factor_source: `Ecoinvent — ${(row.activity_name as string) ?? ""}`,
+          factor_version: buildFactorVersion("ecoinvent", row),
           geography: (row.geography as string) ?? "",
           ecoinvent_product_id: row.product_id as string,
           ecoinvent_activity_id: row.activity_id as string,
@@ -943,7 +948,7 @@ export async function autoMatchItem(
       // resolveConversion considera receitas geométricas/densidade (PLANO §5):
       // um fator de concreto por m³ para um item de piso em m² não é mais
       // tratado como incompatível, pois a espessura da descrição faz a ponte.
-      const conv = resolveConversion(description, unit, factorUnit);
+      const conv = resolveConversion(description, unit, factorUnit, null, c.factor_name);
       if (conv === 0.0) {
         c.score = Math.max(0, c.score - 50);
         c._unit_incompatible = true;

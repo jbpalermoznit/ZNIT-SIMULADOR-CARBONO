@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { listProjects, type ProjectResponse } from "@/lib/api/projects";
 import { useActiveScenario } from "@/lib/hooks/use-active-scenario";
-import { UserButton, OrganizationSwitcher } from "@clerk/nextjs";
+import { UserButton, OrganizationSwitcher, useOrganization } from "@clerk/nextjs";
 import {
   LayoutDashboard,
   Upload,
@@ -42,6 +42,11 @@ const projectMenuItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  // Logo da organização (Clerk) no lugar do ZNIT padrão — cada organização
+  // só vê/define o próprio logo, isolamento garantido pelo próprio Clerk.
+  const { organization } = useOrganization();
+  const logoUrl = organization?.hasImage ? organization.imageUrl : "/ZNIT_Logo.png";
+  const logoAlt = organization?.hasImage ? organization.name : "ZNIT";
   const [projectOpen, setProjectOpen] = useState(false);
   const [projects, setProjects] = useState<ProjectResponse[]>([]);
   const [activeProject, setActiveProject] = useState<ProjectResponse | null>(null);
@@ -95,11 +100,11 @@ export function Sidebar() {
       {/* Logo */}
       <div className="px-5 py-4 border-b border-[#E0E4E3]">
         <img
-          src="/ZNIT_Logo.png"
-          alt="ZNIT"
+          src={logoUrl}
+          alt={logoAlt}
           width={110}
           height={33}
-          className="block h-[33px] w-auto"
+          className="block h-[33px] w-auto max-w-[184px] object-contain"
         />
       </div>
 

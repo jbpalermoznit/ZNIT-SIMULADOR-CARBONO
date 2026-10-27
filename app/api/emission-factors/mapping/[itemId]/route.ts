@@ -12,7 +12,9 @@ import {
   getGhgById,
   getEpdById,
 } from "@/lib/server/supabase-emission";
+import { getApprovedEpdExtraction } from "@/lib/server/epd-extraction";
 import { applyFactorToScenarioItem } from "@/lib/server/calculator";
+import { buildFactorVersion, extractYearFromText } from "@/lib/server/factor-version";
 import {
   assertScenarioOwnership,
   assertItemOwnership,
@@ -68,11 +70,15 @@ export async function GET(
     factor_unit: mapping.factor_unit,
     factor_name: mapping.factor_name,
     factor_source: mapping.factor_source,
+    factor_version: mapping.factor_version ?? null,
     confidence: mapping.confidence,
     similarity_score: mapping.similarity_score,
     mapped_by: mapping.mapped_by,
     notes: mapping.notes,
     exclusion_justification: mapping.exclusion_justification ?? null,
+    unit_override: mapping.unit_override ?? null,
+    manual_conversion_factor: mapping.manual_conversion_factor ?? null,
+    manual_conversion_note: mapping.manual_conversion_note ?? null,
   });
 }
 
@@ -106,6 +112,16 @@ interface MappingConfirmBody {
    *  EPD). `null` clears any existing override; `undefined` leaves it
    *  alone. Persisted to scenario_items.unit_cost_override. */
   unit_cost_override?: number | null;
+  /** Corrects the unit used for this item at calc time (e.g. item parsed as
+   *  "un" but should be "kg" to match the factor). `null`/omitted = use
+   *  abc_items.unit as-is. See migration-v11-manual-conversion.sql. */
+  unit_override?: string | null;
+  /** Explicit conversion multiplier (qty in the effective unit × this = qty
+   *  in factor_unit), for when the effective unit still doesn't share a
+   *  family with the factor and no geometric recipe applies. */
+  manual_conversion_factor?: number | null;
+  /** Free-text justification for manual_conversion_factor. */
+  manual_conversion_note?: string | null;
 }
 
 export async function PUT(
@@ -138,7 +154,35 @@ export async function PUT(
   // Remove existing mapping
   await supabase.from("item_mappings").delete().eq("abc_item_id", itemId);
 
+  // Probe whether migration-v11/v12 are applied. If not, silently skip the
+  // new columns on insert so a partially-deployed env still saves the
+  // mapping correctly (same pattern as unit_cost_override below).
+  const conversionOverrideProbe = await supabase
+    .from("item_mappings")
+    .select("unit_override")
+    .limit(1);
+  const conversionOverrideColumnsExist = !conversionOverrideProbe.error;
+  if (!conversionOverrideColumnsExist) {
+    console.warn(
+      "[mapping PUT] migration-v11-manual-conversion.sql not applied; " +
+      "unit_override/manual_conversion_factor will be ignored on this request",
+    );
+  }
+
+  const factorVersionProbe = await supabase
+    .from("item_mappings")
+    .select("factor_version")
+    .limit(1);
+  const factorVersionColumnExists = !factorVersionProbe.error;
+  if (!factorVersionColumnExists) {
+    console.warn(
+      "[mapping PUT] migration-v12-factor-version.sql not applied; " +
+      "factor_version will be ignored on this request",
+    );
+  }
+
   let mappingData: Record<string, unknown>;
+  let factorVersion: string | null = null;
 
   if (body.source_tier === "excluded") {
     if (!body.exclusion_justification) {
@@ -163,7 +207,12 @@ export async function PUT(
       .update({ mapping_status: "excluded" })
       .eq("id", itemId);
   } else {
-    if (body.factor_value == null) {
+    // EPD é a única fonte cujo valor não confia no que o cliente enviou —
+    // o servidor sempre resolve factor_value a partir do catálogo
+    // (epd_dev.gwp_a1a3) ou de uma extração por IA já aprovada, nunca do
+    // body. Isso impede que um valor não revisado (proposta da IA ainda em
+    // pending_review) entre em cálculo real por engano.
+    if (body.source_tier !== "epd" && body.factor_value == null) {
       return Response.json(
         { detail: "factor_value obrigatório" },
         { status: 400 }
@@ -172,6 +221,9 @@ export async function PUT(
 
     let factorName = body.factor_name ?? "";
     let factorSource = body.custom_factor_source ?? "";
+    let factorValue = body.factor_value ?? null;
+    let factorUnit = body.factor_unit ?? "kgCO2e";
+    let epdExtractionNote: string | null = null;
 
     // Enrich with Supabase data if needed
     if (
@@ -185,6 +237,7 @@ export async function PUT(
       if (row) {
         factorName = factorName || ((row.product_name as string) ?? "");
         factorSource = `Ecoinvent — ${(row.activity_name as string) ?? ""}`;
+        factorVersion = buildFactorVersion("ecoinvent", row);
       }
     } else if (
       body.source_tier === "ghg_protocol" &&
@@ -194,14 +247,55 @@ export async function PUT(
       if (row) {
         factorName = factorName || ((row.produto as string) ?? "");
         factorSource = `GHG Protocol BR ${(row.versao_ghg as string) ?? ""}`;
+        factorVersion = buildFactorVersion("ghg_protocol", row);
       }
     } else if (body.source_tier === "epd" && body.epd_id) {
       const row = await getEpdById(body.epd_id);
-      if (row) {
-        factorName = factorName || ((row.titulo as string) ?? "");
-        const company = (row.company_name as string) ?? "";
-        factorSource = company ? `EPD — ${company}` : "EPD";
+      if (!row) {
+        return Response.json({ detail: "EPD não encontrado" }, { status: 404 });
       }
+      factorName = factorName || ((row.titulo as string) ?? "");
+      const company = (row.company_name as string) ?? "";
+      factorSource = company ? `EPD — ${company}` : "EPD";
+      factorVersion = buildFactorVersion("epd", row);
+
+      const rowGwp = (row.gwp_a1a3 as number | null) ?? null;
+      if (rowGwp != null) {
+        factorValue = rowGwp;
+        factorUnit = `kgCO2e/${((row.declared_unit as string) || "1 kg").replace(/^1\s*/, "")}`;
+      } else {
+        const extraction = await getApprovedEpdExtraction(body.epd_id);
+        if (extraction?.gwp_a1a3 != null) {
+          factorValue = extraction.gwp_a1a3;
+          factorUnit = `kgCO2e/${(extraction.declared_unit || "1 kg").replace(/^1\s*/, "")}`;
+          const reviewedDate = extraction.reviewed_at
+            ? new Date(extraction.reviewed_at).toLocaleDateString("pt-BR")
+            : "?";
+          epdExtractionNote = `Valor extraído por IA (${extraction.model}), aprovado por ${extraction.reviewed_by ?? "revisor"} em ${reviewedDate}.`;
+        }
+      }
+
+      if (factorValue == null) {
+        return Response.json(
+          {
+            detail:
+              "EPD sem GWP A1-A3 no catálogo e sem extração por IA aprovada — extraia e aprove um valor antes de usar este EPD, ou insira o fator manualmente.",
+          },
+          { status: 400 }
+        );
+      }
+    } else if (body.source_tier === "cecarbon") {
+      // Sem lookup por id nesta rota (CECarbon não tem cecarbon_id no
+      // MappingConfirmBody) — melhor esforço extraindo o ano da própria
+      // fonte que o cliente já enviou.
+      factorVersion = extractYearFromText(factorSource);
+    }
+
+    if (factorValue == null) {
+      return Response.json(
+        { detail: "factor_value obrigatório" },
+        { status: 400 }
+      );
     }
 
     mappingData = {
@@ -211,8 +305,8 @@ export async function PUT(
       ecoinvent_activity_id: body.ecoinvent_activity_id ?? null,
       ghg_factor_id: body.ghg_factor_id ?? null,
       epd_id: body.epd_id ?? null,
-      factor_value: body.factor_value,
-      factor_unit: body.factor_unit ?? "kgCO2e",
+      factor_value: factorValue,
+      factor_unit: factorUnit,
       factor_name: factorName,
       factor_source: factorSource,
       product_unit: null,
@@ -222,8 +316,18 @@ export async function PUT(
       custom_factor_source: body.custom_factor_source ?? null,
       distance_km: body.distance_km ?? null,
       transport_modal: body.transport_modal ?? null,
-      notes: body.notes ?? null,
+      notes: [body.notes, epdExtractionNote].filter(Boolean).join(" ") || null,
     };
+
+    if (factorVersionColumnExists) {
+      mappingData.factor_version = factorVersion;
+    }
+
+    if (conversionOverrideColumnsExist) {
+      mappingData.unit_override = body.unit_override ?? null;
+      mappingData.manual_conversion_factor = body.manual_conversion_factor ?? null;
+      mappingData.manual_conversion_note = body.manual_conversion_note ?? null;
+    }
 
     await supabase
       .from("abc_items")
@@ -272,6 +376,12 @@ export async function PUT(
         );
       }
 
+      const scenarioItemsVersionProbe = await supabase
+        .from("scenario_items")
+        .select("factor_version")
+        .limit(1);
+      const scenarioItemsVersionColumnExists = !scenarioItemsVersionProbe.error;
+
       const factorPatch: import("@/lib/server/calculator").ScenarioItemFactorPatch = {
         factor_value: body.source_tier === "excluded" ? 0 : (body.factor_value ?? 0),
         factor_unit: body.source_tier === "excluded" ? "kg CO2-Eq" : (body.factor_unit ?? "kgCO2e"),
@@ -289,6 +399,9 @@ export async function PUT(
       ) {
         factorPatch.unit_cost_override = body.unit_cost_override ?? null;
       }
+      // Frozen copy of the mapping's version — same "excluded" fallback as
+      // factor_value/factor_unit/factor_name above.
+      factorPatch.factor_version = body.source_tier === "excluded" ? null : factorVersion;
 
       let targetScenarioId = body.scenario_id;
 
@@ -337,6 +450,9 @@ export async function PUT(
             };
             if (unitCostColumnExists) {
               row.unit_cost_override = si.unit_cost_override ?? null;
+            }
+            if (scenarioItemsVersionColumnExists) {
+              row.factor_version = si.factor_version ?? null;
             }
             return row;
           });
@@ -393,10 +509,14 @@ export async function PUT(
     factor_unit: inserted.factor_unit,
     factor_name: inserted.factor_name,
     factor_source: inserted.factor_source,
+    factor_version: inserted.factor_version ?? null,
     confidence: inserted.confidence,
     similarity_score: inserted.similarity_score,
     mapped_by: inserted.mapped_by,
     notes: inserted.notes,
+    unit_override: inserted.unit_override ?? null,
+    manual_conversion_factor: inserted.manual_conversion_factor ?? null,
+    manual_conversion_note: inserted.manual_conversion_note ?? null,
     new_scenario_id: newScenarioId,
     scenario_apply_error: scenarioApplyError,
     stale_scenarios: staleScenarios,
