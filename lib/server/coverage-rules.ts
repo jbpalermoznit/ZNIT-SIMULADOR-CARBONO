@@ -53,7 +53,7 @@ export type RecipeFamily =
 
 export interface GeometricRecipe {
   /** Unidade-base física para a qual a quantidade do item é convertida. */
-  baseUnit: "kg" | "m3";
+  baseUnit: "kg" | "m3" | "m";
   /** Multiplicador: qty_item (na unidade do item) × multiplier = qty em baseUnit. */
   multiplier: number;
   /** Densidade (kg/m³) do material quando baseUnit = m3 — permite compor com
@@ -250,8 +250,23 @@ function normUnit(u: string | null | undefined): string {
   if (s === "m²" || s === "m2") return "m2";
   if (s === "m³" || s === "m3") return "m3";
   if (s === "ml" || s === "m") return "m";
-  if (s === "un" || s === "unid" || s === "und" || s === "unidade" || s === "pç" || s === "pc") return "un";
+  if (s === "un" || s === "unid" || s === "und" || s === "unidade") return "un";
+  if (s === "pç" || s === "pc" || s === "pca" || s === "peca" || s === "peça") return "pc";
   return s;
+}
+
+/** Comprimento em metros a partir de "(6M)", "(6 M)", "(0,5M)". Null se ausente. */
+function parseParenLengthM(desc: string): number | null {
+  const m = desc.match(/\((\d+(?:[.,]\d+)?)\s*m\)/i);
+  if (!m) return null;
+  const len = parseFloat(m[1].replace(",", "."));
+  if (!Number.isFinite(len) || len <= 0) return null;
+  return len;
+}
+
+/** Item contado por unidade/peça. */
+function isPiece(u: string): boolean {
+  return u === "un" || u === "pc";
 }
 
 // Remove acento e baixa caixa para casar descrições do iTwo (CAIXA ALTA, sem acento).
@@ -396,7 +411,7 @@ function familyRecipe(family: string, d: string, u: string): GeometricRecipe | n
       const heavy = /\bpele de vidro\b|\bbrises?\b|\bvenezianas?\b|^(?:br|vep)\s?\d+\b/.test(d);
       const kg = heavy ? ALUMINIUM_HEAVY_FRAME_KG_M2 : ALUMINIUM_FRAME_KG_M2;
       if (u === "m2") return areal(kg, "aluminium_frame", `esquadria de alumínio: ${kg} kg/m² de vão, sem vidro (revisar)`);
-      if (u === "un") {
+      if (isPiece(u)) {
         const a = parseUnitAreaM2(d);
         if (a) return areal(a * kg, "aluminium_frame", `vão ${a.toFixed(2)} m² × ${kg} kg/m² de alumínio, sem vidro (revisar)`);
       }
@@ -404,7 +419,7 @@ function familyRecipe(family: string, d: string, u: string): GeometricRecipe | n
     }
     case "wood_door":
     case "steel_door": {
-      if (u !== "un") return null;
+      if (!isPiece(u)) return null;
       const a = parseUnitAreaM2(d);
       if (!a) return null;
       if (family === "wood_door") {
@@ -443,7 +458,7 @@ function familyRecipe(family: string, d: string, u: string): GeometricRecipe | n
       const t = parseLayerThicknessM(d, true) ?? (laminatedDefault ? GLASS_LAMINATED_DEFAULT_THICKNESS_M : GLASS_DEFAULT_THICKNESS_M);
       const tNote = `vidro ${(t * 1000).toFixed(0)} mm`;
       if (u === "m2") return layer(t, GLASS_DENSITY_KG_M3, "glass", `${tNote} (revisar)`);
-      if (u === "un") {
+      if (isPiece(u)) {
         const a = parseUnitAreaM2(d);
         if (a) return layer(a * t, GLASS_DENSITY_KG_M3, "glass", `${a.toFixed(2)} m² × ${tNote} (revisar)`);
       }
@@ -465,7 +480,7 @@ function familyRecipe(family: string, d: string, u: string): GeometricRecipe | n
         const t = piece === "degrau" ? STONE_STEP_THICKNESS_M : STONE_DEFAULT_THICKNESS_M;
         return layer(w * t, STONE_DENSITY_KG_M3, "stone", `${piece} ${w} m × ${t * 100}cm (revisar)`);
       }
-      if (u === "un" && /\b(?:bancada|tampo)\b/.test(d)) {
+      if (isPiece(u) && /\b(?:bancada|tampo)\b/.test(d)) {
         const a = parseUnitAreaM2(d);
         if (a) return layer(a * STONE_DEFAULT_THICKNESS_M, STONE_DENSITY_KG_M3, "stone", `bancada ${a.toFixed(2)} m² × 2cm (revisar)`);
       }
@@ -509,7 +524,7 @@ function familyRecipe(family: string, d: string, u: string): GeometricRecipe | n
       return null;
     }
     case "sanitary_ware": {
-      if (u !== "un" || /\binox\b/.test(d)) return null;
+      if (!isPiece(u) || /\binox\b/.test(d)) return null;
       const kg = SANITARY_WARE_KG.find(([re]) => re.test(d))?.[1];
       return kg ? areal(kg, "sanitary_ware", `louça: ${kg} kg/peça (revisar)`) : null;
     }
@@ -631,6 +646,23 @@ export function geometricRecipe(
       legacy: true,
       note: `concreto: ${CONCRETE_DENSITY_KG_M3} kg/m³ (revisar)`,
     };
+  }
+
+  // --- Peça (pç) de tubo/cano com comprimento → metros ----------------------
+  // Tubos/canos vendidos por PEÇA mas com o comprimento explícito na descrição
+  // ("TUBO DE PVC 20MM (6M)") e fator por metro (kgCO₂/m). Sem isto o par pç↔m
+  // é cross-family e zera. Só dispara com o comprimento explícito — não chuta
+  // conexões (curva, joelho, luva) nem barras sem medida.
+  if (u === "pc" && /\b(tubo|cano|eletroduto|pbv)\b/.test(d)) {
+    const lengthM = parseParenLengthM(d);
+    if (lengthM) {
+      return {
+        baseUnit: "m",
+        multiplier: lengthM,
+        legacy: true,
+        note: `peça = ${lengthM} m (comprimento da descrição)`,
+      };
+    }
   }
 
   // --- Saco (sc) → massa -----------------------------------------------------
