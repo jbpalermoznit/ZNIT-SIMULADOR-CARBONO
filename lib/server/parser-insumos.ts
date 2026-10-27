@@ -56,6 +56,7 @@ const UNIT_NORMALIZE: Record<string, string> = {
   m3: "m³",
   m2: "m²",
   unid: "un",
+  und: "un",
   unidade: "un",
   kg: "kg",
   kgs: "kg",
@@ -71,7 +72,7 @@ const UNIT_NORMALIZE: Record<string, string> = {
 };
 
 function normalizeUnit(unit: string): string {
-  const u = unit.trim().toLowerCase();
+  const u = unit.trim().toLowerCase().replace(/\.$/, "");
   return UNIT_NORMALIZE[u] ?? unit.trim();
 }
 

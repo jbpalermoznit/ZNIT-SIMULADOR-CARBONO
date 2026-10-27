@@ -90,7 +90,7 @@ export async function runAutoMapForCurve(
     // um fator por m³ para um item de piso em m² não é mais rebaixado para
     // "incompatível" quando o calculador consegue converter via receita.
     const conv = best
-      ? getConversionStatus(item.description as string, item.unit as string, best.factor_unit)
+      ? getConversionStatus(item.description as string, item.unit as string, best.factor_unit, null, best.factor_name)
       : { factor: 0, status: "incompatible" as const };
 
     const hasUsableMatch =
@@ -384,7 +384,7 @@ export async function runEnrichedAutoMapForCurve(
 
     // Mesma máquina de conversão do cálculo (inclui receitas geométricas).
     const conv = best
-      ? getConversionStatus(itemRow.description as string, itemRow.unit as string, best.factor_unit)
+      ? getConversionStatus(itemRow.description as string, itemRow.unit as string, best.factor_unit, null, best.factor_name)
       : { factor: 0, status: "incompatible" as const };
     const wasBlockedC =
       (itemRow.item_type as string) === "C" &&

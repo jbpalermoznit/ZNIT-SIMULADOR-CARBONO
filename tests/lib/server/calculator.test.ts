@@ -28,15 +28,18 @@ describe("normalizeUnit", () => {
     ["un", "un", "count passthrough"],
     ["pç", "un", "alias pç → un"],
     ["unidade", "un", "alias unidade → un"],
+    ["unid", "un", "alias unid → un (in sync with items page helper)"],
+    ["unid.", "un", "abbreviation with trailing dot (202607 RDL)"],
+    ["Und.", "un", "alias und. → un"],
+    ["kgCO₂/unid.", "un", "dotted denominator after prefix strip"],
   ] as const)("normalises %j → %j (%s)", (input, expected, _) => {
     void _;
     expect(normalizeUnit(input)).toBe(expected);
   });
 
-  // The items page maps "unid" → "un" in its own client helper but the
-  // server normaliser doesn't. Worth keeping the two in sync; flagged as
-  // todo so a follow-up PR closes it.
-  it.todo("UNIT_MAP should accept 'unid' as alias for 'un'");
+  it("'unid.' item converts against a per-unit factor (was 0 → silent zero)", () => {
+    expect(getConversionFactor("unid.", "kgCO₂/UN")).toBe(1);
+  });
 
   it.each([
     ["kgCO₂/m³", "m3"],
@@ -220,9 +223,27 @@ describe("resolveConversion", () => {
     expect(resolveConversion("ACO CA-50", "m", "kgCO₂/kg")).toBe(0.0);
   });
 
+  it("receita em volume com densidade compõe com fator por massa do mesmo material", () => {
+    // concreto 15cm → 0,15 m³/m² × 2400 kg/m³ = 360 kg/m²; fator por kg → ×1.
+    expect(resolveConversion("CONCRETO PARA PISO 15CM", "m2", "kgCO₂/kg", null, "concreto - eco")).toBeCloseTo(360, 4);
+    // mármore 2cm (padrão) → 0,02 × 2700 = 54 kg/m²; fator por t → 0,054.
+    expect(resolveConversion("Piso Mármore Travertino Levigado", "m²", "kgCO₂/t", null, "mármore")).toBeCloseTo(0.054, 6);
+  });
+
+  it("receita não-legada exige fator do mesmo material", () => {
+    // Sugestão errada (caixilho de alumínio × lã de vidro): continua zerando.
+    expect(resolveConversion("Caixilho de alumínio sistema pele de vidro", "m²", "kgCO₂/t", null, "lã de vidro")).toBe(0.0);
+    expect(resolveConversion("Caixilho de alumínio sistema pele de vidro", "m²", "kgCO₂/kg", null, "esquadrias de alumínio")).toBe(10);
+    // Isolante "lã de vidro" não é vidro.
+    expect(resolveConversion("Vidro G31 ou similar - L=8mm", "m²", "kgCO₂/t", null, "lã de vidro")).toBe(0.0);
+    // Sem nome de fator, só as receitas legadas valem (comportamento anterior).
+    expect(resolveConversion("Piso Mármore Travertino Levigado", "m²", "kgCO₂/t")).toBe(0.0);
+    expect(resolveConversion("CONCRETO PARA PISO 15CM", "m2", "kgCO₂/m3")).toBeCloseTo(0.15, 6);
+  });
+
   it("retorna 0 quando a receita existe mas o fator está em outra família física", () => {
-    // receita de concreto dá m³; um fator por kg (sem densidade) não compõe.
-    expect(resolveConversion("CONCRETO PARA PISO 15CM", "m2", "kgCO₂/kg")).toBe(0.0);
+    // receita de concreto dá m³/kg; um fator por metro linear não compõe.
+    expect(resolveConversion("CONCRETO PARA PISO 15CM", "m2", "kgCO₂/m")).toBe(0.0);
   });
 });
 

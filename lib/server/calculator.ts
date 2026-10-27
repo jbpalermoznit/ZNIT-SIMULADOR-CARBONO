@@ -4,7 +4,7 @@
  */
 import { supabase } from "./supabase";
 import { chunkArray } from "./db-utils";
-import { geometricRecipe } from "./coverage-rules";
+import { geometricRecipe, recipeMatchesFactor } from "./coverage-rules";
 import {
   getTransportFactors,
   type CanonicalFactor,
@@ -33,6 +33,8 @@ const UNIT_MAP: Record<string, string> = {
   litros: "L",
   un: "un",
   unit: "un",
+  unid: "un",
+  und: "un",
   unidade: "un",
   "pç": "un",
   "peça": "un",
@@ -56,6 +58,9 @@ export function normalizeUnit(unitStr: string | null | undefined): string {
       break;
     }
   }
+  // Abreviação com ponto ("unid.", "und.") é comum em EAPs de origem — sem
+  // isto o item fica numa unidade desconhecida e toda conversão zera.
+  u = u.replace(/\.$/, "");
   return UNIT_MAP[u] ?? u;
 }
 
@@ -128,7 +133,11 @@ export function resolveConversion(
   description: string | null | undefined,
   itemUnit: string | null | undefined,
   factorUnit: string | null | undefined,
-  override?: ManualConversionOverride | null
+  override?: ManualConversionOverride | null,
+  /** Nome do fator mapeado — receitas não-legadas só se aplicam quando o
+   *  fator é do mesmo material (ver recipeMatchesFactor). Sem nome, só as
+   *  receitas legadas valem (comportamento anterior). */
+  factorName?: string | null
 ): number {
   if (override?.conversionFactor != null && override.conversionFactor > 0) {
     return override.conversionFactor;
@@ -143,11 +152,18 @@ export function resolveConversion(
   if (!recipe) return 0.0;
 
   // Compõe a unidade-base da receita (kg/m³) com a unidade do fator
-  // (ex.: m³→m³=1, m³→L=1000, kg→t=0,001). Se o fator não estiver na mesma
-  // família física da receita, não há conversão válida.
+  // (ex.: m³→m³=1, m³→L=1000, kg→t=0,001). Receita em volume com densidade
+  // também compõe com fator por massa (m³ × kg/m³ → kg → t). Se o fator não
+  // estiver em nenhuma dessas famílias, não há conversão válida. Fora das
+  // receitas legadas, o fator precisa ser do mesmo material da receita.
+  const sameMaterial = recipeMatchesFactor(recipe, factorName);
   const compose = getConversionFactor(recipe.baseUnit, factorUnit);
-  if (compose === 0.0) return 0.0;
-  return recipe.multiplier * compose;
+  if (compose !== 0.0 && (recipe.legacy || sameMaterial)) return recipe.multiplier * compose;
+  if (recipe.baseUnit === "m3" && recipe.densityKgM3 && sameMaterial) {
+    const massCompose = getConversionFactor("kg", factorUnit);
+    if (massCompose !== 0.0) return recipe.multiplier * recipe.densityKgM3 * massCompose;
+  }
+  return 0.0;
 }
 
 export type ConversionStatus =
@@ -174,7 +190,8 @@ export function getConversionStatus(
   description: string | null | undefined,
   itemUnit: string | null | undefined,
   factorUnit: string | null | undefined,
-  override?: ManualConversionOverride | null
+  override?: ManualConversionOverride | null,
+  factorName?: string | null
 ): { factor: number; status: ConversionStatus } {
   if (override?.conversionFactor != null && override.conversionFactor > 0) {
     return { factor: override.conversionFactor, status: "manual" };
@@ -190,7 +207,7 @@ export function getConversionStatus(
     return { factor: direct, status: iu === fu ? "exact" : "converted" };
   }
 
-  const viaRecipe = resolveConversion(description, effectiveUnit, factorUnit);
+  const viaRecipe = resolveConversion(description, effectiveUnit, factorUnit, null, factorName);
   if (viaRecipe !== 0.0) return { factor: viaRecipe, status: "recipe" };
 
   return { factor: 0.0, status: "incompatible" };
@@ -269,7 +286,8 @@ function calcItemEmission(item: AbcItemRow, mapping: MappingRow | null): number 
     item.description as string | undefined,
     item.unit,
     mapping.factor_unit,
-    overrideFromMapping(mapping)
+    overrideFromMapping(mapping),
+    mapping.factor_name
   );
   return qty * mapping.factor_value * conversion;
 }
@@ -297,7 +315,8 @@ function calcLogisticsEmission(
     item.description as string | undefined,
     item.unit,
     "kg",
-    overrideForLogistics(mapping)
+    overrideForLogistics(mapping),
+    mapping.factor_name
   );
   if (qty <= 0 || kgPerUnit <= 0) return 0.0;
   const tonnage = (qty * kgPerUnit) / 1000;
@@ -655,7 +674,8 @@ export async function recalculateScenario(scenarioId: string) {
         abcItem.description,
         abcItem.unit,
         si.factor_unit,
-        overrideFromMapping(mapping)
+        overrideFromMapping(mapping),
+        si.factor_name ?? mapping?.factor_name
       );
       emission = qty * si.factor_value * conversion;
     }

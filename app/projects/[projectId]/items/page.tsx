@@ -54,9 +54,10 @@ function getUnitConversion(itemUnit: string | null, factorUnit: string | null): 
     kg: "kg", t: "t", ton: "t", g: "g",
     "m³": "m3", m3: "m3", l: "L", litro: "L",
     "m²": "m2", m2: "m2", m: "m",
-    un: "un", unit: "un", "pç": "un", unid: "un",
+    un: "un", unit: "un", "pç": "un", unid: "un", und: "un",
   };
-  const iu = normalize[itemUnit.toLowerCase().trim()] || itemUnit.toLowerCase().trim();
+  const iuRaw = itemUnit.toLowerCase().trim().replace(/\.$/, "");
+  const iu = normalize[iuRaw] || iuRaw;
   const fuN = normalize[fu] || fu;
   if (iu === fuN) return 1;
   // Mass conversions
@@ -1250,13 +1251,15 @@ function ParametrizeView({ item, onBack, onSaved }: { item: AbcItem; onBack: () 
 
       // Also save as item mapping so emission is calculated. O índice de
       // produtividade entra dobrado no fator (kgCO2 por unidade do item),
-      // já que o calculador sempre faz item.quantity × factor_value.
+      // já que o calculador sempre faz item.quantity × factor_value — por
+      // isso a unidade do fator é a do item ("kgCO₂/L·h" não convertia com
+      // nenhuma unidade de item e a emissão zerava).
       const totalFactor = productivityIndexNum * parseFloat(consumo) * parseFloat(eqFactor);
       const indexNote = productivityIndexNum !== 1 ? ` × ${productivityIndexNum} h/unid.` : "";
       await confirmMapping(item.id, {
         source_tier: "ghg_protocol",
         factor_value: totalFactor,
-        factor_unit: fuelType === "electric" ? "kgCO₂/kWh·h" : "kgCO₂/L·h",
+        factor_unit: `kgCO₂/${item.unit || "h"}`,
         factor_name: `${eqCategory || item.description} (${consumo} ${fuelType === "electric" ? "kWh/h" : "L/h"}${indexNote} × ${eqFactor} ${eqFactorUnit})`,
       });
 

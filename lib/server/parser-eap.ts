@@ -46,7 +46,8 @@ const UNIT_NORMALIZE: Record<string, string> = {
 };
 
 function normalizeUnit(unit: string): string {
-  const key = unit.trim().toLowerCase();
+  // Abreviação com ponto ("unid.", "und.") — ver 202607 RDL, 184 itens.
+  const key = unit.trim().toLowerCase().replace(/\.$/, "");
   return UNIT_NORMALIZE[key] ?? unit.trim();
 }
 
